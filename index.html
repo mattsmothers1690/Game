@@ -570,15 +570,21 @@
   ];
 
   // ---------------------------------------------------------------
-  // GEAR (minimal MVP: 2 slots, fixed stats, hardcoded item pool,
-  // no sets/substats/rarity/rolls yet - see the Armory screen)
+  // GEAR (minimal MVP: 2 slots, fixed stats per rarity tier,
+  // hardcoded item pool - no sets/substats/random rolls yet)
   // ---------------------------------------------------------------
   var GEAR_SLOTS = ['weapon', 'armor'];
+  var RARITY_ORDER = ['Common', 'Rare', 'Epic', 'Legendary'];
+  var RARITY_COLOR = { Common: '#9ca3af', Rare: '#60a5fa', Epic: '#c084fc', Legendary: '#fbbf24' };
   var GEAR_ITEMS = [
-    { id: 'iron_blade', name: 'Iron Blade', slot: 'weapon', stats: { atk: 15 } },
-    { id: 'serrated_edge', name: 'Serrated Edge', slot: 'weapon', stats: { atk: 10, critChance: 10 } },
-    { id: 'chainmail_vest', name: 'Chainmail Vest', slot: 'armor', stats: { hp: 80 } },
-    { id: 'bulwark_plate', name: 'Bulwark Plate', slot: 'armor', stats: { def: 40, hp: 30 } }
+    { id: 'iron_blade', name: 'Iron Blade', slot: 'weapon', rarity: 'Common', stats: { atk: 12 } },
+    { id: 'serrated_edge', name: 'Serrated Edge', slot: 'weapon', rarity: 'Rare', stats: { atk: 18, critChance: 8 } },
+    { id: 'steel_saber', name: 'Steel Saber', slot: 'weapon', rarity: 'Epic', stats: { atk: 26, critChance: 10 } },
+    { id: 'aetherblade', name: 'Aetherblade', slot: 'weapon', rarity: 'Legendary', stats: { atk: 36, critChance: 12, critDamage: 15 } },
+    { id: 'chainmail_vest', name: 'Chainmail Vest', slot: 'armor', rarity: 'Common', stats: { hp: 60 } },
+    { id: 'reinforced_vest', name: 'Reinforced Vest', slot: 'armor', rarity: 'Rare', stats: { hp: 90, def: 10 } },
+    { id: 'bulwark_plate', name: 'Bulwark Plate', slot: 'armor', rarity: 'Epic', stats: { def: 35, hp: 60 } },
+    { id: 'aegis_core', name: 'Aegis Core', slot: 'armor', rarity: 'Legendary', stats: { def: 50, hp: 90, res: 20 } }
   ];
   var EQUIPMENT_KEY = 'machineborn_equipment_v1';
 
@@ -609,6 +615,15 @@
       });
     });
     return bonus;
+  }
+
+  function highestRarityFor(championId) {
+    var best = -1, bestRarity = null;
+    GEAR_SLOTS.forEach(function (slot) {
+      var item = getEquippedItem(championId, slot);
+      if (item && RARITY_ORDER.indexOf(item.rarity) > best) { best = RARITY_ORDER.indexOf(item.rarity); bestRarity = item.rarity; }
+    });
+    return bestRarity;
   }
 
   function applyGearToUnit(unit) {
@@ -1567,12 +1582,14 @@
     var disabled = !selected && full;
     var bonus = gearBonusFor(champ.id);
     var geared = Object.keys(bonus).length > 0;
+    var rarity = highestRarityFor(champ.id);
+    var gearIcon = geared ? ' <span style="color:' + RARITY_COLOR[rarity] + '">⚙</span>' : '';
     var dispHp = champ.hp + (bonus.hp || 0);
     var dispAtk = champ.atk + (bonus.atk || 0);
     var dispSpd = champ.spd + (bonus.spd || 0);
     return '' +
       '<button class="selectCard' + (selected ? ' selected' : '') + '" data-id="' + champ.id + '"' + (disabled ? ' disabled' : '') + '>' +
-        '<div class="selectName">' + champ.name + (geared ? ' ⚙' : '') + '</div>' +
+        '<div class="selectName">' + champ.name + gearIcon + '</div>' +
         '<div class="selectRole">' + champ.role + '</div>' +
         '<div class="selectStats">HP ' + dispHp + ' / ATK ' + dispAtk + ' / SPD ' + dispSpd + '</div>' +
       '</button>';
@@ -1622,8 +1639,12 @@
   function armoryRowHtml(champ) {
     var slotsHtml = GEAR_SLOTS.map(function (slot) {
       var item = getEquippedItem(champ.id, slot);
-      var label = slot.charAt(0).toUpperCase() + slot.slice(1) + ': ' + (item ? item.name : 'Empty');
-      return '<button class="armorySlotBtn" data-champ="' + champ.id + '" data-slot="' + slot + '">' + label + '</button>';
+      var prefix = slot.charAt(0).toUpperCase() + slot.slice(1) + ': ';
+      var itemHtml = item
+        ? '<span style="color:' + RARITY_COLOR[item.rarity] + '">[' + item.rarity + '] ' + item.name + '</span>'
+        : 'Empty';
+      var borderColor = item ? RARITY_COLOR[item.rarity] : '#4c1d95';
+      return '<button class="armorySlotBtn" style="border-color:' + borderColor + '" data-champ="' + champ.id + '" data-slot="' + slot + '">' + prefix + itemHtml + '</button>';
     }).join('');
     var bonus = gearBonusFor(champ.id);
     var bonusText = Object.keys(bonus).map(function (k) { return '+' + bonus[k] + ' ' + k; }).join(', ') || 'No bonuses equipped';
