@@ -28,13 +28,14 @@
     margin: 8px 0 12px;
   }
   #startScreen button, .overlayBtn {
+    display: block;
     font-size: 1.1rem;
     padding: 16px 32px;
     background: #7c3aed;
     color: white;
     border: none;
     border-radius: 12px;
-    margin-top: 20px;
+    margin: 14px auto 0;
   }
   #startScreen button:active, .overlayBtn:active { background: #5b21b6; }
 
@@ -222,7 +223,8 @@
   <h1>MACHINEBORN</h1>
   <div style="color:#999;">Collect tools. Understand rules. Build machines. Break encounters.</div>
   <button id="resumeBtn" style="display:none;">RESUME BATTLE</button>
-  <button id="startBtn">START BATTLE</button>
+  <button id="startBossBtn" data-encounter="boss">BOSS ENCOUNTER (5v5)</button>
+  <button id="startWaveBtn" data-encounter="wave">WAVE ENCOUNTER (4v4 x3)</button>
 </div>
 
 <div id="battle">
@@ -449,7 +451,7 @@
   // ---------------------------------------------------------------
   // ENEMY DEFINITIONS
   // ---------------------------------------------------------------
-  var ENEMY_TEMPLATES = [
+  var BOSS_WAVE = [
     { id: 'grunt1', name: 'Grunt', hp: 100, atk: 50, def: 40, spd: 85, critChance: 10, critDamage: 150, acc: 0, res: 10,
       basic: { name: 'Slash', coeff: 0.9, aoe: false } },
     { id: 'warden', name: 'Warden', hp: 160, atk: 45, def: 100, spd: 75, critChance: 5, critDamage: 150, acc: 10, res: 20,
@@ -463,16 +465,70 @@
       basic: { name: 'Slash', coeff: 0.9, aoe: false } }
   ];
 
+  // 4v4, three waves - tests AoE clear speed, a self-buffing enemy
+  // (Kestrel's basic punishes buffed targets), and Bleed (previously
+  // never actually applied by anything) in that order.
+  var WAVE_1 = [
+    { id: 'skitter1', name: 'Skitterling', hp: 70, atk: 40, def: 20, spd: 110, critChance: 10, critDamage: 150, acc: 5, res: 5,
+      basic: { name: 'Nip', coeff: 0.8, aoe: false } },
+    { id: 'skitter2', name: 'Skitterling', hp: 70, atk: 40, def: 20, spd: 108, critChance: 10, critDamage: 150, acc: 5, res: 5,
+      basic: { name: 'Nip', coeff: 0.8, aoe: false } },
+    { id: 'skitter3', name: 'Skitterling', hp: 70, atk: 40, def: 20, spd: 106, critChance: 10, critDamage: 150, acc: 5, res: 5,
+      basic: { name: 'Nip', coeff: 0.8, aoe: false } },
+    { id: 'skitter4', name: 'Skitterling', hp: 70, atk: 40, def: 20, spd: 104, critChance: 10, critDamage: 150, acc: 5, res: 5,
+      basic: { name: 'Nip', coeff: 0.8, aoe: false } }
+  ];
+  var WAVE_2 = [
+    { id: 'warden1', name: 'Bonded Warden', hp: 110, atk: 45, def: 50, spd: 80, critChance: 10, critDamage: 150, acc: 10, res: 15,
+      basic: { name: 'Rally Strike', coeff: 0.7, aoe: false, onResolved: function (self) { applyBuff(self, 'Attack Up', 30, 2, {}); logLine('logBuff', self.name + ' rallies, Attack Up.'); } } },
+    { id: 'warden2', name: 'Bonded Warden', hp: 110, atk: 45, def: 50, spd: 78, critChance: 10, critDamage: 150, acc: 10, res: 15,
+      basic: { name: 'Rally Strike', coeff: 0.7, aoe: false, onResolved: function (self) { applyBuff(self, 'Attack Up', 30, 2, {}); logLine('logBuff', self.name + ' rallies, Attack Up.'); } } },
+    { id: 'warden3', name: 'Bonded Warden', hp: 110, atk: 45, def: 50, spd: 76, critChance: 10, critDamage: 150, acc: 10, res: 15,
+      basic: { name: 'Rally Strike', coeff: 0.7, aoe: false, onResolved: function (self) { applyBuff(self, 'Attack Up', 30, 2, {}); logLine('logBuff', self.name + ' rallies, Attack Up.'); } } },
+    { id: 'warden4', name: 'Bonded Warden', hp: 110, atk: 45, def: 50, spd: 74, critChance: 10, critDamage: 150, acc: 10, res: 15,
+      basic: { name: 'Rally Strike', coeff: 0.7, aoe: false, onResolved: function (self) { applyBuff(self, 'Attack Up', 30, 2, {}); logLine('logBuff', self.name + ' rallies, Attack Up.'); } } }
+  ];
+  var WAVE_3 = [
+    { id: 'marauder1', name: 'Marauder', hp: 130, atk: 60, def: 40, spd: 90, critChance: 10, critDamage: 150, acc: 15, res: 15,
+      basic: { name: 'Rend', coeff: 0.9, aoe: false, applyDebuff: { type: 'Bleed', chance: 50 } } },
+    { id: 'marauder2', name: 'Marauder', hp: 130, atk: 60, def: 40, spd: 88, critChance: 10, critDamage: 150, acc: 15, res: 15,
+      basic: { name: 'Rend', coeff: 0.9, aoe: false, applyDebuff: { type: 'Bleed', chance: 50 } } },
+    { id: 'marauder3', name: 'Marauder', hp: 130, atk: 60, def: 40, spd: 86, critChance: 10, critDamage: 150, acc: 15, res: 15,
+      basic: { name: 'Rend', coeff: 0.9, aoe: false, applyDebuff: { type: 'Bleed', chance: 50 } } },
+    { id: 'marauder4', name: 'Marauder', hp: 130, atk: 60, def: 40, spd: 84, critChance: 10, critDamage: 150, acc: 15, res: 15,
+      basic: { name: 'Rend', coeff: 0.9, aoe: false, applyDebuff: { type: 'Bleed', chance: 50 } } }
+  ];
+
+  // ---------------------------------------------------------------
+  // ENCOUNTERS
+  // Squad size follows content type: 5v5 for boss content, 4v4 for
+  // general wave content (per design direction - not a change to the
+  // combat engine's default, just a per-encounter squad size).
+  // ---------------------------------------------------------------
+  var ENCOUNTERS = {
+    boss: { label: 'Boss Encounter', teamIds: ['vara', 'mire', 'kestrel', 'rook', 'nyx'], waves: [BOSS_WAVE] },
+    wave: { label: 'Wave Encounter', teamIds: ['mire', 'kestrel', 'rook', 'nyx'], waves: [WAVE_1, WAVE_2, WAVE_3] }
+  };
+
   // ---------------------------------------------------------------
   // BATTLE STATE
   // ---------------------------------------------------------------
   var team, enemies, battleOver, pendingAction, extraTurnChain;
   var highlightedSlot = 'basic'; // which of basic/active1/active2/passive/signature is previewed in the detail panel
+  var currentEncounterId, currentWaves, waveIndex;
 
-  function newBattle() {
-    team = CHAMPIONS.map(function (c) { return makeUnit(c, false); });
-    enemies = ENEMY_TEMPLATES.map(function (e) { return makeUnit(e, true); });
+  function spawnWave(templates) {
+    enemies = templates.map(function (e) { return makeUnit(e, true); });
     enemies.forEach(function (e) { if (e.isBoss) { e.bossTurnCount = 0; e.fury = 0; } });
+  }
+
+  function newBattle(encounterId) {
+    var config = ENCOUNTERS[encounterId];
+    currentEncounterId = encounterId;
+    currentWaves = config.waves;
+    waveIndex = 0;
+    team = config.teamIds.map(function (id) { return makeUnit(CHAMPIONS.find(function (c) { return c.id === id; }), false); });
+    spawnWave(currentWaves[waveIndex]);
     battleOver = false;
     pendingAction = null;
     extraTurnChain = 0;
@@ -501,7 +557,7 @@
   // SAVE / RESUME (localStorage) — a battle in progress survives a
   // reload, backgrounding, or closing the tab. Only mutable runtime
   // state is persisted; ability definitions (with their functions)
-  // stay in CHAMPIONS/ENEMY_TEMPLATES and are never serialized.
+  // stay in CHAMPIONS/ENCOUNTERS and are never serialized.
   // ---------------------------------------------------------------
   var SAVE_KEY = 'machineborn_save_v1';
 
@@ -521,7 +577,9 @@
       return { cls: div.className, text: div.textContent };
     });
     var data = {
-      version: 1,
+      version: 2,
+      encounterId: currentEncounterId,
+      waveIndex: waveIndex,
       team: team.map(serializeUnit),
       enemies: enemies.map(serializeUnit),
       pendingActorId: pendingAction ? pendingAction.actor.id : null,
@@ -552,9 +610,13 @@
   }
 
   function resumeBattle(saved) {
-    team = CHAMPIONS.map(function (c) { return makeUnit(c, false); });
-    enemies = ENEMY_TEMPLATES.map(function (e) { return makeUnit(e, true); });
-    enemies.forEach(function (e) { if (e.isBoss) { e.bossTurnCount = 0; e.fury = 0; } });
+    var config = ENCOUNTERS[saved.encounterId];
+    if (!config) { clearSave(); return; } // save from an encounter that no longer exists
+    currentEncounterId = saved.encounterId;
+    currentWaves = config.waves;
+    waveIndex = saved.waveIndex || 0;
+    team = config.teamIds.map(function (id) { return makeUnit(CHAMPIONS.find(function (c) { return c.id === id; }), false); });
+    spawnWave(currentWaves[waveIndex]);
     applySavedUnitState(team, saved.team);
     applySavedUnitState(enemies, saved.enemies);
     battleOver = false;
@@ -866,7 +928,16 @@
   function checkBattleEnd() {
     if (battleOver) return true;
     if (aliveTeam().length === 0) { endBattle(false); return true; }
-    if (aliveEnemies().length === 0) { endBattle(true); return true; }
+    if (aliveEnemies().length === 0) {
+      if (waveIndex < currentWaves.length - 1) {
+        waveIndex += 1;
+        spawnWave(currentWaves[waveIndex]);
+        logLine('logBoss', 'Wave ' + (waveIndex + 1) + ' of ' + currentWaves.length + ' incoming!');
+        return false;
+      }
+      endBattle(true);
+      return true;
+    }
     return false;
   }
 
@@ -1219,14 +1290,17 @@
     });
   });
 
-  document.getElementById('startBtn').addEventListener('click', function () {
+  function beginEncounter(encounterId) {
     clearSave();
     document.getElementById('startScreen').style.display = 'none';
     document.body.classList.add('battleActive');
     document.getElementById('battle').classList.add('active');
-    newBattle();
+    newBattle(encounterId);
     runUntilPlayerInput();
-  });
+  }
+
+  document.getElementById('startBossBtn').addEventListener('click', function () { beginEncounter('boss'); });
+  document.getElementById('startWaveBtn').addEventListener('click', function () { beginEncounter('wave'); });
 
   document.getElementById('resumeBtn').addEventListener('click', function () {
     var saved = loadSavedBattle();
@@ -1236,17 +1310,16 @@
 
   document.getElementById('restartBtn').addEventListener('click', function () {
     document.getElementById('resultOverlay').classList.remove('show');
-    newBattle();
+    newBattle(currentEncounterId);
     runUntilPlayerInput();
   });
 
   // On load, offer to resume a battle left in progress (backgrounded tab, reload, closed browser).
   (function checkForSavedBattle() {
     var saved = loadSavedBattle();
-    if (!saved) return;
-    var resumeBtn = document.getElementById('resumeBtn');
-    resumeBtn.style.display = '';
-    document.getElementById('startBtn').textContent = 'START NEW BATTLE';
+    if (!saved || !ENCOUNTERS[saved.encounterId]) return;
+    document.getElementById('resumeBtn').style.display = '';
+    document.getElementById('resumeBtn').textContent = 'RESUME ' + ENCOUNTERS[saved.encounterId].label.toUpperCase();
   })();
 
 })();
