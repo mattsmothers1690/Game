@@ -90,16 +90,18 @@
     border-radius: 7px;
     font-size: 0.72rem;
     flex: 1 1 140px;
+    text-align: left;
+    line-height: 1.35;
   }
   .armoryBonus { flex: 1 1 100%; font-size: 0.65rem; color: #86efac; }
   #armoryScreen .overlayBtn { margin: 24px auto 0; }
-  #charmFarm { max-width: 520px; margin: 24px auto 0; text-align: left; }
-  #charmFarm h2 { color: #a78bfa; font-size: 1rem; margin: 8px 0 2px; }
-  #farmControls { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-  #farmControls .armorySlotBtn { flex: 1 1 140px; }
-  #farmControls .overlayBtn { margin: 0; flex: 0 0 auto; padding: 8px 20px; }
-  #farmCharmDesc { color: #86efac; font-size: 0.68rem; margin-top: 8px; min-height: 1.4em; }
-  #charmInventoryList { margin-top: 10px; max-height: 140px; overflow-y: auto; }
+  .farmPanel { max-width: 520px; margin: 24px auto 0; text-align: left; }
+  .farmPanel h2 { color: #a78bfa; font-size: 1rem; margin: 8px 0 2px; }
+  .farmControls { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .farmControls .armorySlotBtn { flex: 1 1 140px; }
+  .farmControls .overlayBtn { margin: 0; flex: 0 0 auto; padding: 8px 20px; }
+  #farmCharmDesc, #farmGearDesc { color: #86efac; font-size: 0.68rem; margin-top: 8px; min-height: 1.4em; }
+  #charmInventoryList, #gearInventoryList { margin-top: 10px; max-height: 140px; overflow-y: auto; }
   .charmInvRow { font-size: 0.68rem; padding: 3px 0; border-bottom: 1px solid #1e1e2a; }
 
   /* ---------------- ROTATE HINT ---------------- */
@@ -296,10 +298,22 @@
   <div style="color:#999;font-size:0.8rem;">Tap a slot to cycle through available gear or charms.</div>
   <div id="armoryGrid"></div>
 
-  <div id="charmFarm">
+  <div id="gearFarm" class="farmPanel">
+    <h2>Farm Gear</h2>
+    <div style="color:#888;font-size:0.7rem;">Test-only acquisition until real battle rewards exist. Rolls a main stat + rarity-scaled substats.</div>
+    <div class="farmControls">
+      <button id="farmGearSlotBtn" class="armorySlotBtn"></button>
+      <button id="farmGearRarityBtn" class="armorySlotBtn"></button>
+      <button id="farmGearBtn" class="overlayBtn">FARM</button>
+    </div>
+    <div id="farmGearDesc"></div>
+    <div id="gearInventoryList"></div>
+  </div>
+
+  <div id="charmFarm" class="farmPanel">
     <h2>Farm Charms</h2>
     <div style="color:#888;font-size:0.7rem;">Test-only acquisition until real battle rewards exist.</div>
-    <div id="farmControls">
+    <div class="farmControls">
       <button id="farmCharmTypeBtn" class="armorySlotBtn"></button>
       <button id="farmRarityBtn" class="armorySlotBtn"></button>
       <button id="farmBtn" class="overlayBtn">FARM</button>
@@ -591,46 +605,51 @@
   ];
 
   // ---------------------------------------------------------------
-  // GEAR (6 main slots, matching Raid's layout, each with a clear
-  // primary stat; fixed values per rarity tier - no substats/sets/
-  // random rolls yet. Charms below are the 3 accessory slots.)
+  // GEAR (6 main slots, matching Raid's layout). Each acquired piece
+  // is now a rolled instance, not a fixed lookup: a main stat (fixed
+  // to the slot) plus a random number of substats from the other 7
+  // stats, both rolled within ranges that scale with rarity. Rarity
+  // raises the ceiling (bigger rolls, more substats) but never
+  // guarantees a good roll - same philosophy as Charms.
   // ---------------------------------------------------------------
   var GEAR_SLOTS = ['weapon', 'helmet', 'shield', 'gauntlets', 'chestplate', 'boots'];
   var RARITY_ORDER = ['Common', 'Rare', 'Epic', 'Legendary'];
   var RARITY_COLOR = { Common: '#9ca3af', Rare: '#60a5fa', Epic: '#c084fc', Legendary: '#fbbf24' };
-  var GEAR_ITEMS = [
-    // Weapon - Attack
-    { id: 'iron_blade', name: 'Iron Blade', slot: 'weapon', rarity: 'Common', stats: { atk: 12 } },
-    { id: 'serrated_edge', name: 'Serrated Edge', slot: 'weapon', rarity: 'Rare', stats: { atk: 18, critChance: 8 } },
-    { id: 'steel_saber', name: 'Steel Saber', slot: 'weapon', rarity: 'Epic', stats: { atk: 26, critChance: 10 } },
-    { id: 'aetherblade', name: 'Aetherblade', slot: 'weapon', rarity: 'Legendary', stats: { atk: 36, critChance: 12, critDamage: 15 } },
-    // Helmet - HP
-    { id: 'leather_cap', name: 'Leather Cap', slot: 'helmet', rarity: 'Common', stats: { hp: 50 } },
-    { id: 'chain_coif', name: 'Chain Coif', slot: 'helmet', rarity: 'Rare', stats: { hp: 80, res: 8 } },
-    { id: 'plated_helm', name: 'Plated Helm', slot: 'helmet', rarity: 'Epic', stats: { hp: 110, res: 14 } },
-    { id: 'crown_of_vitality', name: 'Crown of Vitality', slot: 'helmet', rarity: 'Legendary', stats: { hp: 150, res: 20, def: 15 } },
-    // Shield - Defense
-    { id: 'wooden_buckler', name: 'Wooden Buckler', slot: 'shield', rarity: 'Common', stats: { def: 18 } },
-    { id: 'iron_shield', name: 'Iron Shield', slot: 'shield', rarity: 'Rare', stats: { def: 28, hp: 30 } },
-    { id: 'bulwark', name: 'Bulwark', slot: 'shield', rarity: 'Epic', stats: { def: 40, hp: 50 } },
-    { id: 'aegis_wall', name: 'Aegis Wall', slot: 'shield', rarity: 'Legendary', stats: { def: 55, hp: 80, res: 15 } },
-    // Gauntlets - Crit Chance
-    { id: 'worn_gloves', name: 'Worn Gloves', slot: 'gauntlets', rarity: 'Common', stats: { critChance: 10 } },
-    { id: 'sharp_gauntlets', name: 'Sharp Gauntlets', slot: 'gauntlets', rarity: 'Rare', stats: { critChance: 16, atk: 8 } },
-    { id: 'predators_grip', name: "Predator's Grip", slot: 'gauntlets', rarity: 'Epic', stats: { critChance: 22, atk: 12 } },
-    { id: 'executioners_fist', name: "Executioner's Fist", slot: 'gauntlets', rarity: 'Legendary', stats: { critChance: 30, atk: 16, critDamage: 10 } },
-    // Chestplate - Crit Damage
-    { id: 'padded_vest', name: 'Padded Vest', slot: 'chestplate', rarity: 'Common', stats: { critDamage: 15 } },
-    { id: 'reinforced_chestplate', name: 'Reinforced Chestplate', slot: 'chestplate', rarity: 'Rare', stats: { critDamage: 25, hp: 40 } },
-    { id: 'warplate', name: 'Warplate', slot: 'chestplate', rarity: 'Epic', stats: { critDamage: 35, hp: 60 } },
-    { id: 'doomplate', name: 'Doomplate', slot: 'chestplate', rarity: 'Legendary', stats: { critDamage: 50, hp: 90, def: 20 } },
-    // Boots - Speed
-    { id: 'worn_boots', name: 'Worn Boots', slot: 'boots', rarity: 'Common', stats: { spd: 6 } },
-    { id: 'swift_boots', name: 'Swift Boots', slot: 'boots', rarity: 'Rare', stats: { spd: 10, acc: 8 } },
-    { id: 'windwalkers', name: 'Windwalkers', slot: 'boots', rarity: 'Epic', stats: { spd: 14, acc: 12 } },
-    { id: 'hermes_stride', name: "Hermes' Stride", slot: 'boots', rarity: 'Legendary', stats: { spd: 20, acc: 16, critChance: 8 } }
+  var GEAR_MAIN_STAT = { weapon: 'atk', helmet: 'hp', shield: 'def', gauntlets: 'critChance', chestplate: 'critDamage', boots: 'spd' };
+  var STAT_ROLL_RANGE = {
+    atk: [8, 14], def: [10, 18], hp: [40, 70], spd: [4, 8],
+    critChance: [4, 8], critDamage: [6, 12], acc: [4, 8], res: [4, 8]
+  };
+  var GEAR_RARITY_MULT = { Common: 1, Rare: 1.6, Epic: 2.4, Legendary: 3.6 };
+  var GEAR_SUBSTAT_COUNT = { Common: 1, Rare: 2, Epic: 3, Legendary: 4 };
+  var GEAR_TEMPLATES = [
+    { id: 'iron_blade', name: 'Iron Blade', slot: 'weapon', rarity: 'Common' },
+    { id: 'serrated_edge', name: 'Serrated Edge', slot: 'weapon', rarity: 'Rare' },
+    { id: 'steel_saber', name: 'Steel Saber', slot: 'weapon', rarity: 'Epic' },
+    { id: 'aetherblade', name: 'Aetherblade', slot: 'weapon', rarity: 'Legendary' },
+    { id: 'leather_cap', name: 'Leather Cap', slot: 'helmet', rarity: 'Common' },
+    { id: 'chain_coif', name: 'Chain Coif', slot: 'helmet', rarity: 'Rare' },
+    { id: 'plated_helm', name: 'Plated Helm', slot: 'helmet', rarity: 'Epic' },
+    { id: 'crown_of_vitality', name: 'Crown of Vitality', slot: 'helmet', rarity: 'Legendary' },
+    { id: 'wooden_buckler', name: 'Wooden Buckler', slot: 'shield', rarity: 'Common' },
+    { id: 'iron_shield', name: 'Iron Shield', slot: 'shield', rarity: 'Rare' },
+    { id: 'bulwark', name: 'Bulwark', slot: 'shield', rarity: 'Epic' },
+    { id: 'aegis_wall', name: 'Aegis Wall', slot: 'shield', rarity: 'Legendary' },
+    { id: 'worn_gloves', name: 'Worn Gloves', slot: 'gauntlets', rarity: 'Common' },
+    { id: 'sharp_gauntlets', name: 'Sharp Gauntlets', slot: 'gauntlets', rarity: 'Rare' },
+    { id: 'predators_grip', name: "Predator's Grip", slot: 'gauntlets', rarity: 'Epic' },
+    { id: 'executioners_fist', name: "Executioner's Fist", slot: 'gauntlets', rarity: 'Legendary' },
+    { id: 'padded_vest', name: 'Padded Vest', slot: 'chestplate', rarity: 'Common' },
+    { id: 'reinforced_chestplate', name: 'Reinforced Chestplate', slot: 'chestplate', rarity: 'Rare' },
+    { id: 'warplate', name: 'Warplate', slot: 'chestplate', rarity: 'Epic' },
+    { id: 'doomplate', name: 'Doomplate', slot: 'chestplate', rarity: 'Legendary' },
+    { id: 'worn_boots', name: 'Worn Boots', slot: 'boots', rarity: 'Common' },
+    { id: 'swift_boots', name: 'Swift Boots', slot: 'boots', rarity: 'Rare' },
+    { id: 'windwalkers', name: 'Windwalkers', slot: 'boots', rarity: 'Epic' },
+    { id: 'hermes_stride', name: "Hermes' Stride", slot: 'boots', rarity: 'Legendary' }
   ];
   var EQUIPMENT_KEY = 'machineborn_equipment_v1';
+  var GEAR_INVENTORY_KEY = 'machineborn_gear_v1';
 
   function loadEquipment() {
     try {
@@ -641,22 +660,82 @@
   function saveEquipment() {
     try { localStorage.setItem(EQUIPMENT_KEY, JSON.stringify(equipment)); } catch (e) { /* private mode / quota */ }
   }
-  var equipment = loadEquipment(); // { championId: { <GEAR_SLOTS[i]>: itemId|null, ..., charms: [instanceId|null, ...] } }
+  var equipment = loadEquipment(); // { championId: { <GEAR_SLOTS[i]>: instanceId|null, ..., charms: [instanceId|null, ...] } }
 
-  function getEquippedItem(championId, slot) {
+  function loadGearInventory() {
+    try {
+      var raw = localStorage.getItem(GEAR_INVENTORY_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) { return []; }
+  }
+  function saveGearInventory() {
+    try { localStorage.setItem(GEAR_INVENTORY_KEY, JSON.stringify(gearInventory)); } catch (e) { /* private mode / quota */ }
+  }
+  var gearInventory = loadGearInventory(); // [{ instanceId, templateId, slot, rarity, mainStat, mainValue, substats: [{stat,value}] }]
+
+  function rollStatValue(stat, rarity, isMain) {
+    var range = STAT_ROLL_RANGE[stat];
+    var raw = range[0] + Math.random() * (range[1] - range[0]);
+    var mult = GEAR_RARITY_MULT[rarity] * (isMain ? 1 : 0.4);
+    return Math.max(1, Math.round(raw * mult));
+  }
+
+  function rollSubstats(mainStat, rarity) {
+    var pool = Object.keys(STAT_ROLL_RANGE).filter(function (s) { return s !== mainStat; });
+    for (var i = pool.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp;
+    }
+    return pool.slice(0, GEAR_SUBSTAT_COUNT[rarity]).map(function (stat) {
+      return { stat: stat, value: rollStatValue(stat, rarity, false) };
+    });
+  }
+
+  function farmGear(templateId) {
+    var template = GEAR_TEMPLATES.find(function (t) { return t.id === templateId; });
+    var mainStat = GEAR_MAIN_STAT[template.slot];
+    var instance = {
+      instanceId: 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      templateId: templateId, slot: template.slot, rarity: template.rarity,
+      mainStat: mainStat, mainValue: rollStatValue(mainStat, template.rarity, true),
+      substats: rollSubstats(mainStat, template.rarity)
+    };
+    gearInventory.push(instance);
+    saveGearInventory();
+    return instance;
+  }
+
+  function findGearOwner(instanceId) {
+    for (var i = 0; i < CHAMPIONS.length; i++) {
+      var eq = equipment[CHAMPIONS[i].id];
+      if (eq && GEAR_SLOTS.some(function (s) { return eq[s] === instanceId; })) return CHAMPIONS[i].name;
+    }
+    return null;
+  }
+
+  function unclaimedGearInstances(slot, exceptChampId) {
+    var claimed = {};
+    CHAMPIONS.forEach(function (c) {
+      if (c.id === exceptChampId) return;
+      var eq = equipment[c.id];
+      if (eq && eq[slot]) claimed[eq[slot]] = true;
+    });
+    return gearInventory.filter(function (inst) { return inst.slot === slot && !claimed[inst.instanceId]; });
+  }
+
+  function getEquippedGearInstance(championId, slot) {
     var champEquip = equipment[championId];
     if (!champEquip || !champEquip[slot]) return null;
-    return GEAR_ITEMS.find(function (g) { return g.id === champEquip[slot]; }) || null;
+    return gearInventory.find(function (g) { return g.instanceId === champEquip[slot]; }) || null;
   }
 
   function gearBonusFor(championId) {
     var bonus = {};
     GEAR_SLOTS.forEach(function (slot) {
-      var item = getEquippedItem(championId, slot);
-      if (!item) return;
-      Object.keys(item.stats).forEach(function (stat) {
-        bonus[stat] = (bonus[stat] || 0) + item.stats[stat];
-      });
+      var inst = getEquippedGearInstance(championId, slot);
+      if (!inst) return;
+      bonus[inst.mainStat] = (bonus[inst.mainStat] || 0) + inst.mainValue;
+      inst.substats.forEach(function (s) { bonus[s.stat] = (bonus[s.stat] || 0) + s.value; });
     });
     return bonus;
   }
@@ -664,8 +743,8 @@
   function highestRarityFor(championId) {
     var best = -1, bestRarity = null;
     GEAR_SLOTS.forEach(function (slot) {
-      var item = getEquippedItem(championId, slot);
-      if (item && RARITY_ORDER.indexOf(item.rarity) > best) { best = RARITY_ORDER.indexOf(item.rarity); bestRarity = item.rarity; }
+      var inst = getEquippedGearInstance(championId, slot);
+      if (inst && RARITY_ORDER.indexOf(inst.rarity) > best) { best = RARITY_ORDER.indexOf(inst.rarity); bestRarity = inst.rarity; }
     });
     return bestRarity;
   }
@@ -1775,13 +1854,20 @@
   // ARMORY
   // ---------------------------------------------------------------
   function cycleGearSlot(championId, slot) {
-    var options = [null].concat(GEAR_ITEMS.filter(function (g) { return g.slot === slot; }).map(function (g) { return g.id; }));
-    var current = (equipment[championId] && equipment[championId][slot]) || null;
-    var next = options[(options.indexOf(current) + 1) % options.length];
     if (!equipment[championId]) equipment[championId] = {};
+    var available = unclaimedGearInstances(slot, championId);
+    var options = [null].concat(available.map(function (i) { return i.instanceId; }));
+    var current = equipment[championId][slot] || null;
+    var next = options[(options.indexOf(current) + 1) % options.length];
     equipment[championId][slot] = next;
     saveEquipment();
     renderArmory();
+  }
+
+  function gearInstanceLabel(inst) {
+    var template = GEAR_TEMPLATES.find(function (t) { return t.id === inst.templateId; });
+    var subsText = inst.substats.map(function (s) { return '+' + s.value + ' ' + s.stat; }).join(', ');
+    return '[' + inst.rarity + '] ' + template.name + ' (' + inst.mainStat + ' +' + inst.mainValue + (subsText ? ', ' + subsText : '') + ')';
   }
 
   function cycleCharmSlot(championId, slotIndex) {
@@ -1803,12 +1889,12 @@
 
   function armoryRowHtml(champ) {
     var gearSlotsHtml = GEAR_SLOTS.map(function (slot) {
-      var item = getEquippedItem(champ.id, slot);
+      var inst = getEquippedGearInstance(champ.id, slot);
       var prefix = slot.charAt(0).toUpperCase() + slot.slice(1) + ': ';
-      var itemHtml = item
-        ? '<span style="color:' + RARITY_COLOR[item.rarity] + '">[' + item.rarity + '] ' + item.name + '</span>'
+      var itemHtml = inst
+        ? '<span style="color:' + RARITY_COLOR[inst.rarity] + '">' + gearInstanceLabel(inst) + '</span>'
         : 'Empty';
-      var borderColor = item ? RARITY_COLOR[item.rarity] : '#4c1d95';
+      var borderColor = inst ? RARITY_COLOR[inst.rarity] : '#4c1d95';
       return '<button class="armorySlotBtn" style="border-color:' + borderColor + '" data-champ="' + champ.id + '" data-slot="' + slot + '">' + prefix + itemHtml + '</button>';
     }).join('');
 
@@ -1829,8 +1915,44 @@
 
   function renderArmory() {
     document.getElementById('armoryGrid').innerHTML = CHAMPIONS.map(armoryRowHtml).join('');
+    renderGearFarm();
     renderCharmFarm();
   }
+
+  // ---------------------------------------------------------------
+  // GEAR FARM (test-only acquisition until a real reward economy exists)
+  // ---------------------------------------------------------------
+  var gearFarmSelection = { slot: GEAR_SLOTS[0], rarity: 'Common' };
+
+  function renderGearFarm() {
+    var template = GEAR_TEMPLATES.find(function (t) { return t.slot === gearFarmSelection.slot && t.rarity === gearFarmSelection.rarity; });
+    document.getElementById('farmGearSlotBtn').textContent = gearFarmSelection.slot.charAt(0).toUpperCase() + gearFarmSelection.slot.slice(1);
+    document.getElementById('farmGearRarityBtn').textContent = gearFarmSelection.rarity;
+    document.getElementById('farmGearRarityBtn').style.color = RARITY_COLOR[gearFarmSelection.rarity];
+    document.getElementById('farmGearDesc').textContent = template.name + ' - main stat ' + GEAR_MAIN_STAT[gearFarmSelection.slot] + ', ' + GEAR_SUBSTAT_COUNT[gearFarmSelection.rarity] + ' substat(s) at ' + gearFarmSelection.rarity + '.';
+
+    document.getElementById('gearInventoryList').innerHTML = gearInventory.length
+      ? gearInventory.map(function (inst) {
+          var owner = findGearOwner(inst.instanceId);
+          return '<div class="charmInvRow" style="color:' + RARITY_COLOR[inst.rarity] + '">' + gearInstanceLabel(inst) + (owner ? ' — equipped: ' + owner : '') + '</div>';
+        }).join('')
+      : '<div style="color:#666;font-size:0.7rem;">No gear farmed yet.</div>';
+  }
+
+  document.getElementById('farmGearSlotBtn').addEventListener('click', function () {
+    gearFarmSelection.slot = GEAR_SLOTS[(GEAR_SLOTS.indexOf(gearFarmSelection.slot) + 1) % GEAR_SLOTS.length];
+    renderGearFarm();
+  });
+  document.getElementById('farmGearRarityBtn').addEventListener('click', function () {
+    gearFarmSelection.rarity = RARITY_ORDER[(RARITY_ORDER.indexOf(gearFarmSelection.rarity) + 1) % RARITY_ORDER.length];
+    renderGearFarm();
+  });
+  document.getElementById('farmGearBtn').addEventListener('click', function () {
+    var template = GEAR_TEMPLATES.find(function (t) { return t.slot === gearFarmSelection.slot && t.rarity === gearFarmSelection.rarity; });
+    var instance = farmGear(template.id);
+    renderArmory();
+    document.getElementById('farmGearDesc').textContent = 'Farmed: ' + gearInstanceLabel(instance) + '!';
+  });
 
   document.getElementById('armoryGrid').addEventListener('click', function (e) {
     var slotBtn = e.target.closest('.armorySlotBtn[data-slot]');
