@@ -104,6 +104,13 @@
   #farmCharmDesc, #farmGearDesc { color: #86efac; font-size: 0.68rem; margin-top: 8px; min-height: 1.4em; }
   #charmInventoryList, #gearInventoryList { margin-top: 10px; max-height: 140px; overflow-y: auto; }
   .charmInvRow { font-size: 0.68rem; padding: 3px 0; border-bottom: 1px solid #1e1e2a; }
+  .invActions { display: flex; gap: 6px; margin-top: 3px; flex-wrap: wrap; }
+  .invActionBtn {
+    background: #23233a; border: 1px solid #4c1d95; color: #ddd;
+    padding: 3px 8px; border-radius: 6px; font-size: 0.62rem;
+  }
+  .invActionBtn:disabled { opacity: 0.4; }
+  #scrapDisplay { color: #fbbf24; font-size: 0.85rem; margin: 4px 0 0; }
 
   /* ---------------- ROTATE HINT ---------------- */
   #rotateHint {
@@ -297,6 +304,7 @@
 <div id="armoryScreen">
   <h1>ARMORY</h1>
   <div style="color:#999;font-size:0.8rem;">Tap a slot to cycle through available gear or charms.</div>
+  <div id="scrapDisplay"></div>
   <div id="armoryGrid"></div>
 
   <div id="gearFarm" class="farmPanel">
@@ -785,6 +793,78 @@
   var EQUIPMENT_KEY = 'machineborn_equipment_v1';
   var GEAR_INVENTORY_KEY = 'machineborn_gear_v1';
 
+  // ---------------------------------------------------------------
+  // SCRAP ECONOMY: salvage unwanted instances for Scrap, then spend it
+  // to Upgrade a piece's rolled values (a level multiplier, capped) or
+  // Reforge one of its substats (a fresh roll, same "never guaranteed"
+  // philosophy as farming - just a paid way to try again).
+  // ---------------------------------------------------------------
+  var SCRAP_KEY = 'machineborn_scrap_v1';
+  function loadScrap() {
+    try { var raw = localStorage.getItem(SCRAP_KEY); return raw ? (parseInt(raw, 10) || 0) : 0; } catch (e) { return 0; }
+  }
+  function saveScrap() {
+    try { localStorage.setItem(SCRAP_KEY, String(scrap)); } catch (e) { /* private mode / quota */ }
+  }
+  var scrap = loadScrap();
+
+  var GEAR_SALVAGE_VALUE = { Common: 15, Rare: 35, Epic: 80, Legendary: 200 };
+  var CHARM_SALVAGE_VALUE = { Common: 10, Rare: 25, Epic: 55, Legendary: 120 };
+  var GEAR_LEVEL_MAX = 12;
+
+  function gearLevelMultiplier(level) { return 1 + (level || 0) * 0.08; }
+  function effectiveStatValue(baseValue, level) { return Math.round(baseValue * gearLevelMultiplier(level)); }
+  function gearUpgradeCost(rarity, level) { return Math.round(GEAR_RARITY_MULT[rarity] * 12 * (level + 1)); }
+  function gearReforgeCost(rarity) { return Math.round(GEAR_RARITY_MULT[rarity] * 30); }
+
+  function salvageGear(instanceId) {
+    if (findGearOwner(instanceId)) return false;
+    var idx = gearInventory.findIndex(function (g) { return g.instanceId === instanceId; });
+    if (idx === -1) return false;
+    scrap += GEAR_SALVAGE_VALUE[gearInventory[idx].rarity] || 0;
+    gearInventory.splice(idx, 1);
+    saveGearInventory(); saveScrap();
+    return true;
+  }
+
+  function salvageCharm(instanceId) {
+    if (findCharmOwner(instanceId)) return false;
+    var idx = charmInventory.findIndex(function (c) { return c.instanceId === instanceId; });
+    if (idx === -1) return false;
+    scrap += CHARM_SALVAGE_VALUE[charmInventory[idx].rarity] || 0;
+    charmInventory.splice(idx, 1);
+    saveCharmInventory(); saveScrap();
+    return true;
+  }
+
+  function upgradeGear(instanceId) {
+    var inst = gearInventory.find(function (g) { return g.instanceId === instanceId; });
+    if (!inst) return false;
+    var level = inst.level || 0;
+    if (level >= GEAR_LEVEL_MAX) return false;
+    var cost = gearUpgradeCost(inst.rarity, level);
+    if (scrap < cost) return false;
+    scrap -= cost;
+    inst.level = level + 1;
+    saveGearInventory(); saveScrap();
+    return true;
+  }
+
+  function reforgeGear(instanceId) {
+    var inst = gearInventory.find(function (g) { return g.instanceId === instanceId; });
+    if (!inst || !inst.substats.length) return false;
+    var cost = gearReforgeCost(inst.rarity);
+    if (scrap < cost) return false;
+    scrap -= cost;
+    var idx = Math.floor(Math.random() * inst.substats.length);
+    var usedStats = [inst.mainStat].concat(inst.substats.map(function (s, i) { return i === idx ? null : s.stat; }).filter(Boolean));
+    var pool = Object.keys(STAT_ROLL_RANGE).filter(function (s) { return usedStats.indexOf(s) === -1; });
+    var newStat = pool.length ? pool[Math.floor(Math.random() * pool.length)] : inst.substats[idx].stat;
+    inst.substats[idx] = { stat: newStat, value: rollStatValue(newStat, inst.rarity, false) };
+    saveGearInventory(); saveScrap();
+    return true;
+  }
+
   function loadEquipment() {
     try {
       var raw = localStorage.getItem(EQUIPMENT_KEY);
@@ -833,7 +913,8 @@
       templateId: templateId, slot: template.slot, rarity: template.rarity,
       mainStat: mainStat, mainValue: rollStatValue(mainStat, template.rarity, true),
       substats: rollSubstats(mainStat, template.rarity),
-      set: GEAR_SET_IDS[Math.floor(Math.random() * GEAR_SET_IDS.length)]
+      set: GEAR_SET_IDS[Math.floor(Math.random() * GEAR_SET_IDS.length)],
+      level: 0
     };
     gearInventory.push(instance);
     saveGearInventory();
@@ -918,8 +999,8 @@
     GEAR_SLOTS.forEach(function (slot) {
       var inst = getEquippedGearInstance(championId, slot);
       if (!inst) return;
-      bonus[inst.mainStat] = (bonus[inst.mainStat] || 0) + inst.mainValue;
-      inst.substats.forEach(function (s) { bonus[s.stat] = (bonus[s.stat] || 0) + s.value; });
+      bonus[inst.mainStat] = (bonus[inst.mainStat] || 0) + effectiveStatValue(inst.mainValue, inst.level);
+      inst.substats.forEach(function (s) { bonus[s.stat] = (bonus[s.stat] || 0) + effectiveStatValue(s.value, inst.level); });
     });
     var setBonus = setBonusStatsFor(championId);
     Object.keys(setBonus).forEach(function (stat) { bonus[stat] = (bonus[stat] || 0) + setBonus[stat]; });
@@ -2063,8 +2144,10 @@
   function gearInstanceLabel(inst) {
     var template = GEAR_TEMPLATES.find(function (t) { return t.id === inst.templateId; });
     var setName = GEAR_SETS[inst.set] ? GEAR_SETS[inst.set].name : inst.set;
-    var subsText = inst.substats.map(function (s) { return '+' + s.value + ' ' + s.stat; }).join(', ');
-    return '[' + inst.rarity + '] ' + template.name + ' · ' + setName + ' (' + inst.mainStat + ' +' + inst.mainValue + (subsText ? ', ' + subsText : '') + ')';
+    var level = inst.level || 0;
+    var levelText = level > 0 ? ' +' + level : '';
+    var subsText = inst.substats.map(function (s) { return '+' + effectiveStatValue(s.value, level) + ' ' + s.stat; }).join(', ');
+    return '[' + inst.rarity + ']' + levelText + ' ' + template.name + ' · ' + setName + ' (' + inst.mainStat + ' +' + effectiveStatValue(inst.mainValue, level) + (subsText ? ', ' + subsText : '') + ')';
   }
 
   function cycleCharmSlot(championId, slotIndex) {
@@ -2126,6 +2209,7 @@
 
   function renderArmory() {
     document.getElementById('armoryGrid').innerHTML = CHAMPIONS.map(armoryRowHtml).join('');
+    document.getElementById('scrapDisplay').textContent = 'Scrap: ' + scrap;
     renderGearFarm();
     renderCharmFarm();
   }
@@ -2145,10 +2229,31 @@
     document.getElementById('gearInventoryList').innerHTML = gearInventory.length
       ? gearInventory.map(function (inst) {
           var owner = findGearOwner(inst.instanceId);
-          return '<div class="charmInvRow" style="color:' + RARITY_COLOR[inst.rarity] + '">' + gearInstanceLabel(inst) + (owner ? ' — equipped: ' + owner : '') + '</div>';
+          var level = inst.level || 0;
+          var maxed = level >= GEAR_LEVEL_MAX;
+          var upgradeCost = gearUpgradeCost(inst.rarity, level);
+          var reforgeCost = gearReforgeCost(inst.rarity);
+          var salvageValue = GEAR_SALVAGE_VALUE[inst.rarity];
+          return '<div class="charmInvRow" style="color:' + RARITY_COLOR[inst.rarity] + '">' + gearInstanceLabel(inst) + (owner ? ' — equipped: ' + owner : '') +
+            '<div class="invActions">' +
+              '<button class="invActionBtn" data-action="upgrade-gear" data-id="' + inst.instanceId + '"' + (maxed || scrap < upgradeCost ? ' disabled' : '') + '>' + (maxed ? 'MAX' : 'Upgrade (' + upgradeCost + ')') + '</button>' +
+              '<button class="invActionBtn" data-action="reforge-gear" data-id="' + inst.instanceId + '"' + (scrap < reforgeCost ? ' disabled' : '') + '>Reforge (' + reforgeCost + ')</button>' +
+              '<button class="invActionBtn" data-action="salvage-gear" data-id="' + inst.instanceId + '"' + (owner ? ' disabled' : '') + '>Salvage (+' + salvageValue + ')</button>' +
+            '</div></div>';
         }).join('')
       : '<div style="color:#666;font-size:0.7rem;">No gear farmed yet.</div>';
   }
+
+  document.getElementById('gearInventoryList').addEventListener('click', function (e) {
+    var btn = e.target.closest('.invActionBtn');
+    if (!btn || btn.disabled) return;
+    var id = btn.getAttribute('data-id');
+    var action = btn.getAttribute('data-action');
+    if (action === 'upgrade-gear') upgradeGear(id);
+    else if (action === 'reforge-gear') reforgeGear(id);
+    else if (action === 'salvage-gear') salvageGear(id);
+    renderArmory();
+  });
 
   document.getElementById('farmGearSlotBtn').addEventListener('click', function () {
     gearFarmSelection.slot = GEAR_SLOTS[(GEAR_SLOTS.indexOf(gearFarmSelection.slot) + 1) % GEAR_SLOTS.length];
@@ -2187,10 +2292,21 @@
     document.getElementById('charmInventoryList').innerHTML = charmInventory.length
       ? charmInventory.map(function (inst) {
           var owner = findCharmOwner(inst.instanceId);
-          return '<div class="charmInvRow" style="color:' + RARITY_COLOR[inst.rarity] + '">' + charmInstanceLabel(inst) + (owner ? ' — equipped: ' + owner : '') + '</div>';
+          var salvageValue = CHARM_SALVAGE_VALUE[inst.rarity];
+          return '<div class="charmInvRow" style="color:' + RARITY_COLOR[inst.rarity] + '">' + charmInstanceLabel(inst) + (owner ? ' — equipped: ' + owner : '') +
+            '<div class="invActions">' +
+              '<button class="invActionBtn" data-action="salvage-charm" data-id="' + inst.instanceId + '"' + (owner ? ' disabled' : '') + '>Salvage (+' + salvageValue + ')</button>' +
+            '</div></div>';
         }).join('')
       : '<div style="color:#666;font-size:0.7rem;">No charms farmed yet.</div>';
   }
+
+  document.getElementById('charmInventoryList').addEventListener('click', function (e) {
+    var btn = e.target.closest('.invActionBtn');
+    if (!btn || btn.disabled) return;
+    if (btn.getAttribute('data-action') === 'salvage-charm') salvageCharm(btn.getAttribute('data-id'));
+    renderArmory();
+  });
 
   document.getElementById('farmCharmTypeBtn').addEventListener('click', function () {
     farmSelection.charmIndex = (farmSelection.charmIndex + 1) % CHARM_TYPES.length;
