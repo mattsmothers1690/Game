@@ -31,8 +31,8 @@ dependencies, no server). Served via GitHub Pages at
   > to player progress. When stuck on one node, there's always another
   > node worth farming to unblock it. Not "new extreme content behind
   > the newest p2w material" — a natural farm-and-push cycle.
-  Gear/Charm content exists today (see below). Champion leveling
-  (Gold/XP/shards) does not exist yet — see "Next up."
+  Gear/Charm content and Champion leveling (Gold/XP/Shards) both exist
+  today (see below).
 
 ## Architecture
 
@@ -76,6 +76,10 @@ dependencies, no server). Served via GitHub Pages at
 | `machineborn_gear_v1` | Gear instance inventory | Persistent |
 | `machineborn_scrap_v1` | Scrap currency (a number) | Persistent |
 | `machineborn_stage_progress_v1` | `{ encounterId: highestStageCleared }` | Persistent |
+| `machineborn_gold_v1` | Gold currency (a number) — champion-leveling only | Persistent |
+| `machineborn_shards_v1` | Shard currency (a number) — level-cap only | Persistent |
+| `machineborn_champion_progress_v1` | `{ championId: { level, xp } }` | Persistent |
+| `machineborn_levelcap_v1` | Account-wide level-cap tier (a number) | Persistent |
 
 Every inventory is a flat array of independent rolled instances keyed
 by a generated `instanceId`; equipping references an instance by ID.
@@ -132,6 +136,24 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
    through save/resume so a reload mid-fight restores the exact same
    difficulty instance.
 
+9. **Champion leveling**: a new **Gold** currency (`machineborn_gold_v1`,
+   distinct from Scrap — Scrap stays gear-only) plus per-champion banked
+   XP (`machineborn_champion_progress_v1`, `{ championId: { level, xp } }`).
+   Boss/Wave victories grant Gold + XP to the whole squad (`ENCOUNTER_
+   GOLD_REWARD` / `ENCOUNTER_XP_REWARD`, both stage-scaled like Scrap)
+   plus a rare **Shard** drop (`SHARD_DROP_CHANCE`, `machineborn_
+   shards_v1`). Leveling up is a manual, deterministic, paid action
+   (`levelUpChampion`, in the Armory's Champions panel) — spends banked
+   XP (`xpToNextLevel`) + Gold (`levelUpCost`), no RNG, matching the
+   Scrap-Upgrade pattern rather than the rolled-instance one. Only hp/
+   atk/def compound with level (`levelStatMultiplier`, +5%/level); spd/
+   crit/acc/res stay fixed, same convention as enemy stage-scaling.
+   The level cap (`effectiveLevelCap`, base 40) is account-wide and
+   rises in Shard-gated +5 steps (`levelCapShardCost`) — the deliberate
+   "push another node to unblock this one" hinge; Shards currently drop
+   as a rare Boss/Wave bonus rather than from a dedicated node (see
+   "Next up").
+
 Manual "Farm Gear" / "Farm Charms" buttons in the Armory remain as a
 testing/manual shortcut alongside real battle drops — not the only
 acquisition path anymore.
@@ -180,21 +202,16 @@ acquisition path anymore.
 
 ## Next up (not yet built)
 
-**Champion leveling** is the natural next system — it's the hinge in
-the user's loop design that nothing currently feeds into. Needed
-pieces:
-- A new **Gold** currency (distinct from Scrap — Scrap is gear-only).
-- XP/Level on each champion, with a stat-growth curve per level.
-- A level cap gated by **Shards** (from a not-yet-built Champion
-  content node) — this is what forces the "push another node to
-  unblock this one" loop rather than a single linear grind.
-- Gold's own source can reuse the stage-ladder pattern already built
-  (a third `ENCOUNTER`-style node, or a per-stage bonus payout
-  alongside existing Scrap).
+Champion leveling (Gold, XP/Level, Shard-gated level cap) is built —
+see "Systems that exist today" above. Its Shard *source* is still a
+stand-in (a rare bonus roll on existing Boss/Wave victories) rather
+than a dedicated node; a real **Champion content node** would give
+Shards their own farmable home and is the natural next step.
 
 Longer-term, deferred until asked for:
-- A **Champion node** and **Rework node** (materials to reroll a
-  champion's build choice, once such a choice exists beyond gear).
+- A **Champion node** (a dedicated Shard source, see above) and a
+  **Rework node** (materials to reroll a champion's build choice, once
+  such a choice exists beyond gear).
 - Possibly renaming/re-theming Boss/Wave into the "Gear Trial" /
   "Charm Vault" node identity discussed in design chat — not done yet,
   current code still calls them `boss`/`wave`.
