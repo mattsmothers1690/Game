@@ -221,6 +221,7 @@
 <div id="startScreen">
   <h1>MACHINEBORN</h1>
   <div style="color:#999;">Collect tools. Understand rules. Build machines. Break encounters.</div>
+  <button id="resumeBtn" style="display:none;">RESUME BATTLE</button>
   <button id="startBtn">START BATTLE</button>
 </div>
 
@@ -494,6 +495,93 @@
   }
   function findChampion(id) {
     return team.find(function (u) { return u.id === id && u.alive; });
+  }
+
+  // ---------------------------------------------------------------
+  // SAVE / RESUME (localStorage) — a battle in progress survives a
+  // reload, backgrounding, or closing the tab. Only mutable runtime
+  // state is persisted; ability definitions (with their functions)
+  // stay in CHAMPIONS/ENEMY_TEMPLATES and are never serialized.
+  // ---------------------------------------------------------------
+  var SAVE_KEY = 'machineborn_save_v1';
+
+  function serializeUnit(u) {
+    return {
+      id: u.id, hp: u.hp, maxHp: u.maxHp, tm: u.tm,
+      atk: u.atk, def: u.def, spd: u.spd,
+      critChance: u.critChance, critDamage: u.critDamage, acc: u.acc, res: u.res,
+      alive: u.alive, buffs: u.buffs, debuffs: u.debuffs, cooldowns: u.cooldowns,
+      bossTurnCount: u.bossTurnCount, fury: u.fury
+    };
+  }
+
+  function saveBattle() {
+    if (!team || battleOver) return;
+    var logLines = Array.prototype.map.call(document.getElementById('logFull').children, function (div) {
+      return { cls: div.className, text: div.textContent };
+    });
+    var data = {
+      version: 1,
+      team: team.map(serializeUnit),
+      enemies: enemies.map(serializeUnit),
+      pendingActorId: pendingAction ? pendingAction.actor.id : null,
+      pendingChosen: pendingAction ? pendingAction.chosen : null,
+      highlightedSlot: highlightedSlot,
+      log: logLines
+    };
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (e) { /* private mode / quota - resume just won't be available */ }
+  }
+
+  function loadSavedBattle() {
+    try {
+      var raw = localStorage.getItem(SAVE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  }
+
+  function clearSave() {
+    try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ }
+  }
+
+  function applySavedUnitState(units, savedList) {
+    savedList.forEach(function (saved) {
+      var unit = units.find(function (u) { return u.id === saved.id; });
+      if (!unit) return;
+      Object.assign(unit, saved);
+    });
+  }
+
+  function resumeBattle(saved) {
+    team = CHAMPIONS.map(function (c) { return makeUnit(c, false); });
+    enemies = ENEMY_TEMPLATES.map(function (e) { return makeUnit(e, true); });
+    enemies.forEach(function (e) { if (e.isBoss) { e.bossTurnCount = 0; e.fury = 0; } });
+    applySavedUnitState(team, saved.team);
+    applySavedUnitState(enemies, saved.enemies);
+    battleOver = false;
+    extraTurnChain = 0;
+    highlightedSlot = saved.highlightedSlot || 'basic';
+    clearLog();
+    (saved.log || []).forEach(function (entry) { logLine(entry.cls, entry.text); });
+    logLine('logSys', 'Battle resumed.');
+    wireEventHooks();
+
+    document.getElementById('startScreen').style.display = 'none';
+    document.body.classList.add('battleActive');
+    document.getElementById('battle').classList.add('active');
+
+    if (saved.pendingActorId) {
+      var actor = team.find(function (u) { return u.id === saved.pendingActorId && u.alive; });
+      pendingAction = actor ? { actor: actor, chosen: saved.pendingChosen || null } : null;
+    } else {
+      pendingAction = null;
+    }
+
+    if (pendingAction) {
+      render();
+    } else {
+      render();
+      runUntilPlayerInput();
+    }
   }
 
   // ---------------------------------------------------------------
@@ -784,6 +872,7 @@
 
   function endBattle(won) {
     battleOver = true;
+    clearSave();
     logLine('logSys', won ? 'VICTORY.' : 'DEFEAT.');
     document.getElementById('resultText').textContent = won ? 'VICTORY' : 'DEFEAT';
     document.getElementById('resultOverlay').classList.add('show');
@@ -1031,6 +1120,7 @@
     }).join('');
 
     renderActions();
+    saveBattle();
   }
 
   function parsePassive(actor) {
@@ -1130,6 +1220,7 @@
   });
 
   document.getElementById('startBtn').addEventListener('click', function () {
+    clearSave();
     document.getElementById('startScreen').style.display = 'none';
     document.body.classList.add('battleActive');
     document.getElementById('battle').classList.add('active');
@@ -1137,11 +1228,26 @@
     runUntilPlayerInput();
   });
 
+  document.getElementById('resumeBtn').addEventListener('click', function () {
+    var saved = loadSavedBattle();
+    if (!saved) return;
+    resumeBattle(saved);
+  });
+
   document.getElementById('restartBtn').addEventListener('click', function () {
     document.getElementById('resultOverlay').classList.remove('show');
     newBattle();
     runUntilPlayerInput();
   });
+
+  // On load, offer to resume a battle left in progress (backgrounded tab, reload, closed browser).
+  (function checkForSavedBattle() {
+    var saved = loadSavedBattle();
+    if (!saved) return;
+    var resumeBtn = document.getElementById('resumeBtn');
+    resumeBtn.style.display = '';
+    document.getElementById('startBtn').textContent = 'START NEW BATTLE';
+  })();
 
 })();
 </script>
