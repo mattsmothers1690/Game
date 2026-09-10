@@ -38,6 +38,14 @@
     margin: 14px auto 0;
   }
   #startScreen button:active, .overlayBtn:active { background: #5b21b6; }
+  .nodeRow { max-width: 320px; margin: 0 auto; }
+  .nodeRow button { margin-bottom: 0; }
+  .stageStepper { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 6px auto 0; }
+  #startScreen .stageStepBtn {
+    display: inline-block; font-size: 1rem; padding: 4px 14px; margin: 0;
+    background: #23233a; border: 1px solid #4c1d95; border-radius: 8px; color: #ddd;
+  }
+  .stageLabel { color: #fbbf24; font-size: 0.8rem; min-width: 90px; }
   .overlayBtn:disabled { opacity: 0.35; }
 
   /* ---------------- TEAM SELECT ---------------- */
@@ -296,8 +304,22 @@
   <h1>MACHINEBORN</h1>
   <div style="color:#999;">Collect tools. Understand rules. Build machines. Break encounters.</div>
   <button id="resumeBtn" style="display:none;">RESUME BATTLE</button>
-  <button id="startBossBtn" data-encounter="boss">BOSS ENCOUNTER (5v5)</button>
-  <button id="startWaveBtn" data-encounter="wave">WAVE ENCOUNTER (4v4 x3)</button>
+  <div class="nodeRow">
+    <button id="startBossBtn" data-encounter="boss">BOSS ENCOUNTER (5v5)</button>
+    <div class="stageStepper">
+      <button id="bossStageDownBtn" class="stageStepBtn">−</button>
+      <span id="bossStageLabel" class="stageLabel"></span>
+      <button id="bossStageUpBtn" class="stageStepBtn">+</button>
+    </div>
+  </div>
+  <div class="nodeRow">
+    <button id="startWaveBtn" data-encounter="wave">WAVE ENCOUNTER (4v4 x3)</button>
+    <div class="stageStepper">
+      <button id="waveStageDownBtn" class="stageStepBtn">−</button>
+      <span id="waveStageLabel" class="stageLabel"></span>
+      <button id="waveStageUpBtn" class="stageStepBtn">+</button>
+    </div>
+  </div>
   <button id="armoryBtn">ARMORY</button>
 </div>
 
@@ -1202,26 +1224,71 @@
   var ENCOUNTER_DROPS = { boss: { gearChance: 1, charmChance: 0.5 }, wave: { gearChance: 0.6, charmChance: 0.3 } };
   var DROP_RARITY_WEIGHTS = { Common: 50, Rare: 30, Epic: 15, Legendary: 5 };
 
-  function rollDropRarity() {
-    var total = RARITY_ORDER.reduce(function (sum, r) { return sum + DROP_RARITY_WEIGHTS[r]; }, 0);
+  // ---------------------------------------------------------------
+  // INFINITE STAGE PROGRESSION - each encounter is a never-ending
+  // ladder of stages rather than one fixed fight. Clearing a stage
+  // unlocks the next; every already-cleared stage stays replayable
+  // (that's the "farm here, push there" loop). Enemy stats compound
+  // per stage so difficulty truly never caps; reward Scrap and drop
+  // rarity odds scale up alongside it so pushing is always worth it,
+  // not just harder for the same payout.
+  // ---------------------------------------------------------------
+  var STAGE_PROGRESS_KEY = 'machineborn_stage_progress_v1';
+  function loadStageProgress() {
+    try { var raw = localStorage.getItem(STAGE_PROGRESS_KEY); return raw ? JSON.parse(raw) : {}; } catch (e) { return {}; }
+  }
+  function saveStageProgress() {
+    try { localStorage.setItem(STAGE_PROGRESS_KEY, JSON.stringify(stageProgress)); } catch (e) { /* private mode / quota */ }
+  }
+  var stageProgress = loadStageProgress(); // { encounterId: highestStageCleared }
+
+  var selectedStage = {}; // in-memory only - always opens back on the current frontier on reload
+  function getSelectedStage(encounterId) {
+    if (!selectedStage[encounterId]) selectedStage[encounterId] = (stageProgress[encounterId] || 0) + 1;
+    return selectedStage[encounterId];
+  }
+  function setSelectedStage(encounterId, stage) {
+    var max = (stageProgress[encounterId] || 0) + 1;
+    selectedStage[encounterId] = Math.max(1, Math.min(stage, max));
+  }
+
+  function stageStatMultiplier(stage) { return Math.pow(1.12, Math.max(0, stage - 1)); }
+  function stageRewardMultiplier(stage) { return 1 + Math.max(0, stage - 1) * 0.25; }
+
+  function scaledEnemyTemplate(base, stage) {
+    var mult = stageStatMultiplier(stage);
+    return Object.assign({}, base, {
+      hp: Math.round(base.hp * mult), atk: Math.round(base.atk * mult), def: Math.round(base.def * mult)
+    });
+  }
+
+  function rollDropRarity(stage) {
+    var bump = Math.min(Math.max((stage || 1) - 1, 0), 20); // shift toward higher rarities as stage rises, capped so weights never go degenerate
+    var weights = {
+      Common: Math.max(10, DROP_RARITY_WEIGHTS.Common - bump * 2),
+      Rare: DROP_RARITY_WEIGHTS.Rare,
+      Epic: DROP_RARITY_WEIGHTS.Epic + bump,
+      Legendary: DROP_RARITY_WEIGHTS.Legendary + bump
+    };
+    var total = RARITY_ORDER.reduce(function (sum, r) { return sum + weights[r]; }, 0);
     var roll = Math.random() * total;
     for (var i = 0; i < RARITY_ORDER.length; i++) {
-      roll -= DROP_RARITY_WEIGHTS[RARITY_ORDER[i]];
+      roll -= weights[RARITY_ORDER[i]];
       if (roll <= 0) return RARITY_ORDER[i];
     }
     return RARITY_ORDER[RARITY_ORDER.length - 1];
   }
 
-  function rollGearDrop() {
+  function rollGearDrop(stage) {
     var slot = GEAR_SLOTS[Math.floor(Math.random() * GEAR_SLOTS.length)];
-    var rarity = rollDropRarity();
+    var rarity = rollDropRarity(stage);
     var template = GEAR_TEMPLATES.find(function (t) { return t.slot === slot && t.rarity === rarity; });
     return farmGear(template.id);
   }
 
-  function rollCharmDrop() {
+  function rollCharmDrop(stage) {
     var charmType = CHARM_TYPES[Math.floor(Math.random() * CHARM_TYPES.length)];
-    var rarity = rollDropRarity();
+    var rarity = rollDropRarity(stage);
     return farmCharm(charmType.id, rarity);
   }
 
@@ -1231,31 +1298,32 @@
   var team, enemies, battleOver, pendingAction, extraTurnChain;
   var extraTurnPending = null; // set by a gear effect mid-action; consumed right after that action resolves (avoids granting a turn while still inside the current one)
   var highlightedSlot = 'basic'; // which of basic/active1/active2/passive/signature is previewed in the detail panel
-  var currentEncounterId, currentWaves, currentTeamIds, waveIndex;
+  var currentEncounterId, currentWaves, currentTeamIds, waveIndex, currentStage;
 
-  function spawnWave(templates) {
-    enemies = templates.map(function (e) { return makeUnit(e, true); });
+  function spawnWave(templates, stage) {
+    enemies = templates.map(function (e) { return makeUnit(scaledEnemyTemplate(e, stage), true); });
     enemies.forEach(function (e) { if (e.isBoss) { e.bossTurnCount = 0; e.fury = 0; } });
   }
 
-  function newBattle(encounterId, teamIds) {
+  function newBattle(encounterId, teamIds, stage) {
     var config = ENCOUNTERS[encounterId];
     currentEncounterId = encounterId;
     currentWaves = config.waves;
     currentTeamIds = teamIds || config.teamIds;
+    currentStage = stage || 1;
     waveIndex = 0;
     team = currentTeamIds.map(function (id) {
       var unit = makeUnit(CHAMPIONS.find(function (c) { return c.id === id; }), false);
       applyGearToUnit(unit);
       return unit;
     });
-    spawnWave(currentWaves[waveIndex]);
+    spawnWave(currentWaves[waveIndex], currentStage);
     battleOver = false;
     pendingAction = null;
     extraTurnChain = 0;
     extraTurnPending = null;
     clearLog();
-    logLine('logSys', 'A new encounter begins.');
+    logLine('logSys', 'A new encounter begins. (Stage ' + currentStage + ')');
     wireEventHooks();
     wireCharmEffects();
     wireSetBonuses();
@@ -1301,9 +1369,10 @@
       return { cls: div.className, text: div.textContent };
     });
     var data = {
-      version: 3,
+      version: 4,
       encounterId: currentEncounterId,
       teamIds: currentTeamIds,
+      stage: currentStage,
       waveIndex: waveIndex,
       team: team.map(serializeUnit),
       enemies: enemies.map(serializeUnit),
@@ -1340,13 +1409,14 @@
     currentEncounterId = saved.encounterId;
     currentWaves = config.waves;
     currentTeamIds = saved.teamIds || config.teamIds;
+    currentStage = saved.stage || 1;
     waveIndex = saved.waveIndex || 0;
     team = currentTeamIds.map(function (id) {
       var unit = makeUnit(CHAMPIONS.find(function (c) { return c.id === id; }), false);
       applyGearToUnit(unit);
       return unit;
     });
-    spawnWave(currentWaves[waveIndex]);
+    spawnWave(currentWaves[waveIndex], currentStage);
     applySavedUnitState(team, saved.team);
     applySavedUnitState(enemies, saved.enemies);
     battleOver = false;
@@ -1688,7 +1758,7 @@
     if (aliveEnemies().length === 0) {
       if (waveIndex < currentWaves.length - 1) {
         waveIndex += 1;
-        spawnWave(currentWaves[waveIndex]);
+        spawnWave(currentWaves[waveIndex], currentStage);
         logLine('logBoss', 'Wave ' + (waveIndex + 1) + ' of ' + currentWaves.length + ' incoming!');
         return false;
       }
@@ -1705,7 +1775,7 @@
     document.getElementById('resultText').textContent = won ? 'VICTORY' : 'DEFEAT';
     var rewardEl = document.getElementById('resultReward');
     if (won) {
-      var reward = ENCOUNTER_SCRAP_REWARD[currentEncounterId] || 0;
+      var reward = Math.round((ENCOUNTER_SCRAP_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
       scrap += reward;
       saveScrap();
       logLine('logSys', 'Earned ' + reward + ' Scrap.');
@@ -1714,16 +1784,26 @@
       var dropCfg = ENCOUNTER_DROPS[currentEncounterId];
       if (dropCfg) {
         if (Math.random() < dropCfg.gearChance) {
-          var gearDrop = rollGearDrop();
+          var gearDrop = rollGearDrop(currentStage);
           logLine('logSys', 'Gear drop: ' + gearInstanceLabel(gearDrop));
           rewardLines.push('Gear: ' + gearInstanceLabel(gearDrop));
         }
         if (Math.random() < dropCfg.charmChance) {
-          var charmDrop = rollCharmDrop();
+          var charmDrop = rollCharmDrop(currentStage);
           logLine('logSys', 'Charm drop: ' + charmInstanceLabel(charmDrop));
           rewardLines.push('Charm: ' + charmInstanceLabel(charmDrop));
         }
       }
+
+      var prevCleared = stageProgress[currentEncounterId] || 0;
+      stageProgress[currentEncounterId] = Math.max(prevCleared, currentStage);
+      saveStageProgress();
+      if (currentStage > prevCleared) {
+        rewardLines.push('Stage ' + currentStage + ' cleared — Stage ' + (currentStage + 1) + ' unlocked!');
+        if (selectedStage[currentEncounterId] === currentStage) selectedStage[currentEncounterId] = currentStage + 1;
+      }
+      renderStageLabels();
+
       rewardEl.innerHTML = rewardLines.map(function (l) { return '<div>' + l + '</div>'; }).join('');
     } else {
       rewardEl.textContent = '';
@@ -2103,25 +2183,26 @@
     });
   });
 
-  function beginEncounter(encounterId, teamIds) {
+  function beginEncounter(encounterId, teamIds, stage) {
     clearSave();
     document.getElementById('teamSelectScreen').style.display = 'none';
     document.getElementById('startScreen').style.display = 'none';
     document.body.classList.add('battleActive');
     document.getElementById('battle').classList.add('active');
-    newBattle(encounterId, teamIds);
+    newBattle(encounterId, teamIds, stage);
     runUntilPlayerInput();
   }
 
   // ---------------------------------------------------------------
   // TEAM SELECT
   // ---------------------------------------------------------------
-  var pendingEncounterId, selectedTeamIds;
+  var pendingEncounterId, pendingStage, selectedTeamIds;
 
   function squadSizeFor(encounterId) { return ENCOUNTERS[encounterId].teamIds.length; }
 
   function openTeamSelect(encounterId) {
     pendingEncounterId = encounterId;
+    pendingStage = getSelectedStage(encounterId);
     selectedTeamIds = ENCOUNTERS[encounterId].teamIds.slice();
     document.getElementById('startScreen').style.display = 'none';
     document.getElementById('teamSelectScreen').style.display = 'block';
@@ -2160,7 +2241,7 @@
   function renderTeamSelect() {
     var config = ENCOUNTERS[pendingEncounterId];
     var squadSize = squadSizeFor(pendingEncounterId);
-    document.getElementById('teamSelectTitle').textContent = config.label.toUpperCase();
+    document.getElementById('teamSelectTitle').textContent = config.label.toUpperCase() + ' — STAGE ' + pendingStage;
     document.getElementById('teamSelectCounter').textContent = 'Selected ' + selectedTeamIds.length + ' / ' + squadSize;
     document.getElementById('teamSelectGrid').innerHTML = CHAMPIONS.map(teamSelectCardHtml).join('');
     document.getElementById('teamSelectBeginBtn').disabled = selectedTeamIds.length !== squadSize;
@@ -2179,11 +2260,27 @@
 
   document.getElementById('teamSelectBeginBtn').addEventListener('click', function () {
     if (selectedTeamIds.length !== squadSizeFor(pendingEncounterId)) return;
-    beginEncounter(pendingEncounterId, selectedTeamIds.slice());
+    beginEncounter(pendingEncounterId, selectedTeamIds.slice(), pendingStage);
   });
 
   document.getElementById('startBossBtn').addEventListener('click', function () { openTeamSelect('boss'); });
   document.getElementById('startWaveBtn').addEventListener('click', function () { openTeamSelect('wave'); });
+
+  function renderStageLabels() {
+    ['boss', 'wave'].forEach(function (id) {
+      var stage = getSelectedStage(id);
+      var cleared = stageProgress[id] || 0;
+      document.getElementById(id + 'StageLabel').textContent = 'Stage ' + stage + (stage > cleared ? ' (new)' : '');
+      document.getElementById(id + 'StageDownBtn').disabled = stage <= 1;
+      document.getElementById(id + 'StageUpBtn').disabled = stage >= cleared + 1;
+    });
+  }
+  renderStageLabels();
+
+  document.getElementById('bossStageDownBtn').addEventListener('click', function () { setSelectedStage('boss', getSelectedStage('boss') - 1); renderStageLabels(); });
+  document.getElementById('bossStageUpBtn').addEventListener('click', function () { setSelectedStage('boss', getSelectedStage('boss') + 1); renderStageLabels(); });
+  document.getElementById('waveStageDownBtn').addEventListener('click', function () { setSelectedStage('wave', getSelectedStage('wave') - 1); renderStageLabels(); });
+  document.getElementById('waveStageUpBtn').addEventListener('click', function () { setSelectedStage('wave', getSelectedStage('wave') + 1); renderStageLabels(); });
 
   // ---------------------------------------------------------------
   // ARMORY
@@ -2400,7 +2497,7 @@
 
   document.getElementById('restartBtn').addEventListener('click', function () {
     document.getElementById('resultOverlay').classList.remove('show');
-    newBattle(currentEncounterId, currentTeamIds);
+    newBattle(currentEncounterId, currentTeamIds, currentStage);
     runUntilPlayerInput();
   });
 
