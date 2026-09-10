@@ -77,19 +77,36 @@
   .effTag { font-size: 0.6rem; padding: 1px 5px; border-radius: 6px; background: #23233a; border: 1px solid #3a3a55; }
   .effTag.buff { border-color: #16a34a; color: #86efac; }
   .effTag.debuff { border-color: #b91c1c; color: #fca5a5; }
-  #actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  #actions { margin-top: 6px; }
+  .kitHeader { color: #aaa; font-size: 0.75rem; margin-bottom: 6px; }
+  .kitHeader .champName { color: #eee; font-weight: 600; }
+  .kitLine { margin-top: 2px; }
+  .kitLine .kitTag { color: #f472b6; font-weight: 600; margin-right: 4px; }
+  .kitLine.sig .kitTag { color: #fde68a; }
+  .actGroup { margin-bottom: 8px; }
   .actBtn {
     background: #23233a;
     border: 1px solid #4c1d95;
     color: #ddd;
-    padding: 10px 12px;
-    border-radius: 8px;
+    padding: 9px 12px;
+    border-radius: 8px 8px 0 0;
     font-size: 0.8rem;
-    flex: 1 1 auto;
-    min-width: 90px;
+    width: 100%;
+    display: block;
+    text-align: left;
   }
   .actBtn:disabled { opacity: 0.35; }
   .actBtn.selected { background: #4c1d95; }
+  .actDesc {
+    background: #1a1a26;
+    border: 1px solid #2f2f45;
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    padding: 6px 10px;
+    font-size: 0.68rem;
+    color: #999;
+    margin-bottom: 6px;
+  }
   #log {
     background: #0f0f16;
     border: 1px solid #2a2a3a;
@@ -157,6 +174,7 @@
   // ---------------------------------------------------------------
   var MAX_EXTRA_TURN_CHAIN = 2; // revisit: prototype cap on chained extra turns
   var TICK = 1; // turn-meter granularity per simulation tick
+  var STACKING_DEBUFF_TYPES = ['Poison']; // debuffs that pile up as independent instances instead of refreshing
 
   // ---------------------------------------------------------------
   // EVENT BUS  (ACTION -> EVENT -> STATE CHANGE -> TRIGGERS -> ...)
@@ -183,56 +201,139 @@
       buffs: [],
       debuffs: [],
       cooldowns: {},
-      alive: true,
-      sigState: {}
+      alive: true
     });
   }
 
   // ---------------------------------------------------------------
   // CHAMPION DEFINITIONS
+  // Kit shape: Basic (light built-in condition) + Active 1 + Active 2
+  // + Passive (always-on conditional trigger) + Signature (permanent
+  // stacking stat shift for the rest of the battle).
   // ---------------------------------------------------------------
   var CHAMPIONS = [
     {
       id: 'vara', name: 'Vara', role: 'Guardian',
       hp: 145, atk: 55, def: 90, spd: 95, critChance: 15, critDamage: 150, acc: 0, res: 40,
-      signature: 'When an ally below 50% HP is hit, gain Defense Up.',
-      basic: { name: 'Strike', coeff: 1.0, aoe: false, targetType: 'enemy' },
-      active: { name: "Guardian's Stand", cd: 3, coeff: 0, aoe: false, targetType: 'ally',
+      passive: 'Aegis Instinct — at the start of Vara\'s turn, the lowest-HP% living ally gains a Shield worth 15% of their max HP.',
+      signature: 'Whenever an ally below 50% HP is hit, Vara permanently gains Defense.',
+      basic: {
+        name: 'Strike', desc: 'Single-target hit. If Vara is below 70% HP, she also gains Defense Up for 1 turn.',
+        coeff: 1.0, aoe: false, targetType: 'enemy',
+        onResolved: function (self) {
+          if (self.hp / self.maxHp < 0.7) {
+            applyBuff(self, 'Defense Up', 30, 1, {});
+            logLine('logBuff', self.name + ' grits through the pain — Defense Up.');
+          }
+        }
+      },
+      active1: {
+        name: "Guardian's Stand", cd: 3, targetType: 'ally',
+        desc: 'Shields the chosen ally for 30% of their max HP, hardens Vara\'s own Defense, and Provokes so enemies attack her instead.',
+        coeff: 0, aoe: false,
         effect: function (self, target, ctx) {
-          applyBuff(target, 'Shield', 30, 2, ctx); // shield = % of maxHP absorbed, simplified flat 30%
+          applyBuff(target, 'Shield', 30, 2, ctx);
           applyBuff(self, 'Defense Up', 30, 2, ctx);
-          applyDebuff(self, 'Provoke', 0, 2, self); // draws enemy attacks onto Vara
+          applyDebuff(self, 'Provoke', 0, 2, self);
           logLine('logBuff', self.name + ' shields ' + target.name + ' and steps in to draw every hit.');
-        } }
+        }
+      },
+      active2: {
+        name: 'Bulwark Slam', cd: 4, targetType: 'enemy',
+        desc: 'Heavy single-target hit. If Vara currently has an active Shield, she cleanses one debuff from herself afterward.',
+        coeff: 1.1, aoe: false,
+        onResolved: function (self) {
+          if (self.buffs.some(function (b) { return b.type === 'Shield'; }) && self.debuffs.length) {
+            var idx = Math.floor(Math.random() * self.debuffs.length);
+            var removed = self.debuffs.splice(idx, 1)[0];
+            logLine('logBuff', self.name + ' cleanses their own ' + removed.type + '.');
+          }
+        }
+      }
     },
     {
       id: 'mire', name: 'Mire', role: 'Plaguebearer',
       hp: 120, atk: 65, def: 60, spd: 100, critChance: 15, critDamage: 150, acc: 20, res: 20,
-      signature: 'Applying a Poison increases Speed by 1.',
-      basic: { name: 'Toxic Strike', coeff: 0.8, aoe: false, targetType: 'enemy', applyDebuff: { type: 'Poison', chance: 60 } },
-      active: { name: 'Plague Cloud', cd: 3, coeff: 0.5, aoe: true, targetType: 'enemy', applyDebuff: { type: 'Poison', chance: 75 } }
+      passive: 'Plague Detonation — at the start of Mire\'s turn, any enemy with 3+ Poison stacks has all of them extended by 1 turn, then takes bonus damage (2% max HP per stack).',
+      signature: 'Applying a Poison permanently increases Mire\'s Speed by 1.',
+      basic: {
+        name: 'Toxic Strike', desc: 'Single-target hit that seeds Poison (60% chance, 80% if already poisoned).',
+        coeff: 0.8, aoe: false, targetType: 'enemy',
+        applyDebuff: { type: 'Poison', chance: 60, dynamicChance: function (target) { return countDebuffStacks(target, 'Poison') > 0 ? 80 : 60; } }
+      },
+      active1: {
+        name: 'Plague Cloud', cd: 3, targetType: 'enemy',
+        desc: 'AoE hit with a strong chance (75%) to seed Poison on every enemy.',
+        coeff: 0.5, aoe: true, applyDebuff: { type: 'Poison', chance: 75 }
+      },
+      active2: {
+        name: 'Wither', cd: 3, targetType: 'enemy',
+        desc: 'Single-target hit, chance to apply Defense Down, and always seeds one guaranteed extra Poison stack.',
+        coeff: 0.6, aoe: false, applyDebuff: { type: 'Defense Down', chance: 50 },
+        onResolved: function (self, targets) {
+          targets.forEach(function (t) {
+            if (t.alive) applyDebuff(t, 'Poison', 30, 2, self);
+          });
+        }
+      }
     },
     {
       id: 'kestrel', name: 'Kestrel', role: 'Controller',
       hp: 110, atk: 60, def: 55, spd: 105, critChance: 15, critDamage: 150, acc: 15, res: 25,
-      signature: 'Every basic attack this Champion performs increases their Attack by 5.',
-      basic: { name: 'Gust', coeff: 0.65, aoe: true, targetType: 'enemy' },
-      active: { name: 'Cyclone', cd: 4, coeff: 0.4, aoe: true, targetType: 'enemy',
-        applyDebuff: { type: 'Stun', chance: 40 }, applyDebuff2: { type: 'Speed Down', chance: 60 } }
+      passive: 'Windcall — whenever Kestrel uses her Basic Attack, any ally with 3+ active buffs joins in, each dealing 30% of their Attack as bonus damage to her target(s).',
+      signature: 'Every basic attack this Champion performs permanently increases her Attack by 5.',
+      basic: {
+        name: 'Gust', desc: 'AoE hit. Deals 15% more damage to targets that currently have an active buff.',
+        coeff: 0.65, aoe: true, targetType: 'enemy',
+        conditionalMult: function (target) { return target.buffs.length > 0 ? 1.15 : 1; }
+      },
+      active1: {
+        name: 'Cyclone', cd: 4, targetType: 'enemy',
+        desc: 'AoE hit with a chance to Stun (40%) and a chance to apply Speed Down (60%) to every enemy.',
+        coeff: 0.4, aoe: true,
+        applyDebuff: { type: 'Stun', chance: 40 }, applyDebuff2: { type: 'Speed Down', chance: 60 }
+      },
+      active2: {
+        name: 'Static Field', cd: 4, targetType: 'enemy',
+        desc: 'Light AoE hit with a strong chance (70%) to Block Buffs on every enemy.',
+        coeff: 0.3, aoe: true, applyDebuff: { type: 'Block Buffs', chance: 70 }
+      }
     },
     {
       id: 'rook', name: 'Rook', role: 'Executioner',
       hp: 130, atk: 80, def: 65, spd: 90, critChance: 20, critDamage: 160, acc: 10, res: 15,
-      signature: 'Attacking an enemy below 50% HP increases Crit Damage.',
-      basic: { name: 'Cleave', coeff: 1.0, aoe: false, targetType: 'enemy' },
-      active: { name: 'Execute', cd: 3, coeff: 1.2, executeCoeff: 2.2, aoe: false, targetType: 'enemy' }
+      passive: "Executioner's Eye — if Rook's target is below 30% HP, his attacks always critically hit.",
+      signature: 'Attacking an enemy below 50% HP permanently increases Rook\'s Crit Damage.',
+      basic: {
+        name: 'Cleave', desc: 'Single-target hit. Deals 20% more damage to targets above 80% HP.',
+        coeff: 1.0, aoe: false, targetType: 'enemy',
+        conditionalMult: function (target) { return (target.hp / target.maxHp) > 0.8 ? 1.2 : 1; }
+      },
+      active1: {
+        name: 'Execute', cd: 3, targetType: 'enemy',
+        desc: 'Single-target hit, dealing far more damage (2.2x instead of 1.2x coefficient) if the target is below 50% HP.',
+        coeff: 1.2, executeCoeff: 2.2, aoe: false
+      },
+      active2: {
+        name: 'Culling Blow', cd: 4, targetType: 'enemy',
+        desc: 'Single-target true-damage hit — completely ignores the target\'s Defense.',
+        coeff: 1.0, aoe: false, trueDamage: true
+      }
     },
     {
       id: 'nyx', name: 'Nyx', role: 'Contagionist',
       hp: 115, atk: 62, def: 55, spd: 98, critChance: 15, critDamage: 150, acc: 15, res: 20,
-      signature: 'Every debuff placed on this Champion increases their Speed by 1.',
-      basic: { name: 'Shadow Touch', coeff: 0.8, aoe: false, targetType: 'enemy' },
-      active: { name: 'Contagion', cd: 4, coeff: 0, aoe: false, targetType: 'enemy',
+      passive: 'Spreading Rot — whenever an enemy dies afflicted with 2+ debuffs, Nyx transfers one of them to a random remaining enemy.',
+      signature: 'Every debuff placed on Nyx permanently increases her Speed by 1.',
+      basic: {
+        name: 'Shadow Touch', desc: 'Single-target hit. Deals 15% more damage to targets with 2 or more debuffs.',
+        coeff: 0.8, aoe: false, targetType: 'enemy',
+        conditionalMult: function (target) { return target.debuffs.length >= 2 ? 1.15 : 1; }
+      },
+      active1: {
+        name: 'Contagion', cd: 4, targetType: 'enemy',
+        desc: 'Rips every debuff off your lowest-HP% ally and hurls all of them onto the chosen enemy.',
+        coeff: 0, aoe: false,
         effect: function (self, target, ctx) {
           var ally = lowestHpAlly(ctx.team);
           if (ally && ally.debuffs.length) {
@@ -245,7 +346,20 @@
           } else {
             logLine('logSys', self.name + ' finds nothing to transfer.');
           }
-        } }
+        }
+      },
+      active2: {
+        name: 'Curse Weave', cd: 3, targetType: 'enemy',
+        desc: 'No damage. Strong chance (70% each) to apply both Attack Down and Defense Down to the target.',
+        coeff: 0, aoe: false,
+        effect: function (self, target) {
+          var hitAtk = accuracyRoll(self, target, 70);
+          var hitDef = accuracyRoll(self, target, 70);
+          if (hitAtk) applyDebuff(target, 'Attack Down', 30, 2, self);
+          if (hitDef) applyDebuff(target, 'Defense Down', 30, 2, self);
+          logLine('logBuff', self.name + ' weaves curses onto ' + target.name + (hitAtk || hitDef ? '.' : ', but none take hold.'));
+        }
+      }
     }
   ];
 
@@ -280,7 +394,7 @@
     extraTurnChain = 0;
     clearLog();
     logLine('logSys', 'A new encounter begins.');
-    wireSignatures();
+    wireEventHooks();
     render();
   }
 
@@ -292,37 +406,46 @@
     if (!alive.length) return null;
     return alive.reduce(function (a, b) { return (b.hp / b.maxHp) < (a.hp / a.maxHp) ? b : a; });
   }
+  function countDebuffStacks(unit, type) {
+    return unit.debuffs.filter(function (d) { return d.type === type; }).length;
+  }
+  function findChampion(id) {
+    return team.find(function (u) { return u.id === id && u.alive; });
+  }
 
   // ---------------------------------------------------------------
-  // SIGNATURES (event-driven, one sentence each)
+  // SIGNATURES (permanent stacking stat shifts) + PASSIVES
+  // (always-on conditional triggers), all event-driven.
   // ---------------------------------------------------------------
-  function wireSignatures() {
+  function wireEventHooks() {
     listeners = {}; // reset bus per battle
 
-    // Vara: When an ally below 50% HP is hit, gain Defense Up.
+    // --- SIGNATURES ---
+
+    // Vara: ally below 50% HP is hit -> permanent Defense.
     on('damageTaken', function (p) {
-      var vara = team.find(function (u) { return u.id === 'vara' && u.alive; });
+      var vara = findChampion('vara');
       if (!vara) return;
       if (!p.unit.isEnemy && p.unit !== vara && (p.unit.hp / p.unit.maxHp) < 0.5) {
-        applyBuff(vara, 'Defense Up', 30, 2, {});
-        logLine('logBuff', 'Vara (Signature): ' + p.unit.name + ' is in danger — Vara gains Defense Up.');
+        vara.def += 4;
+        logLine('logBuff', 'Vara (Signature): ' + p.unit.name + ' is in danger — Defense +4 (now ' + vara.def + ').');
       }
     });
 
-    // Mire: Applying a Poison increases Speed by 1.
+    // Mire: applying Poison -> permanent Speed +1.
     on('debuffApplied', function (p) {
       if (p.source && p.source.id === 'mire' && p.debuff.type === 'Poison') {
         p.source.spd += 1;
         logLine('logBuff', 'Mire (Signature): Poison spreads, Speed +1 (now ' + p.source.spd + ').');
       }
-      // Nyx: Every debuff placed on this Champion increases their Speed by 1.
+      // Nyx: any debuff placed on her -> permanent Speed +1.
       if (p.unit && p.unit.id === 'nyx') {
         p.unit.spd += 1;
         logLine('logBuff', 'Nyx (Signature): afflicted, Speed +1 (now ' + p.unit.spd + ').');
       }
     });
 
-    // Kestrel: Every basic attack performed by this Champion increases their Attack by 5.
+    // Kestrel: every basic attack -> permanent Attack +5.
     on('basicAttackUsed', function (p) {
       if (p.unit.id === 'kestrel') {
         p.unit.atk += 5;
@@ -330,23 +453,69 @@
       }
     });
 
-    // Rook: Attacking an enemy below 50% HP increases Crit Damage.
+    // Rook: attacking a sub-50% HP enemy -> permanent Crit Damage.
     on('attackResolved', function (p) {
       if (p.attacker.id === 'rook' && (p.target.hp / p.target.maxHp) < 0.5) {
         p.attacker.critDamage += 10;
         logLine('logBuff', 'Rook (Signature): exploits the weak, Crit Damage +10% (now ' + p.attacker.critDamage + '%).');
       }
     });
+
+    // --- PASSIVES ---
+
+    // Vara — Aegis Instinct: start of her turn, shield the lowest-HP% ally.
+    on('turnStart', function (p) {
+      if (p.unit.id !== 'vara') return;
+      var ally = lowestHpAlly(aliveTeam());
+      if (ally) {
+        applyBuff(ally, 'Shield', 15, 2, {});
+        logLine('logBuff', 'Vara (Passive): shields ' + ally.name + '.');
+      }
+    });
+
+    // Mire — Plague Detonation: start of her turn, detonate heavily-poisoned enemies.
+    on('turnStart', function (p) {
+      if (p.unit.id !== 'mire') return;
+      aliveEnemies().forEach(function (enemy) {
+        var stacks = countDebuffStacks(enemy, 'Poison');
+        if (stacks >= 3) {
+          enemy.debuffs.forEach(function (d) { if (d.type === 'Poison') d.duration += 1; });
+          var dmg = Math.round(enemy.maxHp * 0.02 * stacks);
+          logLine('logBuff', 'Mire (Passive): detonates ' + stacks + ' Poison stacks on ' + enemy.name + '.');
+          dealDamage(enemy, dmg, 'Plague Detonation');
+        }
+      });
+    });
+
+    // Kestrel — Windcall: on her basic attack, buffed allies join in.
+    on('basicAttackUsed', function (p) {
+      if (p.unit.id !== 'kestrel') return;
+      aliveTeam().forEach(function (ally) {
+        if (ally === p.unit || ally.buffs.length < 3) return;
+        var bonus = Math.round(ally.atk * 0.3);
+        logLine('logBuff', 'Kestrel (Passive): ' + ally.name + ' joins the attack.');
+        p.targets.forEach(function (t) {
+          if (t.alive) dealDamage(t, Math.max(1, Math.round(bonus * defenseMultiplier(effectiveDef(t)))), ally.name + ' (assist)');
+        });
+      });
+    });
+
+    // Nyx — Spreading Rot: enemy dies with 2+ debuffs, spread one to a survivor.
+    on('death', function (p) {
+      var nyx = findChampion('nyx');
+      if (!nyx || !p.unit.isEnemy || p.unit.debuffs.length < 2) return;
+      var survivors = aliveEnemies();
+      if (!survivors.length) return;
+      var recipient = survivors[Math.floor(Math.random() * survivors.length)];
+      var debuff = p.unit.debuffs[Math.floor(Math.random() * p.unit.debuffs.length)];
+      applyDebuff(recipient, debuff.type, debuff.value, debuff.duration, nyx);
+      logLine('logBuff', 'Nyx (Passive): ' + debuff.type + ' spreads from the dying ' + p.unit.name + ' to ' + recipient.name + '.');
+    });
   }
 
   // ---------------------------------------------------------------
   // BUFF / DEBUFF HELPERS
   // ---------------------------------------------------------------
-  var BUFF_TYPES = ['Attack Up', 'Defense Up', 'Speed Up', 'Counter', 'Shield', 'Immunity', 'Regeneration'];
-  var DEBUFF_TYPES = ['Attack Down', 'Defense Down', 'Speed Down', 'Poison', 'Burn', 'Bleed', 'Provoke', 'Stun', 'Silence', 'Block Buffs', 'Healing Reduction'];
-
-  function isDebuffType(type) { return DEBUFF_TYPES.indexOf(type) !== -1; }
-
   function applyBuff(unit, type, value, duration, ctx) {
     if (unit.debuffs.some(function (d) { return d.type === 'Block Buffs'; })) {
       logLine('logSys', unit.name + "'s buffs are blocked.");
@@ -371,9 +540,13 @@
       logLine('logSys', unit.name + ' is immune.');
       return false;
     }
-    var existing = unit.debuffs.find(function (d) { return d.type === type; });
-    if (existing) { existing.duration = Math.max(existing.duration, duration); }
-    else { unit.debuffs.push({ type: type, value: value, duration: duration }); }
+    if (STACKING_DEBUFF_TYPES.indexOf(type) !== -1) {
+      unit.debuffs.push({ type: type, value: value, duration: duration });
+    } else {
+      var existing = unit.debuffs.find(function (d) { return d.type === type; });
+      if (existing) { existing.duration = Math.max(existing.duration, duration); }
+      else { unit.debuffs.push({ type: type, value: value, duration: duration }); }
+    }
     emit('debuffApplied', { unit: unit, debuff: { type: type, value: value }, source: source });
     return true;
   }
@@ -396,10 +569,12 @@
 
   function rollCrit(unit) { return Math.random() * 100 < unit.critChance; }
 
-  function computeDamage(attacker, target, coeff) {
+  function computeDamage(attacker, target, coeff, trueDamage) {
     var raw = coeff * effectiveAtk(attacker);
-    var mitigated = raw * defenseMultiplier(effectiveDef(target));
-    var crit = rollCrit(attacker);
+    var mitigated = trueDamage ? raw : raw * defenseMultiplier(effectiveDef(target));
+    // Rook passive — Executioner's Eye: always crits a target below 30% HP.
+    var guaranteedCrit = attacker.id === 'rook' && (target.hp / target.maxHp) < 0.3;
+    var crit = guaranteedCrit || rollCrit(attacker);
     if (crit) mitigated *= (attacker.critDamage / 100);
     return { amount: Math.max(1, Math.round(mitigated)), crit: crit };
   }
@@ -460,16 +635,20 @@
       unit.hp = Math.min(unit.maxHp, unit.hp + heal);
       logLine('logHeal', unit.name + ' regenerates ' + heal + ' HP.');
     }
-    ['Poison', 'Burn'].forEach(function (dtype) {
-      var d = unit.debuffs.find(function (x) { return x.type === dtype; });
-      if (d && unit.alive) {
-        var pct = dtype === 'Poison' ? 0.05 : 0.03;
-        var dmg = Math.round(unit.maxHp * pct);
-        unit.hp = Math.max(0, unit.hp - dmg);
-        logLine('logDmg', unit.name + ' suffers ' + dmg + ' ' + dtype + ' damage. (' + unit.hp + '/' + unit.maxHp + ')');
-        if (unit.hp <= 0) killUnit(unit);
-      }
-    });
+    var poisonStacks = countDebuffStacks(unit, 'Poison');
+    if (poisonStacks > 0 && unit.alive) {
+      var poisonDmg = Math.round(unit.maxHp * 0.05 * poisonStacks);
+      unit.hp = Math.max(0, unit.hp - poisonDmg);
+      logLine('logDmg', unit.name + ' suffers ' + poisonDmg + ' Poison damage (' + poisonStacks + ' stacks). (' + unit.hp + '/' + unit.maxHp + ')');
+      if (unit.hp <= 0) killUnit(unit);
+    }
+    var burn = unit.debuffs.find(function (d) { return d.type === 'Burn'; });
+    if (burn && unit.alive) {
+      var burnDmg = Math.round(unit.maxHp * 0.03);
+      unit.hp = Math.max(0, unit.hp - burnDmg);
+      logLine('logDmg', unit.name + ' suffers ' + burnDmg + ' Burn damage. (' + unit.hp + '/' + unit.maxHp + ')');
+      if (unit.hp <= 0) killUnit(unit);
+    }
   }
 
   function processDurations(unit) {
@@ -539,6 +718,8 @@
 
     startOfTurnEffects(actor);
     if (checkBattleEnd()) { render(); return; }
+    emit('turnStart', { unit: actor });
+    if (checkBattleEnd()) { render(); return; }
 
     if (actor.isBoss) hollowKingMechanic(actor);
 
@@ -589,7 +770,8 @@
     var targets = ability.aoe ? defenderList.filter(function (u) { return u.alive; }) : [primaryTarget];
     targets.forEach(function (target) {
       if (!target.alive) return;
-      var dmg = computeDamage(attacker, target, ability.coeff);
+      var condMult = ability.conditionalMult ? ability.conditionalMult(target) : 1;
+      var dmg = computeDamage(attacker, target, ability.coeff * condMult, ability.trueDamage);
       var wasAlive = target.alive;
       dealDamage(target, dmg.amount, attacker.name + (dmg.crit ? ' (CRIT)' : ''));
       emit('attackResolved', { attacker: attacker, target: target, amount: dmg.amount, crit: dmg.crit });
@@ -607,19 +789,22 @@
         logLine('logHeal', attacker.name + ' drains ' + healAmt + ' HP.');
       }
       if (ability.applyDebuff && target.alive) {
-        if (accuracyRoll(attacker, target, ability.applyDebuff.chance)) {
+        var chance1 = ability.applyDebuff.dynamicChance ? ability.applyDebuff.dynamicChance(target) : ability.applyDebuff.chance;
+        if (accuracyRoll(attacker, target, chance1)) {
           applyDebuff(target, ability.applyDebuff.type, 30, 2, attacker);
           logLine('logBuff', target.name + ' is afflicted with ' + ability.applyDebuff.type + '.');
         }
       }
       if (ability.applyDebuff2 && target.alive) {
-        if (accuracyRoll(attacker, target, ability.applyDebuff2.chance)) {
+        var chance2 = ability.applyDebuff2.dynamicChance ? ability.applyDebuff2.dynamicChance(target) : ability.applyDebuff2.chance;
+        if (accuracyRoll(attacker, target, chance2)) {
           applyDebuff(target, ability.applyDebuff2.type, 30, 2, attacker);
           logLine('logBuff', target.name + ' is afflicted with ' + ability.applyDebuff2.type + '.');
         }
       }
     });
-    if (isBasic) emit('basicAttackUsed', { unit: attacker });
+    if (ability.onResolved) ability.onResolved(attacker, targets);
+    if (isBasic) emit('basicAttackUsed', { unit: attacker, targets: targets });
   }
 
   function useEffectAbility(actor, target, ability, ctx) {
@@ -628,12 +813,14 @@
 
   // ---------------------------------------------------------------
   // PLAYER ACTION HANDLING
+  // kind is 'basic', 'active1', or 'active2' — matching the champion
+  // object's own ability keys.
   // ---------------------------------------------------------------
   function playerChooseAbility(kind) {
     if (!pendingAction) return;
     var actor = pendingAction.actor;
-    if (kind === 'active' && actor.cooldowns.active > 0) return;
-    if (kind === 'active' && actor.debuffs.some(function (d) { return d.type === 'Silence'; })) {
+    if (kind !== 'basic' && actor.cooldowns[kind] > 0) return;
+    if (kind !== 'basic' && actor.debuffs.some(function (d) { return d.type === 'Silence'; })) {
       logLine('logSys', actor.name + ' is silenced.');
       return;
     }
@@ -645,16 +832,16 @@
     if (!pendingAction || !pendingAction.chosen) return;
     var actor = pendingAction.actor;
     var kind = pendingAction.chosen;
-    var ability = kind === 'basic' ? actor.basic : actor.active;
+    var ability = actor[kind];
 
-    if (kind === 'active') {
+    if (kind !== 'basic') {
       if (ability.coeff > 0 || ability.executeCoeff) {
         var coeff = ability.executeCoeff && (target.hp / target.maxHp) < 0.5 ? ability.executeCoeff : ability.coeff;
         performAttack(actor, target, Object.assign({}, ability, { coeff: coeff }), enemies, false);
       } else {
         useEffectAbility(actor, target, ability, { team: team, enemies: enemies });
       }
-      actor.cooldowns.active = ability.cd;
+      actor.cooldowns[kind] = ability.cd;
     } else {
       performAttack(actor, target, ability, enemies, true);
     }
@@ -687,7 +874,17 @@
       var label = b.type === 'Shield' ? b.type + ' ' + b.pool + 'hp (' + b.duration + ')' : b.type + ' (' + b.duration + ')';
       html += '<span class="effTag buff">' + label + '</span>';
     });
-    unit.debuffs.forEach(function (d) { html += '<span class="effTag debuff">' + d.type + ' (' + d.duration + ')</span>'; });
+    var grouped = {};
+    unit.debuffs.forEach(function (d) {
+      if (!grouped[d.type]) grouped[d.type] = { count: 0, maxDuration: 0 };
+      grouped[d.type].count += 1;
+      grouped[d.type].maxDuration = Math.max(grouped[d.type].maxDuration, d.duration);
+    });
+    Object.keys(grouped).forEach(function (type) {
+      var g = grouped[type];
+      var label = type + (g.count > 1 ? ' x' + g.count : '') + ' (' + g.maxDuration + ')';
+      html += '<span class="effTag debuff">' + label + '</span>';
+    });
     html += '</div>';
     return html;
   }
@@ -713,7 +910,7 @@
 
   function currentTargetType() {
     if (!pendingAction || !pendingAction.chosen) return null;
-    var ability = pendingAction.chosen === 'basic' ? pendingAction.actor.basic : pendingAction.actor.active;
+    var ability = pendingAction.actor[pendingAction.chosen];
     return ability.targetType || 'enemy';
   }
 
@@ -741,15 +938,29 @@
     renderActions();
   }
 
+  function abilityButtonHtml(kind, ability, actor) {
+    var label = ability.name + (kind === 'basic' ? '' : ' (' + (actor.cooldowns[kind] > 0 ? 'CD ' + actor.cooldowns[kind] : 'Ready') + ')');
+    var disabled = kind !== 'basic' && actor.cooldowns[kind] > 0;
+    var selected = pendingAction.chosen === kind;
+    return '' +
+      '<div class="actGroup">' +
+        '<button class="actBtn' + (selected ? ' selected' : '') + '" data-act="' + kind + '"' + (disabled ? ' disabled' : '') + '>' + label + '</button>' +
+        '<div class="actDesc">' + (ability.desc || '') + '</div>' +
+      '</div>';
+  }
+
   function renderActions() {
     var el = document.getElementById('actions');
     if (!pendingAction) { el.innerHTML = '<div style="color:#666;">Waiting for turn order...</div>'; return; }
     var actor = pendingAction.actor;
-    var html = '<div style="width:100%;color:#aaa;font-size:0.75rem;">' + actor.name + "'s turn — " + (actor.signature || '') + '</div>';
-    html += '<button class="actBtn' + (pendingAction.chosen === 'basic' ? ' selected' : '') + '" data-act="basic">' + actor.basic.name + ' (Basic)</button>';
-    var cdLeft = actor.cooldowns.active || 0;
-    html += '<button class="actBtn' + (pendingAction.chosen === 'active' ? ' selected' : '') + '" data-act="active" ' + (cdLeft > 0 ? 'disabled' : '') + '>' + actor.active.name + (cdLeft > 0 ? ' (CD ' + cdLeft + ')' : '') + '</button>';
-    if (pendingAction.chosen) html += '<div style="width:100%;color:#7dd3fc;font-size:0.75rem;">Choose a target above.</div>';
+    var html = '<div class="kitHeader"><span class="champName">' + actor.name + '</span>\'s turn</div>';
+    if (actor.passive) html += '<div class="kitLine"><span class="kitTag">PASSIVE</span>' + actor.passive + '</div>';
+    if (actor.signature) html += '<div class="kitLine sig"><span class="kitTag">SIGNATURE</span>' + actor.signature + '</div>';
+    html += '<div class="section-label" style="margin-top:8px;">Choose an ability</div>';
+    html += abilityButtonHtml('basic', actor.basic, actor);
+    html += abilityButtonHtml('active1', actor.active1, actor);
+    html += abilityButtonHtml('active2', actor.active2, actor);
+    if (pendingAction.chosen) html += '<div style="color:#7dd3fc;font-size:0.75rem;">Choose a target above.</div>';
     el.innerHTML = html;
   }
 
