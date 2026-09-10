@@ -591,21 +591,44 @@
   ];
 
   // ---------------------------------------------------------------
-  // GEAR (minimal MVP: 2 slots, fixed stats per rarity tier,
-  // hardcoded item pool - no sets/substats/random rolls yet)
+  // GEAR (6 main slots, matching Raid's layout, each with a clear
+  // primary stat; fixed values per rarity tier - no substats/sets/
+  // random rolls yet. Charms below are the 3 accessory slots.)
   // ---------------------------------------------------------------
-  var GEAR_SLOTS = ['weapon', 'armor'];
+  var GEAR_SLOTS = ['weapon', 'helmet', 'shield', 'gauntlets', 'chestplate', 'boots'];
   var RARITY_ORDER = ['Common', 'Rare', 'Epic', 'Legendary'];
   var RARITY_COLOR = { Common: '#9ca3af', Rare: '#60a5fa', Epic: '#c084fc', Legendary: '#fbbf24' };
   var GEAR_ITEMS = [
+    // Weapon - Attack
     { id: 'iron_blade', name: 'Iron Blade', slot: 'weapon', rarity: 'Common', stats: { atk: 12 } },
     { id: 'serrated_edge', name: 'Serrated Edge', slot: 'weapon', rarity: 'Rare', stats: { atk: 18, critChance: 8 } },
     { id: 'steel_saber', name: 'Steel Saber', slot: 'weapon', rarity: 'Epic', stats: { atk: 26, critChance: 10 } },
     { id: 'aetherblade', name: 'Aetherblade', slot: 'weapon', rarity: 'Legendary', stats: { atk: 36, critChance: 12, critDamage: 15 } },
-    { id: 'chainmail_vest', name: 'Chainmail Vest', slot: 'armor', rarity: 'Common', stats: { hp: 60 } },
-    { id: 'reinforced_vest', name: 'Reinforced Vest', slot: 'armor', rarity: 'Rare', stats: { hp: 90, def: 10 } },
-    { id: 'bulwark_plate', name: 'Bulwark Plate', slot: 'armor', rarity: 'Epic', stats: { def: 35, hp: 60 } },
-    { id: 'aegis_core', name: 'Aegis Core', slot: 'armor', rarity: 'Legendary', stats: { def: 50, hp: 90, res: 20 } }
+    // Helmet - HP
+    { id: 'leather_cap', name: 'Leather Cap', slot: 'helmet', rarity: 'Common', stats: { hp: 50 } },
+    { id: 'chain_coif', name: 'Chain Coif', slot: 'helmet', rarity: 'Rare', stats: { hp: 80, res: 8 } },
+    { id: 'plated_helm', name: 'Plated Helm', slot: 'helmet', rarity: 'Epic', stats: { hp: 110, res: 14 } },
+    { id: 'crown_of_vitality', name: 'Crown of Vitality', slot: 'helmet', rarity: 'Legendary', stats: { hp: 150, res: 20, def: 15 } },
+    // Shield - Defense
+    { id: 'wooden_buckler', name: 'Wooden Buckler', slot: 'shield', rarity: 'Common', stats: { def: 18 } },
+    { id: 'iron_shield', name: 'Iron Shield', slot: 'shield', rarity: 'Rare', stats: { def: 28, hp: 30 } },
+    { id: 'bulwark', name: 'Bulwark', slot: 'shield', rarity: 'Epic', stats: { def: 40, hp: 50 } },
+    { id: 'aegis_wall', name: 'Aegis Wall', slot: 'shield', rarity: 'Legendary', stats: { def: 55, hp: 80, res: 15 } },
+    // Gauntlets - Crit Chance
+    { id: 'worn_gloves', name: 'Worn Gloves', slot: 'gauntlets', rarity: 'Common', stats: { critChance: 10 } },
+    { id: 'sharp_gauntlets', name: 'Sharp Gauntlets', slot: 'gauntlets', rarity: 'Rare', stats: { critChance: 16, atk: 8 } },
+    { id: 'predators_grip', name: "Predator's Grip", slot: 'gauntlets', rarity: 'Epic', stats: { critChance: 22, atk: 12 } },
+    { id: 'executioners_fist', name: "Executioner's Fist", slot: 'gauntlets', rarity: 'Legendary', stats: { critChance: 30, atk: 16, critDamage: 10 } },
+    // Chestplate - Crit Damage
+    { id: 'padded_vest', name: 'Padded Vest', slot: 'chestplate', rarity: 'Common', stats: { critDamage: 15 } },
+    { id: 'reinforced_chestplate', name: 'Reinforced Chestplate', slot: 'chestplate', rarity: 'Rare', stats: { critDamage: 25, hp: 40 } },
+    { id: 'warplate', name: 'Warplate', slot: 'chestplate', rarity: 'Epic', stats: { critDamage: 35, hp: 60 } },
+    { id: 'doomplate', name: 'Doomplate', slot: 'chestplate', rarity: 'Legendary', stats: { critDamage: 50, hp: 90, def: 20 } },
+    // Boots - Speed
+    { id: 'worn_boots', name: 'Worn Boots', slot: 'boots', rarity: 'Common', stats: { spd: 6 } },
+    { id: 'swift_boots', name: 'Swift Boots', slot: 'boots', rarity: 'Rare', stats: { spd: 10, acc: 8 } },
+    { id: 'windwalkers', name: 'Windwalkers', slot: 'boots', rarity: 'Epic', stats: { spd: 14, acc: 12 } },
+    { id: 'hermes_stride', name: "Hermes' Stride", slot: 'boots', rarity: 'Legendary', stats: { spd: 20, acc: 16, critChance: 8 } }
   ];
   var EQUIPMENT_KEY = 'machineborn_equipment_v1';
 
@@ -618,7 +641,7 @@
   function saveEquipment() {
     try { localStorage.setItem(EQUIPMENT_KEY, JSON.stringify(equipment)); } catch (e) { /* private mode / quota */ }
   }
-  var equipment = loadEquipment(); // { championId: { weapon: itemId|null, armor: itemId|null } }
+  var equipment = loadEquipment(); // { championId: { <GEAR_SLOTS[i]>: itemId|null, ..., charms: [instanceId|null, ...] } }
 
   function getEquippedItem(championId, slot) {
     var champEquip = equipment[championId];
