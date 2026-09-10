@@ -109,19 +109,6 @@
     min-height: 0;
   }
 
-  #logStrip {
-    flex: 0 0 auto;
-    padding: 2px 8px;
-    font-size: 0.62rem;
-    color: #7dd3fc;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    background: #0f0f16;
-    border-top: 1px solid #1e1e2a;
-    border-bottom: 1px solid #1e1e2a;
-  }
-
   .unitCard {
     flex: 1 1 0;
     min-width: 0;
@@ -153,60 +140,65 @@
   .effTag.debuff { border-color: #b91c1c; color: #fca5a5; }
 
   /* ---------------- SKILL BAR (bottom, Raid-style) ---------------- */
-  #actions {
+  #actionsWrap {
     flex: 0 0 auto;
     display: flex;
-    flex-direction: row;
+    flex-direction: column;
     gap: 4px;
     padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
     background: #12121a;
     border-top: 1px solid #2a2a3a;
   }
-  #actions.waiting { padding-top: 10px; padding-bottom: 10px; justify-content: center; }
-  .actGroup { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
-  .actBtn {
+  #actionsWrap.waiting { align-items: center; padding-top: 12px; padding-bottom: 12px; }
+  #skillRow { display: flex; flex-direction: row; gap: 4px; }
+  .skillBtn {
+    flex: 1 1 0;
+    min-width: 0;
     background: #23233a;
     border: 1px solid #4c1d95;
     color: #ddd;
-    padding: 7px 6px;
-    border-radius: 8px 8px 0 0;
-    font-size: 0.7rem;
-    width: 100%;
+    padding: 7px 4px;
+    border-radius: 8px;
+    font-size: 0.66rem;
     text-align: center;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .actBtn:disabled { opacity: 0.35; }
-  .actBtn.selected { background: #4c1d95; }
-  .actDesc {
+  .skillBtn:disabled { opacity: 0.35; }
+  .skillBtn.selected { background: #4c1d95; border-color: #a78bfa; }
+  .skillBtn.highlighted:not(.selected) { border-color: #7dd3fc; }
+  .skillBtn.infoOnly { border-style: dashed; }
+  .skillBtn.infoOnly.highlighted { background: #1e2a38; }
+
+  #detailRow { display: flex; flex-direction: row; gap: 4px; height: 58px; }
+  #skillDetail {
+    flex: 2 1 0;
+    min-width: 0;
     background: #1a1a26;
     border: 1px solid #2f2f45;
-    border-top: none;
-    border-radius: 0 0 8px 8px;
+    border-radius: 8px;
+    padding: 5px 8px;
+    font-size: 0.62rem;
+    line-height: 1.3;
+    color: #ccc;
+    overflow-y: auto;
+  }
+  #skillDetail .detailName { color: #a78bfa; font-weight: 600; display: block; margin-bottom: 2px; }
+  #skillDetail .detailHint { color: #7dd3fc; display: block; margin-top: 3px; }
+  #miniLog {
+    flex: 1 1 0;
+    min-width: 0;
+    background: #0f0f16;
+    border: 1px solid #2f2f45;
+    border-radius: 8px;
     padding: 4px 6px;
-    font-size: 0.58rem;
-    line-height: 1.25;
+    font-size: 0.55rem;
+    line-height: 1.3;
     color: #999;
-    flex: 1;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+    overflow-y: auto;
   }
-  #targetHint {
-    position: absolute;
-    top: 4px; left: 50%;
-    transform: translateX(-50%);
-    background: rgba(124,58,237,0.9);
-    color: #fff;
-    font-size: 0.65rem;
-    padding: 3px 10px;
-    border-radius: 6px;
-    z-index: 5;
-    display: none;
-  }
-  #targetHint.show { display: block; }
+  #miniLog div { margin-bottom: 1px; }
 
   /* ---------------- OVERLAYS ---------------- */
   .overlay {
@@ -265,12 +257,15 @@
   <div id="infoBar">Waiting...</div>
 
   <div class="unitZone" id="enemyList"></div>
-
-  <div id="logStrip">Combat log — tap to expand</div>
-
   <div class="unitZone" id="teamList"></div>
 
-  <div id="actions"></div>
+  <div id="actionsWrap">
+    <div id="skillRow"></div>
+    <div id="detailRow">
+      <div id="skillDetail"></div>
+      <div id="miniLog"></div>
+    </div>
+  </div>
 </div>
 
 <div class="overlay" id="kitOverlay">
@@ -507,6 +502,7 @@
   // BATTLE STATE
   // ---------------------------------------------------------------
   var team, enemies, battleOver, pendingAction, extraTurnChain;
+  var highlightedSlot = 'basic'; // which of basic/active1/active2/passive/signature is previewed in the detail panel
 
   function newBattle() {
     team = CHAMPIONS.map(function (c) { return makeUnit(c, false); });
@@ -860,6 +856,7 @@
       runUntilPlayerInput();
     } else {
       pendingAction = { actor: actor, chosen: null };
+      highlightedSlot = 'basic';
       render();
     }
   }
@@ -942,12 +939,19 @@
   function playerChooseAbility(kind) {
     if (!pendingAction) return;
     var actor = pendingAction.actor;
-    if (kind !== 'basic' && actor.cooldowns[kind] > 0) return;
+    highlightedSlot = kind;
+    if (kind !== 'basic' && actor.cooldowns[kind] > 0) { render(); return; }
     if (kind !== 'basic' && actor.debuffs.some(function (d) { return d.type === 'Silence'; })) {
       logLine('logSys', actor.name + ' is silenced.');
+      render();
       return;
     }
     pendingAction.chosen = kind;
+    render();
+  }
+
+  function highlightInfoSlot(slot) {
+    highlightedSlot = slot;
     render();
   }
 
@@ -980,16 +984,23 @@
   // ---------------------------------------------------------------
   function clearLog() {
     document.getElementById('logFull').innerHTML = '';
-    document.getElementById('logStrip').textContent = 'Combat log — tap to expand';
+    document.getElementById('miniLog').innerHTML = '';
   }
   function logLine(cls, text) {
     var logFull = document.getElementById('logFull');
-    var div = document.createElement('div');
-    div.className = cls;
-    div.textContent = text;
-    logFull.appendChild(div);
+    var full = document.createElement('div');
+    full.className = cls;
+    full.textContent = text;
+    logFull.appendChild(full);
     logFull.scrollTop = logFull.scrollHeight;
-    document.getElementById('logStrip').textContent = text;
+
+    var miniLog = document.getElementById('miniLog');
+    var mini = document.createElement('div');
+    mini.className = cls;
+    mini.textContent = text;
+    miniLog.appendChild(mini);
+    while (miniLog.children.length > 40) miniLog.removeChild(miniLog.firstChild);
+    miniLog.scrollTop = miniLog.scrollHeight;
   }
 
   // ---------------------------------------------------------------
@@ -1068,30 +1079,63 @@
     renderActions();
   }
 
-  function abilityButtonHtml(kind, ability, actor) {
-    var label = ability.name + (kind === 'basic' ? '' : ' (' + (actor.cooldowns[kind] > 0 ? 'CD ' + actor.cooldowns[kind] : 'Ready') + ')');
-    var disabled = kind !== 'basic' && actor.cooldowns[kind] > 0;
+  function parsePassive(actor) {
+    var text = actor.passive || '';
+    var dashIdx = text.indexOf(' — ');
+    return dashIdx === -1
+      ? { name: 'Passive', text: text }
+      : { name: text.slice(0, dashIdx), text: text.slice(dashIdx + 3) };
+  }
+
+  // Slot -> { name, text } for whichever ability the detail panel should describe.
+  function slotInfo(actor, slot) {
+    if (slot === 'basic') return { name: actor.basic.name, text: actor.basic.desc || '' };
+    if (slot === 'active1') return { name: actor.active1.name, text: actor.active1.desc || '' };
+    if (slot === 'active2') return { name: actor.active2.name, text: actor.active2.desc || '' };
+    if (slot === 'passive') return parsePassive(actor);
+    return { name: 'Signature', text: actor.signature || '' };
+  }
+
+  function skillButtonHtml(kind, ability, actor) {
+    var onCooldown = kind !== 'basic' && actor.cooldowns[kind] > 0;
+    var label = ability.name + (kind === 'basic' ? '' : onCooldown ? ' (' + actor.cooldowns[kind] + ')' : '');
     var selected = pendingAction.chosen === kind;
-    return '' +
-      '<div class="actGroup">' +
-        '<button class="actBtn' + (selected ? ' selected' : '') + '" data-act="' + kind + '"' + (disabled ? ' disabled' : '') + '>' + label + '</button>' +
-        '<div class="actDesc">' + (ability.desc || '') + '</div>' +
-      '</div>';
+    var cls = 'skillBtn' + (selected ? ' selected' : '') + (highlightedSlot === kind ? ' highlighted' : '');
+    return '<button class="' + cls + '" data-slot="' + kind + '"' + (onCooldown ? ' disabled' : '') + '>' + label + '</button>';
+  }
+
+  function infoButtonHtml(slot, name) {
+    var cls = 'skillBtn infoOnly' + (highlightedSlot === slot ? ' highlighted' : '');
+    return '<button class="' + cls + '" data-slot="' + slot + '">' + name + '</button>';
   }
 
   function renderActions() {
-    var el = document.getElementById('actions');
+    var wrap = document.getElementById('actionsWrap');
     if (!pendingAction) {
-      el.className = 'waiting';
-      el.innerHTML = '<div style="color:#666;">Waiting for turn order...</div>';
+      wrap.className = 'waiting';
+      document.getElementById('skillRow').innerHTML = '<div style="color:#666;">Waiting for turn order...</div>';
+      document.getElementById('skillDetail').innerHTML = '';
+      document.getElementById('miniLog').style.display = 'none';
       return;
     }
-    el.className = '';
+    wrap.className = '';
+    document.getElementById('miniLog').style.display = '';
     var actor = pendingAction.actor;
-    var html = abilityButtonHtml('basic', actor.basic, actor) +
-      abilityButtonHtml('active1', actor.active1, actor) +
-      abilityButtonHtml('active2', actor.active2, actor);
-    el.innerHTML = html;
+    var passiveInfo = parsePassive(actor);
+
+    document.getElementById('skillRow').innerHTML =
+      skillButtonHtml('basic', actor.basic, actor) +
+      skillButtonHtml('active1', actor.active1, actor) +
+      skillButtonHtml('active2', actor.active2, actor) +
+      infoButtonHtml('passive', passiveInfo.name) +
+      infoButtonHtml('signature', 'Signature');
+
+    var info = slotInfo(actor, highlightedSlot);
+    var detailHtml = '<span class="detailName">' + info.name + '</span>' + info.text;
+    if (pendingAction.chosen && pendingAction.chosen === highlightedSlot) {
+      detailHtml += '<span class="detailHint">Tap a target above.</span>';
+    }
+    document.getElementById('skillDetail').innerHTML = detailHtml;
   }
 
   function renderKitOverlay() {
@@ -1109,10 +1153,12 @@
   // ---------------------------------------------------------------
   // EVENT WIRING (UI)
   // ---------------------------------------------------------------
-  document.getElementById('actions').addEventListener('click', function (e) {
-    var btn = e.target.closest('.actBtn');
+  document.getElementById('skillRow').addEventListener('click', function (e) {
+    var btn = e.target.closest('.skillBtn');
     if (!btn) return;
-    playerChooseAbility(btn.getAttribute('data-act'));
+    var slot = btn.getAttribute('data-slot');
+    if (slot === 'passive' || slot === 'signature') highlightInfoSlot(slot);
+    else playerChooseAbility(slot);
   });
 
   document.getElementById('enemyList').addEventListener('click', function (e) {
@@ -1137,7 +1183,7 @@
     document.getElementById('kitOverlay').classList.add('show');
   });
 
-  document.getElementById('logStrip').addEventListener('click', function () {
+  document.getElementById('miniLog').addEventListener('click', function () {
     document.getElementById('logOverlay').classList.add('show');
   });
 
