@@ -94,6 +94,7 @@
     line-height: 1.35;
   }
   .armoryBonus { flex: 1 1 100%; font-size: 0.65rem; color: #86efac; }
+  .armorySets { flex: 1 1 100%; font-size: 0.65rem; color: #fbbf24; }
   #armoryScreen .overlayBtn { margin: 24px auto 0; }
   .farmPanel { max-width: 520px; margin: 24px auto 0; text-align: left; }
   .farmPanel h2 { color: #a78bfa; font-size: 1rem; margin: 8px 0 2px; }
@@ -648,6 +649,78 @@
     { id: 'windwalkers', name: 'Windwalkers', slot: 'boots', rarity: 'Epic' },
     { id: 'hermes_stride', name: "Hermes' Stride", slot: 'boots', rarity: 'Legendary' }
   ];
+
+  // Which set a piece belongs to is a third random roll, independent of
+  // slot/rarity (you choose those when farming; set is out of your hands) -
+  // the same "farming hunts for a better roll, never guarantees one"
+  // philosophy applied to a new axis. 2pc is a flat stat bonus; 4pc (and
+  // Venomous's 6pc capstone) are event-bus effects, wired the same way
+  // Charms already are.
+  var GEAR_SET_IDS = ['venomous', 'bulwark', 'tempo', 'executioner'];
+  var GEAR_SETS = {
+    venomous: {
+      name: 'Venomous',
+      bonus2: { stats: { acc: 10 } },
+      bonus4: {
+        trigger: 'debuffApplied', chance: 25,
+        desc: '25% chance to add an extra Poison stack when you apply Poison.',
+        condition: function (p, ownerId) { return p.source && p.source.id === ownerId && p.debuff.type === 'Poison'; },
+        effect: function (owner, p) {
+          applyDebuff(p.unit, 'Poison', 30, 2, owner);
+          logLine('logBuff', owner.name + "'s Venomous set (4pc) procs - extra Poison stack on " + p.unit.name + '.');
+        }
+      },
+      bonus6: {
+        trigger: 'debuffApplied', chance: 100,
+        desc: 'Also applies Burn for 1 turn whenever you apply Poison.',
+        condition: function (p, ownerId) { return p.source && p.source.id === ownerId && p.debuff.type === 'Poison'; },
+        effect: function (owner, p) {
+          applyDebuff(p.unit, 'Burn', 30, 1, owner);
+          logLine('logBuff', owner.name + "'s Venomous set (6pc) sears " + p.unit.name + ' with Burn.');
+        }
+      }
+    },
+    bulwark: {
+      name: 'Bulwark',
+      bonus2: { stats: { def: 15 } },
+      bonus4: {
+        trigger: 'shieldBroken', chance: 100,
+        desc: 'Gain Defense Up for 2 turns whenever your Shield breaks.',
+        condition: function (p, ownerId) { return p.unit.id === ownerId; },
+        effect: function (owner) {
+          applyBuff(owner, 'Defense Up', 30, 2, {});
+          logLine('logBuff', owner.name + "'s Bulwark set (4pc) procs - Defense Up!");
+        }
+      }
+    },
+    tempo: {
+      name: 'Tempo',
+      bonus2: { stats: { spd: 8 } },
+      bonus4: {
+        trigger: 'debuffApplied', chance: 100,
+        desc: 'Gain Speed Up for 2 turns when you land a Stun or Speed Down.',
+        condition: function (p, ownerId) { return p.source && p.source.id === ownerId && (p.debuff.type === 'Stun' || p.debuff.type === 'Speed Down'); },
+        effect: function (owner) {
+          applyBuff(owner, 'Speed Up', 30, 2, {});
+          logLine('logBuff', owner.name + "'s Tempo set (4pc) procs - Speed Up!");
+        }
+      }
+    },
+    executioner: {
+      name: 'Executioner',
+      bonus2: { stats: { critDamage: 12 } },
+      bonus4: {
+        trigger: 'attackResolved', chance: 100,
+        desc: 'Critically hitting a target below 50% HP applies Defense Down.',
+        condition: function (p, ownerId) { return p.attacker.id === ownerId && p.crit && (p.target.hp / p.target.maxHp) < 0.5; },
+        effect: function (owner, p) {
+          applyDebuff(p.target, 'Defense Down', 30, 2, owner);
+          logLine('logBuff', owner.name + "'s Executioner set (4pc) procs - Defense Down on " + p.target.name + '.');
+        }
+      }
+    }
+  };
+
   var EQUIPMENT_KEY = 'machineborn_equipment_v1';
   var GEAR_INVENTORY_KEY = 'machineborn_gear_v1';
 
@@ -698,11 +771,51 @@
       instanceId: 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
       templateId: templateId, slot: template.slot, rarity: template.rarity,
       mainStat: mainStat, mainValue: rollStatValue(mainStat, template.rarity, true),
-      substats: rollSubstats(mainStat, template.rarity)
+      substats: rollSubstats(mainStat, template.rarity),
+      set: GEAR_SET_IDS[Math.floor(Math.random() * GEAR_SET_IDS.length)]
     };
     gearInventory.push(instance);
     saveGearInventory();
     return instance;
+  }
+
+  function equippedSetCounts(championId) {
+    var counts = {};
+    GEAR_SLOTS.forEach(function (slot) {
+      var inst = getEquippedGearInstance(championId, slot);
+      if (inst && inst.set) counts[inst.set] = (counts[inst.set] || 0) + 1;
+    });
+    return counts;
+  }
+
+  function setBonusStatsFor(championId) {
+    var bonus = {};
+    var counts = equippedSetCounts(championId);
+    Object.keys(counts).forEach(function (setId) {
+      var def = GEAR_SETS[setId];
+      if (def && def.bonus2 && counts[setId] >= 2) {
+        Object.keys(def.bonus2.stats).forEach(function (stat) { bonus[stat] = (bonus[stat] || 0) + def.bonus2.stats[stat]; });
+      }
+    });
+    return bonus;
+  }
+
+  function wireSetBonuses() {
+    team.forEach(function (unit) {
+      var counts = equippedSetCounts(unit.id);
+      Object.keys(counts).forEach(function (setId) {
+        var def = GEAR_SETS[setId];
+        if (!def) return;
+        [['bonus4', 4], ['bonus6', 6]].forEach(function (pair) {
+          var tier = def[pair[0]], threshold = pair[1];
+          if (!tier || counts[setId] < threshold) return;
+          on(tier.trigger, function (p) {
+            if (!unit.alive || !tier.condition(p, unit.id)) return;
+            if (Math.random() * 100 < tier.chance) tier.effect(unit, p);
+          });
+        });
+      });
+    });
   }
 
   function findGearOwner(instanceId) {
@@ -737,6 +850,8 @@
       bonus[inst.mainStat] = (bonus[inst.mainStat] || 0) + inst.mainValue;
       inst.substats.forEach(function (s) { bonus[s.stat] = (bonus[s.stat] || 0) + s.value; });
     });
+    var setBonus = setBonusStatsFor(championId);
+    Object.keys(setBonus).forEach(function (stat) { bonus[stat] = (bonus[stat] || 0) + setBonus[stat]; });
     return bonus;
   }
 
@@ -956,6 +1071,7 @@
     logLine('logSys', 'A new encounter begins.');
     wireEventHooks();
     wireCharmEffects();
+    wireSetBonuses();
     render();
   }
 
@@ -1054,6 +1170,7 @@
     logLine('logSys', 'Battle resumed.');
     wireEventHooks();
     wireCharmEffects();
+    wireSetBonuses();
 
     document.getElementById('teamSelectScreen').style.display = 'none';
     document.getElementById('startScreen').style.display = 'none';
@@ -1278,7 +1395,10 @@
       shield.pool -= absorbed;
       amount -= absorbed;
       logLine('logBuff', target.name + "'s shield absorbs " + absorbed + ' damage' + (shield.pool <= 0 ? ' and breaks' : ' (' + shield.pool + ' left)') + '.');
-      if (shield.pool <= 0) target.buffs = target.buffs.filter(function (b) { return b !== shield; });
+      if (shield.pool <= 0) {
+        target.buffs = target.buffs.filter(function (b) { return b !== shield; });
+        emit('shieldBroken', { unit: target });
+      }
       if (amount <= 0) return;
     }
     target.hp = Math.max(0, target.hp - amount);
@@ -1866,8 +1986,9 @@
 
   function gearInstanceLabel(inst) {
     var template = GEAR_TEMPLATES.find(function (t) { return t.id === inst.templateId; });
+    var setName = GEAR_SETS[inst.set] ? GEAR_SETS[inst.set].name : inst.set;
     var subsText = inst.substats.map(function (s) { return '+' + s.value + ' ' + s.stat; }).join(', ');
-    return '[' + inst.rarity + '] ' + template.name + ' (' + inst.mainStat + ' +' + inst.mainValue + (subsText ? ', ' + subsText : '') + ')';
+    return '[' + inst.rarity + '] ' + template.name + ' · ' + setName + ' (' + inst.mainStat + ' +' + inst.mainValue + (subsText ? ', ' + subsText : '') + ')';
   }
 
   function cycleCharmSlot(championId, slotIndex) {
@@ -1910,7 +2031,21 @@
 
     var bonus = gearBonusFor(champ.id);
     var bonusText = Object.keys(bonus).map(function (k) { return '+' + bonus[k] + ' ' + k; }).join(', ') || 'No stat bonuses';
-    return '<div class="armoryRow"><div class="armoryName">' + champ.name + '</div>' + gearSlotsHtml + charmSlotsHtml + '<div class="armoryBonus">' + bonusText + '</div></div>';
+
+    var counts = equippedSetCounts(champ.id);
+    var setText = Object.keys(counts).map(function (setId) {
+      var def = GEAR_SETS[setId];
+      if (!def) return null;
+      var n = counts[setId];
+      var status = n >= 6 && def.bonus6 ? '6pc active'
+        : n >= 4 && def.bonus4 ? '4pc active'
+        : n >= 2 && def.bonus2 ? '2pc active'
+        : n + '/2 towards 2pc';
+      return def.name + ' ' + n + ' (' + status + ')';
+    }).filter(Boolean).join(', ') || 'No sets equipped';
+
+    return '<div class="armoryRow"><div class="armoryName">' + champ.name + '</div>' + gearSlotsHtml + charmSlotsHtml +
+      '<div class="armoryBonus">' + bonusText + '</div><div class="armorySets">' + setText + '</div></div>';
   }
 
   function renderArmory() {
