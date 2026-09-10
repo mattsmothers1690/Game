@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Machineborn - Proof of Life</title>
+<style>
+  body {
+    margin: 0;
+    background: #0b0b12;
+    color: #eee;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    text-align: center;
+    padding: 16px;
+    box-sizing: border-box;
+  }
+  h1 { letter-spacing: 2px; }
+  button {
+    font-size: 1.2rem;
+    padding: 16px 32px;
+    background: #7c3aed;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    margin-top: 24px;
+  }
+  button:active { background: #5b21b6; }
+  #status { margin-top: 24px; font-size: 1.1rem; }
+</style>
+</head>
+<body>
+  <h1>MACHINEBORN</h1>
+  <button id="startBtn">START BATTLE</button>
+  <div id="status">Waiting...</div>
+
+  <script>
+    document.getElementById('startBtn').addEventListener('click', function () {
+      document.getElementById('status').textContent = 'BATTLE STARTED';
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Machineborn</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0;
+    background: #0b0b12;
+    color: #eee;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    padding: 10px;
+    padding-bottom: 40px;
+    font-size: 14px;
+  }
+  h1 {
+    text-align: center;
+    letter-spacing: 3px;
+    font-size: 1.4rem;
+    color: #a78bfa;
+    margin: 8px 0 12px;
+  }
+  #startScreen { text-align: center; padding-top: 40px; }
+  #startScreen button, .restartBtn {
+    font-size: 1.1rem;
+    padding: 16px 32px;
+    background: #7c3aed;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    margin-top: 20px;
+  }
+  #startScreen button:active, .restartBtn:active { background: #5b21b6; }
+  #battle { display: none; }
+  .section-label {
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    color: #888;
+    letter-spacing: 1px;
+    margin: 10px 0 4px;
+  }
+  #turnOrder { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+  .tOrderChip {
+    flex: 0 0 auto;
+    background: #1c1c28;
+    border-radius: 8px;
+    padding: 4px 8px;
+    font-size: 0.7rem;
+    border: 1px solid #333;
+  }
+  .tOrderChip.enemy { border-color: #7f1d1d; }
+  .unitCard {
+    background: #15151f;
+    border: 1px solid #2a2a3a;
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    position: relative;
+  }
+  .unitCard.dead { opacity: 0.35; }
+  .unitCard.targetable {
+    border-color: #a78bfa;
+    box-shadow: 0 0 0 2px rgba(167,139,250,0.4);
+  }
+  .unitCard.acting { border-color: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.5); }
+  .unitTop { display: flex; justify-content: space-between; align-items: baseline; }
+  .unitName { font-weight: 600; }
+  .unitRole { font-size: 0.65rem; color: #888; margin-left: 4px; }
+  .bar { background: #26263a; border-radius: 6px; height: 8px; margin-top: 4px; overflow: hidden; }
+  .bar > div { height: 100%; }
+  .hpFill { background: linear-gradient(90deg,#22c55e,#16a34a); }
+  .tmFill { background: linear-gradient(90deg,#38bdf8,#0284c7); }
+  .barLabel { font-size: 0.6rem; color: #999; display:flex; justify-content: space-between; margin-top:1px;}
+  .effects { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 3px; }
+  .effTag { font-size: 0.6rem; padding: 1px 5px; border-radius: 6px; background: #23233a; border: 1px solid #3a3a55; }
+  .effTag.buff { border-color: #16a34a; color: #86efac; }
+  .effTag.debuff { border-color: #b91c1c; color: #fca5a5; }
+  #actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .actBtn {
+    background: #23233a;
+    border: 1px solid #4c1d95;
+    color: #ddd;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    flex: 1 1 auto;
+    min-width: 90px;
+  }
+  .actBtn:disabled { opacity: 0.35; }
+  .actBtn.selected { background: #4c1d95; }
+  #log {
+    background: #0f0f16;
+    border: 1px solid #2a2a3a;
+    border-radius: 8px;
+    padding: 6px 8px;
+    height: 130px;
+    overflow-y: auto;
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+  #log div { margin-bottom: 2px; }
+  .logSys { color: #7dd3fc; }
+  .logDmg { color: #fca5a5; }
+  .logHeal { color: #86efac; }
+  .logBuff { color: #fde68a; }
+  .logBoss { color: #f472b6; }
+  #resultOverlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 20;
+    align-items: center; justify-content: center;
+    flex-direction: column;
+  }
+  #resultOverlay h2 { font-size: 1.6rem; }
+</style>
+</head>
+<body>
+
+<h1>MACHINEBORN</h1>
+
+<div id="startScreen">
+  <div style="color:#999;">Collect tools. Understand rules. Build machines. Break encounters.</div>
+  <button id="startBtn">START BATTLE</button>
+</div>
+
+<div id="battle">
+  <div class="section-label">Turn Order</div>
+  <div id="turnOrder"></div>
+
+  <div class="section-label">Enemies</div>
+  <div id="enemyList"></div>
+
+  <div class="section-label">Team</div>
+  <div id="teamList"></div>
+
+  <div class="section-label">Actions</div>
+  <div id="actions"></div>
+
+  <div class="section-label">Combat Log</div>
+  <div id="log"></div>
+</div>
+
+<div id="resultOverlay">
+  <h2 id="resultText"></h2>
+  <button class="restartBtn" id="restartBtn">RESTART</button>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------------------------------------------------------------
+  // CONFIG
+  // ---------------------------------------------------------------
+  var MAX_EXTRA_TURN_CHAIN = 2; // revisit: prototype cap on chained extra turns
+  var TICK = 1; // turn-meter granularity per simulation tick
+
+  // ---------------------------------------------------------------
+  // EVENT BUS  (ACTION -> EVENT -> STATE CHANGE -> TRIGGERS -> ...)
+  // ---------------------------------------------------------------
+  var listeners = {};
+  function on(eventName, fn) {
+    (listeners[eventName] = listeners[eventName] || []).push(fn);
+  }
+  function emit(eventName, payload) {
+    var fns = listeners[eventName];
+    if (!fns) return;
+    fns.slice().forEach(function (fn) { fn(payload); });
+  }
+
+  // ---------------------------------------------------------------
+  // UNIT FACTORY
+  // ---------------------------------------------------------------
+  function makeUnit(base, isEnemy) {
+    return Object.assign({}, base, {
+      maxHp: base.hp,
+      hp: base.hp,
+      tm: 0,
+      isEnemy: !!isEnemy,
+      buffs: [],
+      debuffs: [],
+      cooldowns: {},
+      alive: true,
+      sigState: {}
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // CHAMPION DEFINITIONS
+  // ---------------------------------------------------------------
+  var CHAMPIONS = [
+    {
+      id: 'vara', name: 'Vara', role: 'Guardian',
+      hp: 145, atk: 55, def: 90, spd: 95, critChance: 15, critDamage: 150, acc: 0, res: 40,
+      signature: 'When an ally below 50% HP is hit, gain Defense Up.',
+      basic: { name: 'Strike', coeff: 1.0, aoe: false },
+      active: { name: "Guardian's Stand", cd: 3, coeff: 0, aoe: false,
+        effect: function (self, target, ctx) {
+          applyBuff(self, 'Shield', 30, 2, ctx); // shield = % of maxHP absorbed, simplified flat 30%
+          applyBuff(self, 'Defense Up', 30, 2, ctx);
+          logLine('logBuff', self.name + ' raises a shield and hardens their defense.');
+        } }
+    },
+    {
+      id: 'mire', name: 'Mire', role: 'Plaguebearer',
+      hp: 120, atk: 65, def: 60, spd: 100, critChance: 15, critDamage: 150, acc: 20, res: 20,
+      signature: 'Applying a Poison increases Speed by 1.',
+      basic: { name: 'Toxic Strike', coeff: 0.8, aoe: false, applyDebuff: { type: 'Poison', chance: 60 } },
+      active: { name: 'Plague Cloud', cd: 3, coeff: 0.5, aoe: true, applyDebuff: { type: 'Poison', chance: 75 } }
+    },
+    {
+      id: 'kestrel', name: 'Kestrel', role: 'Controller',
+      hp: 110, atk: 60, def: 55, spd: 105, critChance: 15, critDamage: 150, acc: 15, res: 25,
+      signature: 'Every basic attack this Champion performs increases their Attack by 5.',
+      basic: { name: 'Gust', coeff: 0.65, aoe: true },
+      active: { name: 'Cyclone', cd: 4, coeff: 0.4, aoe: true,
+        applyDebuff: { type: 'Stun', chance: 40 }, applyDebuff2: { type: 'Speed Down', chance: 60 } }
+    },
+    {
+      id: 'rook', name: 'Rook', role: 'Executioner',
+      hp: 130, atk: 80, def: 65, spd: 90, critChance: 20, critDamage: 160, acc: 10, res: 15,
+      signature: 'Attacking an enemy below 50% HP increases Crit Damage.',
+      basic: { name: 'Cleave', coeff: 1.0, aoe: false },
+      active: { name: 'Execute', cd: 3, coeff: 1.2, executeCoeff: 2.2, aoe: false }
+    },
+    {
+      id: 'nyx', name: 'Nyx', role: 'Contagionist',
+      hp: 115, atk: 62, def: 55, spd: 98, critChance: 15, critDamage: 150, acc: 15, res: 20,
+      signature: 'Every debuff placed on this Champion increases their Speed by 1.',
+      basic: { name: 'Shadow Touch', coeff: 0.8, aoe: false },
+      active: { name: 'Contagion', cd: 4, coeff: 0, aoe: false,
+        effect: function (self, target, ctx) {
+          var ally = lowestHpAlly(ctx.team);
+          if (ally && ally.debuffs.length) {
+            var moved = ally.debuffs.splice(0, ally.debuffs.length);
+            moved.forEach(function (d) {
+              target.debuffs.push(d);
+              emit('debuffApplied', { unit: target, debuff: d, source: self });
+            });
+            logLine('logBuff', self.name + ' rips ' + moved.length + ' debuff(s) from ' + ally.name + ' and hurls them onto ' + target.name + '.');
+          } else {
+            logLine('logSys', self.name + ' finds nothing to transfer.');
+          }
+        } }
+    }
+  ];
+
+  // ---------------------------------------------------------------
+  // ENEMY DEFINITIONS
+  // ---------------------------------------------------------------
+  var ENEMY_TEMPLATES = [
+    { id: 'grunt1', name: 'Grunt', hp: 100, atk: 50, def: 40, spd: 85, critChance: 10, critDamage: 150, acc: 0, res: 10,
+      basic: { name: 'Slash', coeff: 0.9, aoe: false } },
+    { id: 'warden', name: 'Warden', hp: 160, atk: 45, def: 100, spd: 75, critChance: 5, critDamage: 150, acc: 10, res: 20,
+      basic: { name: 'Shield Bash', coeff: 0.7, aoe: false, applyDebuff: { type: 'Defense Down', chance: 50 } } },
+    { id: 'leech', name: 'Leech', hp: 90, atk: 55, def: 45, spd: 95, critChance: 10, critDamage: 150, acc: 15, res: 10,
+      basic: { name: 'Drain Bite', coeff: 0.6, aoe: false, drainPct: 40 } },
+    { id: 'hollowking', name: 'Hollow King', hp: 900, atk: 70, def: 90, spd: 88, critChance: 15, critDamage: 175, acc: 25, res: 35,
+      isBoss: true,
+      basic: { name: 'Dread Strike', coeff: 1.0, aoe: false } },
+    { id: 'grunt2', name: 'Grunt', hp: 100, atk: 50, def: 40, spd: 82, critChance: 10, critDamage: 150, acc: 0, res: 10,
+      basic: { name: 'Slash', coeff: 0.9, aoe: false } }
+  ];
+
+  // ---------------------------------------------------------------
+  // BATTLE STATE
+  // ---------------------------------------------------------------
+  var team, enemies, battleOver, pendingAction, extraTurnChain;
+
+  function newBattle() {
+    team = CHAMPIONS.map(function (c) { return makeUnit(c, false); });
+    enemies = ENEMY_TEMPLATES.map(function (e) { return makeUnit(e, true); });
+    enemies.forEach(function (e) { if (e.isBoss) { e.bossTurnCount = 0; e.fury = 0; } });
+    battleOver = false;
+    pendingAction = null;
+    extraTurnChain = 0;
+    clearLog();
+    logLine('logSys', 'A new encounter begins.');
+    wireSignatures();
+    render();
+  }
+
+  function allUnits() { return team.concat(enemies); }
+  function aliveTeam() { return team.filter(function (u) { return u.alive; }); }
+  function aliveEnemies() { return enemies.filter(function (u) { return u.alive; }); }
+  function lowestHpAlly(list) {
+    var alive = list.filter(function (u) { return u.alive; });
+    if (!alive.length) return null;
+    return alive.reduce(function (a, b) { return (b.hp / b.maxHp) < (a.hp / a.maxHp) ? b : a; });
+  }
+
+  // ---------------------------------------------------------------
+  // SIGNATURES (event-driven, one sentence each)
+  // ---------------------------------------------------------------
+  function wireSignatures() {
+    listeners = {}; // reset bus per battle
+
+    // Vara: When an ally below 50% HP is hit, gain Defense Up.
+    on('damageTaken', function (p) {
+      var vara = team.find(function (u) { return u.id === 'vara' && u.alive; });
+      if (!vara) return;
+      if (!p.unit.isEnemy && p.unit !== vara && (p.unit.hp / p.unit.maxHp) < 0.5) {
+        applyBuff(vara, 'Defense Up', 30, 2, {});
+        logLine('logBuff', 'Vara (Signature): ' + p.unit.name + ' is in danger — Vara gains Defense Up.');
+      }
+    });
+
+    // Mire: Applying a Poison increases Speed by 1.
+    on('debuffApplied', function (p) {
+      if (p.source && p.source.id === 'mire' && p.debuff.type === 'Poison') {
+        p.source.spd += 1;
+        logLine('logBuff', 'Mire (Signature): Poison spreads, Speed +1 (now ' + p.source.spd + ').');
+      }
+      // Nyx: Every debuff placed on this Champion increases their Speed by 1.
+      if (p.unit && p.unit.id === 'nyx') {
+        p.unit.spd += 1;
+        logLine('logBuff', 'Nyx (Signature): afflicted, Speed +1 (now ' + p.unit.spd + ').');
+      }
+    });
+
+    // Kestrel: Every basic attack performed by this Champion increases their Attack by 5.
+    on('basicAttackUsed', function (p) {
+      if (p.unit.id === 'kestrel') {
+        p.unit.atk += 5;
+        logLine('logBuff', 'Kestrel (Signature): Attack +5 (now ' + p.unit.atk + ').');
+      }
+    });
+
+    // Rook: Attacking an enemy below 50% HP increases Crit Damage.
+    on('attackResolved', function (p) {
+      if (p.attacker.id === 'rook' && (p.target.hp / p.target.maxHp) < 0.5) {
+        p.attacker.critDamage += 10;
+        logLine('logBuff', 'Rook (Signature): exploits the weak, Crit Damage +10% (now ' + p.attacker.critDamage + '%).');
+      }
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // BUFF / DEBUFF HELPERS
+  // ---------------------------------------------------------------
+  var BUFF_TYPES = ['Attack Up', 'Defense Up', 'Speed Up', 'Counter', 'Shield', 'Immunity', 'Regeneration'];
+  var DEBUFF_TYPES = ['Attack Down', 'Defense Down', 'Speed Down', 'Poison', 'Burn', 'Bleed', 'Provoke', 'Stun', 'Silence', 'Block Buffs', 'Healing Reduction'];
+
+  function isDebuffType(type) { return DEBUFF_TYPES.indexOf(type) !== -1; }
+
+  function applyBuff(unit, type, value, duration, ctx) {
+    if (unit.debuffs.some(function (d) { return d.type === 'Block Buffs'; })) {
+      logLine('logSys', unit.name + "'s buffs are blocked.");
+      return false;
+    }
+    var existing = unit.buffs.find(function (b) { return b.type === type; });
+    if (existing) { existing.duration = Math.max(existing.duration, duration); }
+    else { unit.buffs.push({ type: type, value: value, duration: duration }); }
+    emit('buffApplied', { unit: unit, buff: { type: type, value: value }, source: (ctx && ctx.source) || unit });
+    return true;
+  }
+
+  function applyDebuff(unit, type, value, duration, source) {
+    if (unit.buffs.some(function (b) { return b.type === 'Immunity'; })) {
+      logLine('logSys', unit.name + ' is immune.');
+      return false;
+    }
+    var existing = unit.debuffs.find(function (d) { return d.type === type; });
+    if (existing) { existing.duration = Math.max(existing.duration, duration); }
+    else { unit.debuffs.push({ type: type, value: value, duration: duration }); }
+    emit('debuffApplied', { unit: unit, debuff: { type: type, value: value }, source: source });
+    return true;
+  }
+
+  function statMult(unit, type, upName, downName) {
+    var mult = 1;
+    unit.buffs.forEach(function (b) { if (b.type === upName) mult += 0.30; });
+    unit.debuffs.forEach(function (d) { if (d.type === downName) mult -= 0.30; });
+    return Math.max(0.1, mult);
+  }
+
+  function effectiveAtk(unit) { return unit.atk * statMult(unit, 'atk', 'Attack Up', 'Attack Down'); }
+  function effectiveDef(unit) { return unit.def * statMult(unit, 'def', 'Defense Up', 'Defense Down'); }
+  function effectiveSpd(unit) { return unit.spd * statMult(unit, 'spd', 'Speed Up', 'Speed Down'); }
+
+  // ---------------------------------------------------------------
+  // DAMAGE / ACCURACY MATH
+  // ---------------------------------------------------------------
+  function defenseMultiplier(def) { return 1000 / (1000 + def); }
+
+  function rollCrit(unit) { return Math.random() * 100 < unit.critChance; }
+
+  function computeDamage(attacker, target, coeff) {
+    var raw = coeff * effectiveAtk(attacker);
+    var mitigated = raw * defenseMultiplier(effectiveDef(target));
+    var crit = rollCrit(attacker);
+    if (crit) mitigated *= (attacker.critDamage / 100);
+    return { amount: Math.max(1, Math.round(mitigated)), crit: crit };
+  }
+
+  function accuracyRoll(attacker, target, baseChance) {
+    var acc = attacker.acc || 0, res = target.res || 0;
+    var edge = (acc - res) / 200; // acc-vs-res advantage, roughly -0.5..0.5
+    var finalChance = Math.min(100, Math.max(5, baseChance + edge * 30));
+    return Math.random() * 100 < finalChance;
+  }
+
+  // ---------------------------------------------------------------
+  // DAMAGE APPLICATION
+  // ---------------------------------------------------------------
+  function dealDamage(target, amount, sourceLabel) {
+    target.hp = Math.max(0, target.hp - amount);
+    emit('damageTaken', { unit: target, amount: amount });
+    logLine('logDmg', target.name + ' takes ' + amount + ' damage' + (sourceLabel ? ' from ' + sourceLabel : '') + '. (' + target.hp + '/' + target.maxHp + ')');
+    if (target.hp <= 0) killUnit(target);
+  }
+
+  function killUnit(unit) {
+    if (!unit.alive) return;
+    unit.alive = false;
+    unit.tm = 0;
+    logLine('logSys', unit.name + ' has fallen.');
+    emit('death', { unit: unit });
+  }
+
+  function tryCounter(defender, attacker) {
+    if (!defender.alive || !attacker.alive) return;
+    var counterBuff = defender.buffs.find(function (b) { return b.type === 'Counter'; });
+    if (!counterBuff) return;
+    if (Math.random() * 100 < 25) {
+      var dmg = computeDamage(defender, attacker, 0.6);
+      logLine('logDmg', defender.name + ' counterattacks!');
+      dealDamage(attacker, dmg.amount, defender.name + "'s counter");
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // START-OF-TURN / END-OF-TURN PROCESSING
+  // ---------------------------------------------------------------
+  function startOfTurnEffects(unit) {
+    if (!unit.alive) return;
+    var hasRegen = unit.buffs.some(function (b) { return b.type === 'Regeneration'; });
+    if (hasRegen) {
+      var heal = Math.round(unit.maxHp * 0.05);
+      unit.hp = Math.min(unit.maxHp, unit.hp + heal);
+      logLine('logHeal', unit.name + ' regenerates ' + heal + ' HP.');
+    }
+    ['Poison', 'Burn'].forEach(function (dtype) {
+      var d = unit.debuffs.find(function (x) { return x.type === dtype; });
+      if (d && unit.alive) {
+        var pct = dtype === 'Poison' ? 0.05 : 0.03;
+        var dmg = Math.round(unit.maxHp * pct);
+        unit.hp = Math.max(0, unit.hp - dmg);
+        logLine('logDmg', unit.name + ' suffers ' + dmg + ' ' + dtype + ' damage. (' + unit.hp + '/' + unit.maxHp + ')');
+        if (unit.hp <= 0) killUnit(unit);
+      }
+    });
+  }
+
+  function processDurations(unit) {
+    unit.buffs = unit.buffs.filter(function (b) { b.duration -= 1; return b.duration > 0; });
+    unit.debuffs = unit.debuffs.filter(function (d) { d.duration -= 1; return d.duration > 0; });
+  }
+
+  // Hollow King: every 3rd own turn, consume most recently applied debuff on itself, gain permanent Fury.
+  function hollowKingMechanic(boss) {
+    if (!boss.isBoss || !boss.alive) return;
+    boss.bossTurnCount += 1;
+    if (boss.bossTurnCount % 3 === 0) {
+      if (boss.debuffs.length) {
+        var consumed = boss.debuffs.pop(); // most recently applied = end of array
+        boss.fury += 1;
+        boss.atk = Math.round(boss.atk * 1.15);
+        logLine('logBoss', 'Hollow King devours its ' + consumed.type + ' and gains Fury x' + boss.fury + '! (Attack now ' + boss.atk + ')');
+      } else {
+        logLine('logBoss', 'Hollow King finds no debuff to consume this cycle.');
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // TURN QUEUE (turn meter simulation)
+  // ---------------------------------------------------------------
+  function advanceToNextActor() {
+    while (true) {
+      if (checkBattleEnd()) return null;
+      allUnits().forEach(function (u) {
+        if (u.alive) u.tm += effectiveSpd(u) * TICK * 0.12;
+      });
+      var ready = allUnits().filter(function (u) { return u.alive && u.tm >= 100; });
+      if (ready.length) {
+        ready.sort(function (a, b) {
+          if (b.tm !== a.tm) return b.tm - a.tm;
+          return effectiveSpd(b) - effectiveSpd(a);
+        });
+        return ready[0];
+      }
+    }
+  }
+
+  function checkBattleEnd() {
+    if (battleOver) return true;
+    if (aliveTeam().length === 0) { endBattle(false); return true; }
+    if (aliveEnemies().length === 0) { endBattle(true); return true; }
+    return false;
+  }
+
+  function endBattle(won) {
+    battleOver = true;
+    logLine('logSys', won ? 'VICTORY.' : 'DEFEAT.');
+    document.getElementById('resultText').textContent = won ? 'VICTORY' : 'DEFEAT';
+    document.getElementById('resultOverlay').style.display = 'flex';
+  }
+
+  // ---------------------------------------------------------------
+  // MAIN LOOP DRIVER
+  // ---------------------------------------------------------------
+  function runUntilPlayerInput() {
+    if (checkBattleEnd()) { render(); return; }
+    var actor = advanceToNextActor();
+    if (!actor) { render(); return; }
+    actor.tm -= 100;
+    Object.keys(actor.cooldowns).forEach(function (k) { if (actor.cooldowns[k] > 0) actor.cooldowns[k] -= 1; });
+
+    startOfTurnEffects(actor);
+    if (checkBattleEnd()) { render(); return; }
+
+    if (actor.isBoss) hollowKingMechanic(actor);
+
+    var stunned = actor.debuffs.some(function (d) { return d.type === 'Stun'; });
+    if (stunned) {
+      logLine('logSys', actor.name + ' is stunned and cannot act.');
+      finishTurn(actor);
+      runUntilPlayerInput();
+      return;
+    }
+
+    if (actor.isEnemy) {
+      enemyAct(actor);
+      finishTurn(actor);
+      runUntilPlayerInput();
+    } else {
+      pendingAction = { actor: actor, chosen: null };
+      render();
+    }
+  }
+
+  function finishTurn(actor) {
+    processDurations(actor);
+  }
+
+  // ---------------------------------------------------------------
+  // ENEMY AI
+  // ---------------------------------------------------------------
+  function enemyAct(actor) {
+    var target = pickEnemyTarget(actor);
+    if (!target) return;
+    var ability = actor.basic;
+    logLine('logSys', actor.name + ' uses ' + ability.name + ' on ' + target.name + '.');
+    performAttack(actor, target, ability, team, false);
+  }
+
+  function pickEnemyTarget(actor) {
+    var provoked = aliveTeam().filter(function (u) { return u.debuffs.some(function (d) { return d.type === 'Provoke'; }); });
+    var pool = provoked.length ? provoked : aliveTeam();
+    if (!pool.length) return null;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  // ---------------------------------------------------------------
+  // ATTACK / ABILITY RESOLUTION
+  // ---------------------------------------------------------------
+  function performAttack(attacker, primaryTarget, ability, defenderList, isBasic) {
+    var targets = ability.aoe ? defenderList.filter(function (u) { return u.alive; }) : [primaryTarget];
+    targets.forEach(function (target) {
+      if (!target.alive) return;
+      var dmg = computeDamage(attacker, target, ability.coeff);
+      var wasAlive = target.alive;
+      dealDamage(target, dmg.amount, attacker.name + (dmg.crit ? ' (CRIT)' : ''));
+      emit('attackResolved', { attacker: attacker, target: target, amount: dmg.amount, crit: dmg.crit });
+      if (wasAlive && target.alive) {
+        var bleed = target.debuffs.find(function (d) { return d.type === 'Bleed'; });
+        if (bleed) {
+          var bleedDmg = Math.round(target.maxHp * 0.04);
+          dealDamage(target, bleedDmg, 'Bleed');
+        }
+        tryCounter(target, attacker);
+      }
+      if (ability.drainPct && target.alive) {
+        var healAmt = Math.round(dmg.amount * (ability.drainPct / 100));
+        attacker.hp = Math.min(attacker.maxHp, attacker.hp + healAmt);
+        logLine('logHeal', attacker.name + ' drains ' + healAmt + ' HP.');
+      }
+      if (ability.applyDebuff && target.alive) {
+        if (accuracyRoll(attacker, target, ability.applyDebuff.chance)) {
+          applyDebuff(target, ability.applyDebuff.type, 30, 2, attacker);
+          logLine('logBuff', target.name + ' is afflicted with ' + ability.applyDebuff.type + '.');
+        }
+      }
+      if (ability.applyDebuff2 && target.alive) {
+        if (accuracyRoll(attacker, target, ability.applyDebuff2.chance)) {
+          applyDebuff(target, ability.applyDebuff2.type, 30, 2, attacker);
+          logLine('logBuff', target.name + ' is afflicted with ' + ability.applyDebuff2.type + '.');
+        }
+      }
+    });
+    if (isBasic) emit('basicAttackUsed', { unit: attacker });
+  }
+
+  function useEffectAbility(actor, target, ability, ctx) {
+    if (ability.effect) ability.effect(actor, target, ctx);
+  }
+
+  // ---------------------------------------------------------------
+  // PLAYER ACTION HANDLING
+  // ---------------------------------------------------------------
+  function playerChooseAbility(kind) {
+    if (!pendingAction) return;
+    var actor = pendingAction.actor;
+    if (kind === 'active' && actor.cooldowns.active > 0) return;
+    if (kind === 'active' && actor.debuffs.some(function (d) { return d.type === 'Silence'; })) {
+      logLine('logSys', actor.name + ' is silenced.');
+      return;
+    }
+    pendingAction.chosen = kind;
+    render();
+  }
+
+  function playerChooseTarget(target) {
+    if (!pendingAction || !pendingAction.chosen) return;
+    var actor = pendingAction.actor;
+    var kind = pendingAction.chosen;
+    var ability = kind === 'basic' ? actor.basic : actor.active;
+
+    if (kind === 'active') {
+      if (ability.coeff > 0 || ability.executeCoeff) {
+        var coeff = ability.executeCoeff && (target.hp / target.maxHp) < 0.5 ? ability.executeCoeff : ability.coeff;
+        performAttack(actor, target, Object.assign({}, ability, { coeff: coeff }), enemies, false);
+      } else {
+        useEffectAbility(actor, target, ability, { team: team, enemies: enemies });
+      }
+      actor.cooldowns.active = ability.cd;
+    } else {
+      performAttack(actor, target, ability, enemies, true);
+    }
+
+    pendingAction = null;
+    finishTurn(actor);
+    render();
+    setTimeout(function () { runUntilPlayerInput(); }, 250);
+  }
+
+  // ---------------------------------------------------------------
+  // LOGGING
+  // ---------------------------------------------------------------
+  function clearLog() { document.getElementById('log').innerHTML = ''; }
+  function logLine(cls, text) {
+    var log = document.getElementById('log');
+    var div = document.createElement('div');
+    div.className = cls;
+    div.textContent = text;
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  // ---------------------------------------------------------------
+  // RENDERING
+  // ---------------------------------------------------------------
+  function effectTags(unit) {
+    var html = '<div class="effects">';
+    unit.buffs.forEach(function (b) { html += '<span class="effTag buff">' + b.type + ' (' + b.duration + ')</span>'; });
+    unit.debuffs.forEach(function (d) { html += '<span class="effTag debuff">' + d.type + ' (' + d.duration + ')</span>'; });
+    html += '</div>';
+    return html;
+  }
+
+  function unitCardHtml(unit, isActingActor, targetable) {
+    var hpPct = Math.max(0, Math.round((unit.hp / unit.maxHp) * 100));
+    var tmPct = Math.min(100, Math.round(unit.tm));
+    var cls = 'unitCard' + (!unit.alive ? ' dead' : '') + (isActingActor ? ' acting' : '') + (targetable ? ' targetable' : '');
+    return '' +
+      '<div class="' + cls + '" data-uid="' + unit.uid + '">' +
+        '<div class="unitTop"><span class="unitName">' + unit.name + '</span><span class="unitRole">' + (unit.role || '') + '</span></div>' +
+        '<div class="bar hpFillWrap"><div class="hpFill" style="width:' + hpPct + '%"></div></div>' +
+        '<div class="barLabel"><span>HP ' + unit.hp + '/' + unit.maxHp + '</span><span>' + hpPct + '%</span></div>' +
+        '<div class="bar"><div class="tmFill" style="width:' + tmPct + '%"></div></div>' +
+        '<div class="barLabel"><span>TM</span><span>' + tmPct + '%</span></div>' +
+        effectTags(unit) +
+      '</div>';
+  }
+
+  function assignUidOnce() {
+    allUnits().forEach(function (u, i) { if (!u.uid) u.uid = (u.isEnemy ? 'e' : 'p') + i; });
+  }
+
+  function render() {
+    assignUidOnce();
+    var actor = pendingAction ? pendingAction.actor : null;
+    var awaitingTarget = pendingAction && pendingAction.chosen;
+
+    document.getElementById('turnOrder').innerHTML = allUnits()
+      .filter(function (u) { return u.alive; })
+      .sort(function (a, b) { return b.tm - a.tm; })
+      .map(function (u) { return '<div class="tOrderChip' + (u.isEnemy ? ' enemy' : '') + '">' + u.name + ' ' + Math.round(u.tm) + '%</div>'; })
+      .join('');
+
+    document.getElementById('enemyList').innerHTML = enemies.map(function (u) {
+      var targetable = !!(awaitingTarget && u.isEnemy && u.alive);
+      return unitCardHtml(u, actor === u, targetable);
+    }).join('');
+
+    document.getElementById('teamList').innerHTML = team.map(function (u) {
+      var targetableAlly = !!(awaitingTarget && pendingAction.chosen === 'active' && !u.isEnemy && u.alive && pendingAction.actor.active.effect);
+      return unitCardHtml(u, actor === u, targetableAlly);
+    }).join('');
+
+    renderActions();
+  }
+
+  function renderActions() {
+    var el = document.getElementById('actions');
+    if (!pendingAction) { el.innerHTML = '<div style="color:#666;">Waiting for turn order...</div>'; return; }
+    var actor = pendingAction.actor;
+    var html = '<div style="width:100%;color:#aaa;font-size:0.75rem;">' + actor.name + "'s turn — " + (actor.signature || '') + '</div>';
+    html += '<button class="actBtn' + (pendingAction.chosen === 'basic' ? ' selected' : '') + '" data-act="basic">' + actor.basic.name + ' (Basic)</button>';
+    var cdLeft = actor.cooldowns.active || 0;
+    html += '<button class="actBtn' + (pendingAction.chosen === 'active' ? ' selected' : '') + '" data-act="active" ' + (cdLeft > 0 ? 'disabled' : '') + '>' + actor.active.name + (cdLeft > 0 ? ' (CD ' + cdLeft + ')' : '') + '</button>';
+    if (pendingAction.chosen) html += '<div style="width:100%;color:#7dd3fc;font-size:0.75rem;">Choose a target above.</div>';
+    el.innerHTML = html;
+  }
+
+  // ---------------------------------------------------------------
+  // EVENT WIRING (UI)
+  // ---------------------------------------------------------------
+  document.getElementById('actions').addEventListener('click', function (e) {
+    var btn = e.target.closest('.actBtn');
+    if (!btn) return;
+    playerChooseAbility(btn.getAttribute('data-act'));
+  });
+
+  document.getElementById('enemyList').addEventListener('click', function (e) {
+    var card = e.target.closest('.unitCard.targetable');
+    if (!card) return;
+    var uid = card.getAttribute('data-uid');
+    var target = enemies.find(function (u) { return u.uid === uid; });
+    if (target) playerChooseTarget(target);
+  });
+
+  document.getElementById('teamList').addEventListener('click', function (e) {
+    var card = e.target.closest('.unitCard.targetable');
+    if (!card) return;
+    var uid = card.getAttribute('data-uid');
+    var target = team.find(function (u) { return u.uid === uid; });
+    if (target) playerChooseTarget(target);
+  });
+
+  document.getElementById('startBtn').addEventListener('click', function () {
+    document.getElementById('startScreen').style.display = 'none';
+    document.getElementById('battle').style.display = 'block';
+    newBattle();
+    runUntilPlayerInput();
+  });
+
+  document.getElementById('restartBtn').addEventListener('click', function () {
+    document.getElementById('resultOverlay').style.display = 'none';
+    newBattle();
+    runUntilPlayerInput();
+  });
+
+})();
+</script>
+</body>
+</html>
