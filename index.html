@@ -656,7 +656,7 @@
   // philosophy applied to a new axis. 2pc is a flat stat bonus; 4pc (and
   // Venomous's 6pc capstone) are event-bus effects, wired the same way
   // Charms already are.
-  var GEAR_SET_IDS = ['venomous', 'bulwark', 'tempo', 'executioner'];
+  var GEAR_SET_IDS = ['venomous', 'bulwark', 'tempo', 'executioner', 'shockwave', 'blight', 'zealot', 'tactician'];
   var GEAR_SETS = {
     venomous: {
       name: 'Venomous',
@@ -718,6 +718,67 @@
           logLine('logBuff', owner.name + "'s Executioner set (4pc) procs - Defense Down on " + p.target.name + '.');
         }
       }
+    },
+    // The four below flip the pattern: a small-chance basic *effect* at
+    // 2pc (easy to access) with a plain stat bump held back for 4pc,
+    // instead of every 2pc being a flat stat.
+    shockwave: {
+      name: 'Shockwave',
+      bonus2: {
+        trigger: 'basicAttackUsed', chance: 12,
+        desc: '12% chance to Stun a random hit target for 1 turn on your Basic Attack.',
+        condition: function (p, ownerId) { return p.unit.id === ownerId; },
+        effect: function (owner, p) {
+          var alive = p.targets.filter(function (t) { return t.alive; });
+          if (!alive.length) return;
+          var target = alive[Math.floor(Math.random() * alive.length)];
+          applyDebuff(target, 'Stun', 0, 1, owner);
+          logLine('logBuff', owner.name + "'s Shockwave set (2pc) procs - " + target.name + ' is Stunned!');
+        }
+      },
+      bonus4: { stats: { spd: 10 } }
+    },
+    blight: {
+      name: 'Blight',
+      bonus2: {
+        trigger: 'basicAttackUsed', chance: 12,
+        desc: '12% chance to apply Poison to a random hit target on your Basic Attack.',
+        condition: function (p, ownerId) { return p.unit.id === ownerId; },
+        effect: function (owner, p) {
+          var alive = p.targets.filter(function (t) { return t.alive; });
+          if (!alive.length) return;
+          var target = alive[Math.floor(Math.random() * alive.length)];
+          applyDebuff(target, 'Poison', 30, 2, owner);
+          logLine('logBuff', owner.name + "'s Blight set (2pc) procs - Poison on " + target.name + '.');
+        }
+      },
+      bonus4: { stats: { hp: 40 } }
+    },
+    zealot: {
+      name: 'Zealot',
+      bonus2: {
+        trigger: 'attackResolved', chance: 8,
+        desc: '8% chance to gain an immediate extra turn on a Critical Hit.',
+        condition: function (p, ownerId) { return p.attacker.id === ownerId && p.crit; },
+        effect: function (owner) {
+          extraTurnPending = owner;
+          logLine('logBuff', owner.name + "'s Zealot set (2pc) procs - extra turn queued!");
+        }
+      },
+      bonus4: { stats: { critChance: 10 } }
+    },
+    tactician: {
+      name: 'Tactician',
+      bonus2: {
+        trigger: 'activeUsed', chance: 15,
+        desc: '15% chance to reduce all your cooldowns by 1 turn when you use an Active.',
+        condition: function (p, ownerId) { return p.unit.id === ownerId; },
+        effect: function (owner) {
+          Object.keys(owner.cooldowns).forEach(function (k) { if (owner.cooldowns[k] > 0) owner.cooldowns[k] -= 1; });
+          logLine('logBuff', owner.name + "'s Tactician set (2pc) procs - cooldowns reduced!");
+        }
+      },
+      bonus4: { stats: { acc: 10 } }
     }
   };
 
@@ -788,14 +849,24 @@
     return counts;
   }
 
+  var SET_TIERS = [['bonus2', 2], ['bonus4', 4], ['bonus6', 6]];
+
+  // A tier can be a flat stat bonus ({stats:{...}}) or an event effect
+  // ({trigger, condition, chance, effect}) - either shape is valid at
+  // any of the three thresholds, so sets can lead with an effect at 2pc
+  // and hold a stat back for 4pc, or the reverse.
   function setBonusStatsFor(championId) {
     var bonus = {};
     var counts = equippedSetCounts(championId);
     Object.keys(counts).forEach(function (setId) {
       var def = GEAR_SETS[setId];
-      if (def && def.bonus2 && counts[setId] >= 2) {
-        Object.keys(def.bonus2.stats).forEach(function (stat) { bonus[stat] = (bonus[stat] || 0) + def.bonus2.stats[stat]; });
-      }
+      if (!def) return;
+      SET_TIERS.forEach(function (pair) {
+        var tier = def[pair[0]];
+        if (tier && tier.stats && counts[setId] >= pair[1]) {
+          Object.keys(tier.stats).forEach(function (stat) { bonus[stat] = (bonus[stat] || 0) + tier.stats[stat]; });
+        }
+      });
     });
     return bonus;
   }
@@ -806,9 +877,9 @@
       Object.keys(counts).forEach(function (setId) {
         var def = GEAR_SETS[setId];
         if (!def) return;
-        [['bonus4', 4], ['bonus6', 6]].forEach(function (pair) {
+        SET_TIERS.forEach(function (pair) {
           var tier = def[pair[0]], threshold = pair[1];
-          if (!tier || counts[setId] < threshold) return;
+          if (!tier || !tier.trigger || counts[setId] < threshold) return;
           on(tier.trigger, function (p) {
             if (!unit.alive || !tier.condition(p, unit.id)) return;
             if (Math.random() * 100 < tier.chance) tier.effect(unit, p);
@@ -1044,6 +1115,7 @@
   // BATTLE STATE
   // ---------------------------------------------------------------
   var team, enemies, battleOver, pendingAction, extraTurnChain;
+  var extraTurnPending = null; // set by a gear effect mid-action; consumed right after that action resolves (avoids granting a turn while still inside the current one)
   var highlightedSlot = 'basic'; // which of basic/active1/active2/passive/signature is previewed in the detail panel
   var currentEncounterId, currentWaves, currentTeamIds, waveIndex;
 
@@ -1067,6 +1139,7 @@
     battleOver = false;
     pendingAction = null;
     extraTurnChain = 0;
+    extraTurnPending = null;
     clearLog();
     logLine('logSys', 'A new encounter begins.');
     wireEventHooks();
@@ -1164,6 +1237,7 @@
     applySavedUnitState(enemies, saved.enemies);
     battleOver = false;
     extraTurnChain = 0;
+    extraTurnPending = null;
     highlightedSlot = saved.highlightedSlot || 'basic';
     clearLog();
     (saved.log || []).forEach(function (entry) { logLine(entry.cls, entry.text); });
@@ -1686,11 +1760,13 @@
         useEffectAbility(actor, target, ability, { team: team, enemies: enemies });
       }
       actor.cooldowns[kind] = ability.cd;
+      emit('activeUsed', { unit: actor, kind: kind });
     } else {
       performAttack(actor, target, ability, enemies, true);
     }
 
-    var earnedExtraTurn = kind !== 'basic' && ability.extraTurnOnKill && target.alive === false;
+    var earnedExtraTurn = (kind !== 'basic' && ability.extraTurnOnKill && target.alive === false) || extraTurnPending === actor;
+    extraTurnPending = null;
 
     pendingAction = null;
     finishTurn(actor);
