@@ -483,6 +483,44 @@
           logLine('logBuff', self.name + ' weaves curses onto ' + target.name + (hitAtk || hitDef ? '.' : ', but none take hold.'));
         }
       }
+    },
+    {
+      id: 'wren', name: 'Wren', role: 'Sentinel',
+      hp: 125, atk: 50, def: 70, spd: 97, critChance: 15, critDamage: 150, acc: 10, res: 35,
+      passive: "Guardian's Echo — whenever an ally with Counter is attacked, Wren gains a Shield worth 10% of her max HP.",
+      signature: "Whenever Wren extends an ally's buffs, she permanently gains Resistance.",
+      basic: {
+        name: 'Ward Strike', desc: 'Single-target hit. If an ally is below 50% HP, they also gain Regeneration for 1 turn.',
+        coeff: 0.75, aoe: false, targetType: 'enemy',
+        onResolved: function (self) {
+          var ally = lowestHpAlly(aliveTeam());
+          if (ally && ally.hp / ally.maxHp < 0.5) {
+            applyBuff(ally, 'Regeneration', 0, 1, {});
+            logLine('logHeal', self.name + ' tends to ' + ally.name + ' — Regeneration.');
+          }
+        }
+      },
+      active1: {
+        name: 'Rallying Ward', cd: 3, targetType: 'ally',
+        desc: 'Grants the chosen ally Regeneration and Counter for 2 turns.',
+        coeff: 0, aoe: false,
+        effect: function (self, target) {
+          applyBuff(target, 'Regeneration', 0, 2, {});
+          applyBuff(target, 'Counter', 25, 2, {});
+          logLine('logBuff', self.name + ' wards ' + target.name + ' — Regeneration and Counter.');
+        }
+      },
+      active2: {
+        name: 'Prolong', cd: 4, targetType: 'ally',
+        desc: 'Extends every buff currently on the chosen ally by 1 turn.',
+        coeff: 0, aoe: false,
+        effect: function (self, target) {
+          if (!target.buffs.length) { logLine('logSys', target.name + ' has no buffs to extend.'); return; }
+          target.buffs.forEach(function (b) { b.duration += 1; });
+          logLine('logBuff', self.name + ' extends ' + target.buffs.length + ' buff(s) on ' + target.name + '.');
+          emit('buffsExtended', { unit: target, source: self });
+        }
+      }
     }
   ];
 
@@ -736,6 +774,14 @@
       }
     });
 
+    // Wren: extending an ally's buffs -> permanent Resistance.
+    on('buffsExtended', function (p) {
+      if (p.source && p.source.id === 'wren') {
+        p.source.res += 4;
+        logLine('logBuff', 'Wren (Signature): extension takes hold, Resistance +4 (now ' + p.source.res + ').');
+      }
+    });
+
     // --- PASSIVES ---
 
     // Vara — Aegis Instinct: start of her turn, shield the lowest-HP% ally.
@@ -785,6 +831,16 @@
       var debuff = p.unit.debuffs[Math.floor(Math.random() * p.unit.debuffs.length)];
       applyDebuff(recipient, debuff.type, debuff.value, debuff.duration, nyx);
       logLine('logBuff', 'Nyx (Passive): ' + debuff.type + ' spreads from the dying ' + p.unit.name + ' to ' + recipient.name + '.');
+    });
+
+    // Wren — Guardian's Echo: an ally with Counter is attacked, Wren gains a Shield.
+    on('damageTaken', function (p) {
+      var wren = findChampion('wren');
+      if (!wren || p.unit.isEnemy) return;
+      if (p.unit.buffs.some(function (b) { return b.type === 'Counter'; })) {
+        applyBuff(wren, 'Shield', 10, 2, {});
+        logLine('logBuff', "Wren (Passive): " + p.unit.name + "'s counter-stance triggers a Shield.");
+      }
     });
   }
 
