@@ -196,42 +196,43 @@
       id: 'vara', name: 'Vara', role: 'Guardian',
       hp: 145, atk: 55, def: 90, spd: 95, critChance: 15, critDamage: 150, acc: 0, res: 40,
       signature: 'When an ally below 50% HP is hit, gain Defense Up.',
-      basic: { name: 'Strike', coeff: 1.0, aoe: false },
-      active: { name: "Guardian's Stand", cd: 3, coeff: 0, aoe: false,
+      basic: { name: 'Strike', coeff: 1.0, aoe: false, targetType: 'enemy' },
+      active: { name: "Guardian's Stand", cd: 3, coeff: 0, aoe: false, targetType: 'ally',
         effect: function (self, target, ctx) {
-          applyBuff(self, 'Shield', 30, 2, ctx); // shield = % of maxHP absorbed, simplified flat 30%
+          applyBuff(target, 'Shield', 30, 2, ctx); // shield = % of maxHP absorbed, simplified flat 30%
           applyBuff(self, 'Defense Up', 30, 2, ctx);
-          logLine('logBuff', self.name + ' raises a shield and hardens their defense.');
+          applyDebuff(self, 'Provoke', 0, 2, self); // draws enemy attacks onto Vara
+          logLine('logBuff', self.name + ' shields ' + target.name + ' and steps in to draw every hit.');
         } }
     },
     {
       id: 'mire', name: 'Mire', role: 'Plaguebearer',
       hp: 120, atk: 65, def: 60, spd: 100, critChance: 15, critDamage: 150, acc: 20, res: 20,
       signature: 'Applying a Poison increases Speed by 1.',
-      basic: { name: 'Toxic Strike', coeff: 0.8, aoe: false, applyDebuff: { type: 'Poison', chance: 60 } },
-      active: { name: 'Plague Cloud', cd: 3, coeff: 0.5, aoe: true, applyDebuff: { type: 'Poison', chance: 75 } }
+      basic: { name: 'Toxic Strike', coeff: 0.8, aoe: false, targetType: 'enemy', applyDebuff: { type: 'Poison', chance: 60 } },
+      active: { name: 'Plague Cloud', cd: 3, coeff: 0.5, aoe: true, targetType: 'enemy', applyDebuff: { type: 'Poison', chance: 75 } }
     },
     {
       id: 'kestrel', name: 'Kestrel', role: 'Controller',
       hp: 110, atk: 60, def: 55, spd: 105, critChance: 15, critDamage: 150, acc: 15, res: 25,
       signature: 'Every basic attack this Champion performs increases their Attack by 5.',
-      basic: { name: 'Gust', coeff: 0.65, aoe: true },
-      active: { name: 'Cyclone', cd: 4, coeff: 0.4, aoe: true,
+      basic: { name: 'Gust', coeff: 0.65, aoe: true, targetType: 'enemy' },
+      active: { name: 'Cyclone', cd: 4, coeff: 0.4, aoe: true, targetType: 'enemy',
         applyDebuff: { type: 'Stun', chance: 40 }, applyDebuff2: { type: 'Speed Down', chance: 60 } }
     },
     {
       id: 'rook', name: 'Rook', role: 'Executioner',
       hp: 130, atk: 80, def: 65, spd: 90, critChance: 20, critDamage: 160, acc: 10, res: 15,
       signature: 'Attacking an enemy below 50% HP increases Crit Damage.',
-      basic: { name: 'Cleave', coeff: 1.0, aoe: false },
-      active: { name: 'Execute', cd: 3, coeff: 1.2, executeCoeff: 2.2, aoe: false }
+      basic: { name: 'Cleave', coeff: 1.0, aoe: false, targetType: 'enemy' },
+      active: { name: 'Execute', cd: 3, coeff: 1.2, executeCoeff: 2.2, aoe: false, targetType: 'enemy' }
     },
     {
       id: 'nyx', name: 'Nyx', role: 'Contagionist',
       hp: 115, atk: 62, def: 55, spd: 98, critChance: 15, critDamage: 150, acc: 15, res: 20,
       signature: 'Every debuff placed on this Champion increases their Speed by 1.',
-      basic: { name: 'Shadow Touch', coeff: 0.8, aoe: false },
-      active: { name: 'Contagion', cd: 4, coeff: 0, aoe: false,
+      basic: { name: 'Shadow Touch', coeff: 0.8, aoe: false, targetType: 'enemy' },
+      active: { name: 'Contagion', cd: 4, coeff: 0, aoe: false, targetType: 'enemy',
         effect: function (self, target, ctx) {
           var ally = lowestHpAlly(ctx.team);
           if (ally && ally.debuffs.length) {
@@ -352,8 +353,15 @@
       return false;
     }
     var existing = unit.buffs.find(function (b) { return b.type === type; });
-    if (existing) { existing.duration = Math.max(existing.duration, duration); }
-    else { unit.buffs.push({ type: type, value: value, duration: duration }); }
+    if (type === 'Shield') {
+      var pool = Math.round(unit.maxHp * (value / 100));
+      if (existing) { existing.pool += pool; existing.duration = Math.max(existing.duration, duration); }
+      else { unit.buffs.push({ type: type, value: value, duration: duration, pool: pool }); }
+    } else if (existing) {
+      existing.duration = Math.max(existing.duration, duration);
+    } else {
+      unit.buffs.push({ type: type, value: value, duration: duration });
+    }
     emit('buffApplied', { unit: unit, buff: { type: type, value: value }, source: (ctx && ctx.source) || unit });
     return true;
   }
@@ -407,6 +415,15 @@
   // DAMAGE APPLICATION
   // ---------------------------------------------------------------
   function dealDamage(target, amount, sourceLabel) {
+    var shield = target.buffs.find(function (b) { return b.type === 'Shield'; });
+    if (shield && shield.pool > 0) {
+      var absorbed = Math.min(shield.pool, amount);
+      shield.pool -= absorbed;
+      amount -= absorbed;
+      logLine('logBuff', target.name + "'s shield absorbs " + absorbed + ' damage' + (shield.pool <= 0 ? ' and breaks' : ' (' + shield.pool + ' left)') + '.');
+      if (shield.pool <= 0) target.buffs = target.buffs.filter(function (b) { return b !== shield; });
+      if (amount <= 0) return;
+    }
     target.hp = Math.max(0, target.hp - amount);
     emit('damageTaken', { unit: target, amount: amount });
     logLine('logDmg', target.name + ' takes ' + amount + ' damage' + (sourceLabel ? ' from ' + sourceLabel : '') + '. (' + target.hp + '/' + target.maxHp + ')');
@@ -666,7 +683,10 @@
   // ---------------------------------------------------------------
   function effectTags(unit) {
     var html = '<div class="effects">';
-    unit.buffs.forEach(function (b) { html += '<span class="effTag buff">' + b.type + ' (' + b.duration + ')</span>'; });
+    unit.buffs.forEach(function (b) {
+      var label = b.type === 'Shield' ? b.type + ' ' + b.pool + 'hp (' + b.duration + ')' : b.type + ' (' + b.duration + ')';
+      html += '<span class="effTag buff">' + label + '</span>';
+    });
     unit.debuffs.forEach(function (d) { html += '<span class="effTag debuff">' + d.type + ' (' + d.duration + ')</span>'; });
     html += '</div>';
     return html;
@@ -691,10 +711,16 @@
     allUnits().forEach(function (u, i) { if (!u.uid) u.uid = (u.isEnemy ? 'e' : 'p') + i; });
   }
 
+  function currentTargetType() {
+    if (!pendingAction || !pendingAction.chosen) return null;
+    var ability = pendingAction.chosen === 'basic' ? pendingAction.actor.basic : pendingAction.actor.active;
+    return ability.targetType || 'enemy';
+  }
+
   function render() {
     assignUidOnce();
     var actor = pendingAction ? pendingAction.actor : null;
-    var awaitingTarget = pendingAction && pendingAction.chosen;
+    var targetType = currentTargetType();
 
     document.getElementById('turnOrder').innerHTML = allUnits()
       .filter(function (u) { return u.alive; })
@@ -703,12 +729,12 @@
       .join('');
 
     document.getElementById('enemyList').innerHTML = enemies.map(function (u) {
-      var targetable = !!(awaitingTarget && u.isEnemy && u.alive);
+      var targetable = !!(targetType === 'enemy' && u.alive);
       return unitCardHtml(u, actor === u, targetable);
     }).join('');
 
     document.getElementById('teamList').innerHTML = team.map(function (u) {
-      var targetableAlly = !!(awaitingTarget && pendingAction.chosen === 'active' && !u.isEnemy && u.alive && pendingAction.actor.active.effect);
+      var targetableAlly = !!(targetType === 'ally' && u.alive);
       return unitCardHtml(u, actor === u, targetableAlly);
     }).join('');
 
