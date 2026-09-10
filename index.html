@@ -68,37 +68,6 @@
   }
   #battle.active { display: flex; }
 
-  #topBar {
-    flex: 0 0 auto;
-    display: flex;
-    gap: 6px;
-    overflow-x: auto;
-    padding: 4px 6px;
-    background: #101018;
-    border-bottom: 1px solid #232334;
-  }
-  .tOrderChip {
-    flex: 0 0 auto;
-    background: #1c1c28;
-    border-radius: 8px;
-    padding: 3px 7px;
-    font-size: 0.65rem;
-    border: 1px solid #333;
-  }
-  .tOrderChip.enemy { border-color: #7f1d1d; }
-
-  #infoBar {
-    flex: 0 0 auto;
-    padding: 3px 8px;
-    font-size: 0.68rem;
-    color: #a78bfa;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    background: #0f0f16;
-    border-bottom: 1px solid #1e1e2a;
-  }
-
   .unitZone {
     flex: 1 1 0;
     display: flex;
@@ -126,16 +95,24 @@
     box-shadow: 0 0 0 2px rgba(167,139,250,0.4);
   }
   .unitCard.acting { border-color: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.5); }
-  .unitTop { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; overflow: hidden; }
-  .unitName { font-weight: 600; font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .unitRole { font-size: 0.58rem; color: #888; white-space: nowrap; display: none; }
-  .bar { background: #26263a; border-radius: 6px; height: 6px; margin-top: 3px; overflow: hidden; }
+  .unitTop { flex: 0 0 auto; display: flex; justify-content: space-between; align-items: baseline; gap: 4px; overflow: hidden; }
+  .unitName { font-weight: 600; font-size: 0.7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar { flex: 0 0 auto; background: #26263a; border-radius: 4px; height: 3px; margin-top: 2px; overflow: hidden; }
   .bar > div { height: 100%; }
   .hpFill { background: linear-gradient(90deg,#22c55e,#16a34a); }
   .tmFill { background: linear-gradient(90deg,#38bdf8,#0284c7); }
-  .barLabel { font-size: 0.55rem; color: #999; display:flex; justify-content: space-between; margin-top:1px;}
-  .effects { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 2px; overflow: hidden; max-height: 32px; }
-  .effTag { font-size: 0.52rem; padding: 1px 4px; border-radius: 5px; background: #23233a; border: 1px solid #3a3a55; white-space: nowrap; }
+  .barLabel { flex: 0 0 auto; font-size: 0.5rem; color: #999; display:flex; justify-content: space-between; }
+  .effects {
+    flex: 1 1 auto;
+    margin-top: 3px;
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: 2px;
+    overflow-y: auto;
+    min-height: 0;
+  }
+  .effTag { flex: 0 0 auto; font-size: 0.52rem; padding: 1px 4px; border-radius: 5px; background: #23233a; border: 1px solid #3a3a55; white-space: nowrap; }
   .effTag.buff { border-color: #16a34a; color: #86efac; }
   .effTag.debuff { border-color: #b91c1c; color: #fca5a5; }
 
@@ -144,12 +121,12 @@
     flex: 0 0 auto;
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+    gap: 3px;
+    padding: 4px 6px calc(4px + env(safe-area-inset-bottom));
     background: #12121a;
     border-top: 1px solid #2a2a3a;
   }
-  #actionsWrap.waiting { align-items: center; padding-top: 12px; padding-bottom: 12px; }
+  #actionsWrap.waiting { align-items: center; padding-top: 10px; padding-bottom: 10px; }
   #skillRow { display: flex; flex-direction: row; gap: 4px; }
   .skillBtn {
     flex: 1 1 0;
@@ -157,9 +134,9 @@
     background: #23233a;
     border: 1px solid #4c1d95;
     color: #ddd;
-    padding: 7px 4px;
-    border-radius: 8px;
-    font-size: 0.66rem;
+    padding: 5px 4px;
+    border-radius: 7px;
+    font-size: 0.64rem;
     text-align: center;
     white-space: nowrap;
     overflow: hidden;
@@ -171,34 +148,34 @@
   .skillBtn.infoOnly { border-style: dashed; }
   .skillBtn.infoOnly.highlighted { background: #1e2a38; }
 
-  #detailRow { display: flex; flex-direction: row; gap: 4px; height: 58px; }
+  #detailRow { display: flex; flex-direction: row; gap: 4px; height: 38px; }
   #skillDetail {
     flex: 2 1 0;
     min-width: 0;
     background: #1a1a26;
     border: 1px solid #2f2f45;
-    border-radius: 8px;
-    padding: 5px 8px;
-    font-size: 0.62rem;
-    line-height: 1.3;
+    border-radius: 7px;
+    padding: 3px 8px;
+    font-size: 0.58rem;
+    line-height: 1.2;
     color: #ccc;
     overflow-y: auto;
   }
-  #skillDetail .detailName { color: #a78bfa; font-weight: 600; display: block; margin-bottom: 2px; }
-  #skillDetail .detailHint { color: #7dd3fc; display: block; margin-top: 3px; }
+  #skillDetail .detailName { color: #a78bfa; font-weight: 600; margin-right: 4px; }
+  #skillDetail .detailHint { color: #7dd3fc; display: block; }
   #miniLog {
     flex: 1 1 0;
     min-width: 0;
     background: #0f0f16;
     border: 1px solid #2f2f45;
-    border-radius: 8px;
-    padding: 4px 6px;
-    font-size: 0.55rem;
-    line-height: 1.3;
+    border-radius: 7px;
+    padding: 3px 6px;
+    font-size: 0.5rem;
+    line-height: 1.2;
     color: #999;
     overflow-y: auto;
   }
-  #miniLog div { margin-bottom: 1px; }
+  #miniLog div { margin-bottom: 0; }
 
   /* ---------------- OVERLAYS ---------------- */
   .overlay {
@@ -221,11 +198,6 @@
     margin-bottom: 10px;
     font-size: 0.85rem;
   }
-  .kitBlock { margin-bottom: 14px; }
-  .kitBlock h3 { margin: 0 0 4px; color: #a78bfa; font-size: 1rem; }
-  .kitBlock .tag { color: #f472b6; font-weight: 600; font-size: 0.75rem; }
-  .kitBlock .tag.sig { color: #fde68a; }
-  .kitBlock p { margin: 3px 0 8px; font-size: 0.82rem; color: #ddd; line-height: 1.4; }
   #logOverlay #logFull div { margin-bottom: 4px; font-size: 0.8rem; }
   .logSys { color: #7dd3fc; }
   .logDmg { color: #fca5a5; }
@@ -253,9 +225,6 @@
 </div>
 
 <div id="battle">
-  <div id="topBar"></div>
-  <div id="infoBar">Waiting...</div>
-
   <div class="unitZone" id="enemyList"></div>
   <div class="unitZone" id="teamList"></div>
 
@@ -266,11 +235,6 @@
       <div id="miniLog"></div>
     </div>
   </div>
-</div>
-
-<div class="overlay" id="kitOverlay">
-  <button class="overlayClose" data-close="kitOverlay">Close</button>
-  <div id="kitOverlayBody"></div>
 </div>
 
 <div class="overlay" id="logOverlay">
@@ -1056,16 +1020,6 @@
     var actor = pendingAction ? pendingAction.actor : null;
     var targetType = currentTargetType();
 
-    document.getElementById('topBar').innerHTML = allUnits()
-      .filter(function (u) { return u.alive; })
-      .sort(function (a, b) { return b.tm - a.tm; })
-      .map(function (u) { return '<div class="tOrderChip' + (u.isEnemy ? ' enemy' : '') + '">' + u.name + ' ' + Math.round(u.tm) + '%</div>'; })
-      .join('');
-
-    document.getElementById('infoBar').textContent = actor
-      ? actor.name + "'s turn — tap for kit details"
-      : 'Resolving turn order...';
-
     document.getElementById('enemyList').innerHTML = enemies.map(function (u) {
       var targetable = !!(targetType === 'enemy' && u.alive);
       return unitCardHtml(u, actor === u, targetable);
@@ -1138,18 +1092,6 @@
     document.getElementById('skillDetail').innerHTML = detailHtml;
   }
 
-  function renderKitOverlay() {
-    var actor = pendingAction ? pendingAction.actor : null;
-    if (!actor) return;
-    var html = '<div class="kitBlock"><h3>' + actor.name + ' — ' + (actor.role || '') + '</h3></div>';
-    [['Basic', actor.basic], ['Active 1', actor.active1], ['Active 2', actor.active2]].forEach(function (pair) {
-      html += '<div class="kitBlock"><span class="tag">' + pair[0].toUpperCase() + '</span><p><strong>' + pair[1].name + '</strong> — ' + (pair[1].desc || '') + '</p></div>';
-    });
-    html += '<div class="kitBlock"><span class="tag">PASSIVE</span><p>' + (actor.passive || '') + '</p></div>';
-    html += '<div class="kitBlock"><span class="tag sig">SIGNATURE</span><p>' + (actor.signature || '') + '</p></div>';
-    document.getElementById('kitOverlayBody').innerHTML = html;
-  }
-
   // ---------------------------------------------------------------
   // EVENT WIRING (UI)
   // ---------------------------------------------------------------
@@ -1175,12 +1117,6 @@
     var uid = card.getAttribute('data-uid');
     var target = team.find(function (u) { return u.uid === uid; });
     if (target) playerChooseTarget(target);
-  });
-
-  document.getElementById('infoBar').addEventListener('click', function () {
-    if (!pendingAction) return;
-    renderKitOverlay();
-    document.getElementById('kitOverlay').classList.add('show');
   });
 
   document.getElementById('miniLog').addEventListener('click', function () {
