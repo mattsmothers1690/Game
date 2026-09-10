@@ -125,24 +125,22 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
    drop chances (`ENCOUNTER_DROPS`), both rolled from the same
    weighted-rarity table drops and manual farming share
    (`DROP_RARITY_WEIGHTS`).
-8. **Infinite stage progression**: Boss and Wave are each an unbounded
-   stage ladder, not a fixed fight. Enemy hp/atk/def compound
-   `1.12^(stage-1)` (spd/crit/acc/res untouched, to keep turn economy
-   and hit/crit math sane). Scrap reward scales `1 + (stage-1)*0.25`.
+8. **Infinite stage progression**: Boss, Wave, and Champion Trial are
+   each an unbounded stage ladder, not a fixed fight. Enemy hp/atk/def
+   compound `1.12^(stage-1)` (spd/crit/acc/res untouched, to keep turn
+   economy and hit/crit math sane). Rewards scale `1 + (stage-1)*0.25`.
    Drop-rarity weights shift toward Epic/Legendary as stage rises
    (capped bump). Clearing a stage unlocks the next and permanently
    stays farmable — the "push then come back to farm" loop in
-   miniature, on the two nodes that exist today. Stage is threaded
-   through save/resume so a reload mid-fight restores the exact same
-   difficulty instance.
+   miniature. Stage is threaded through save/resume so a reload
+   mid-fight restores the exact same difficulty instance.
 
 9. **Champion leveling**: a new **Gold** currency (`machineborn_gold_v1`,
    distinct from Scrap — Scrap stays gear-only) plus per-champion banked
    XP (`machineborn_champion_progress_v1`, `{ championId: { level, xp } }`).
-   Boss/Wave victories grant Gold + XP to the whole squad (`ENCOUNTER_
-   GOLD_REWARD` / `ENCOUNTER_XP_REWARD`, both stage-scaled like Scrap)
-   plus a rare **Shard** drop (`SHARD_DROP_CHANCE`, `machineborn_
-   shards_v1`). Leveling up is a manual, deterministic, paid action
+   Battle victories grant Gold + XP to the whole squad (`ENCOUNTER_
+   GOLD_REWARD` / `ENCOUNTER_XP_REWARD`, both stage-scaled like Scrap).
+   Leveling up is a manual, deterministic, paid action
    (`levelUpChampion`, in the Armory's Champions panel) — spends banked
    XP (`xpToNextLevel`) + Gold (`levelUpCost`), no RNG, matching the
    Scrap-Upgrade pattern rather than the rolled-instance one. Only hp/
@@ -150,9 +148,19 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
    crit/acc/res stay fixed, same convention as enemy stage-scaling.
    The level cap (`effectiveLevelCap`, base 40) is account-wide and
    rises in Shard-gated +5 steps (`levelCapShardCost`) — the deliberate
-   "push another node to unblock this one" hinge; Shards currently drop
-   as a rare Boss/Wave bonus rather than from a dedicated node (see
-   "Next up").
+   "push another node to unblock this one" hinge.
+10. **Champion Trial** (`champion` encounter, `ENCOUNTER_SHARD_REWARD`,
+    `machineborn_shards_v1`): the dedicated **Shard** node referenced
+    above. 3v3, single wave (`CHAMPION_TRIAL`, squad `wren`/`vara`/
+    `rook` — Wren's first appearance in any squad), same infinite
+    stage ladder as Boss/Wave. Pays Gold + XP + a deterministic Shard
+    amount, but deliberately no Scrap and no gear/charm drops
+    (`ENCOUNTER_DROPS` has no `champion` entry) — keeps it a distinct
+    farm target rather than a strictly-better Boss/Wave. Its Warlord
+    enemy sets `isBoss: true` to reuse the existing devour-a-debuff-
+    for-Fury mechanic generically (that mechanic triggers off
+    `actor.isBoss`, it isn't actually Hollow-King-specific) instead of
+    a parallel one.
 
 Manual "Farm Gear" / "Farm Charms" buttons in the Armory remain as a
 testing/manual shortcut alongside real battle drops — not the only
@@ -202,19 +210,17 @@ acquisition path anymore.
 
 ## Next up (not yet built)
 
-Champion leveling (Gold, XP/Level, Shard-gated level cap) is built —
-see "Systems that exist today" above. Its Shard *source* is still a
-stand-in (a rare bonus roll on existing Boss/Wave victories) rather
-than a dedicated node; a real **Champion content node** would give
-Shards their own farmable home and is the natural next step.
+Champion leveling (Gold, XP/Level, Shard-gated level cap) and the
+Champion Trial node (the dedicated Shard source) are both built — see
+"Systems that exist today" above.
 
 Longer-term, deferred until asked for:
-- A **Champion node** (a dedicated Shard source, see above) and a
-  **Rework node** (materials to reroll a champion's build choice, once
-  such a choice exists beyond gear).
+- A **Rework node** (materials to reroll a champion's build choice,
+  once such a choice exists beyond gear).
 - Possibly renaming/re-theming Boss/Wave into the "Gear Trial" /
-  "Charm Vault" node identity discussed in design chat — not done yet,
-  current code still calls them `boss`/`wave`.
+  "Charm Vault" node identity discussed in design chat (Champion Trial
+  already carries its real name) — not done yet, current code still
+  calls them `boss`/`wave`.
 - Upgrading/reforging/salvaging exists for gear; charms have salvage
   only (no upgrade/reforge) — revisit if charm power creep becomes an
   issue.

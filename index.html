@@ -322,6 +322,14 @@
       <button id="waveStageUpBtn" class="stageStepBtn">+</button>
     </div>
   </div>
+  <div class="nodeRow">
+    <button id="startChampionBtn" data-encounter="champion">CHAMPION TRIAL (3v3)</button>
+    <div class="stageStepper">
+      <button id="championStageDownBtn" class="stageStepBtn">−</button>
+      <span id="championStageLabel" class="stageLabel"></span>
+      <button id="championStageUpBtn" class="stageStepBtn">+</button>
+    </div>
+  </div>
   <button id="armoryBtn">ARMORY</button>
 </div>
 
@@ -1311,20 +1319,42 @@
       basic: { name: 'Rend', coeff: 0.9, aoe: false, applyDebuff: { type: 'Bleed', chance: 50 } } }
   ];
 
+  // 3v3, single wave - the Champion Trial's own arena squad. `isBoss:
+  // true` on the Warlord reuses the existing devour-a-debuff-for-Fury
+  // mechanic (hollowKingMechanic isn't actually Hollow-King-specific,
+  // it triggers off `actor.isBoss` generically) rather than inventing a
+  // parallel one - punishes leaning on debuff-stacking to clear this node.
+  var CHAMPION_TRIAL = [
+    { id: 'sentinel1', name: 'Arena Sentinel', hp: 150, atk: 55, def: 60, spd: 92, critChance: 10, critDamage: 150, acc: 10, res: 20,
+      basic: { name: 'Guard Strike', coeff: 0.85, aoe: false, applyDebuff: { type: 'Defense Down', chance: 40 } } },
+    { id: 'adept1', name: 'Arena Adept', hp: 120, atk: 65, def: 45, spd: 100, critChance: 15, critDamage: 160, acc: 15, res: 15,
+      basic: { name: 'Focused Bolt', coeff: 1.0, aoe: false } },
+    { id: 'warlord1', name: 'Trial Warlord', hp: 260, atk: 70, def: 65, spd: 90, critChance: 15, critDamage: 165, acc: 20, res: 25,
+      isBoss: true,
+      basic: { name: "Champion's Wrath", coeff: 1.1, aoe: false } }
+  ];
+
   // ---------------------------------------------------------------
   // ENCOUNTERS
   // Squad size follows content type: 5v5 for boss content, 4v4 for
-  // general wave content (per design direction - not a change to the
-  // combat engine's default, just a per-encounter squad size).
+  // general wave content, 3v3 for the Champion Trial (per design
+  // direction - not a change to the combat engine's default, just a
+  // per-encounter squad size).
   // ---------------------------------------------------------------
   var ENCOUNTERS = {
     boss: { label: 'Boss Encounter', teamIds: ['vara', 'mire', 'kestrel', 'rook', 'nyx'], waves: [BOSS_WAVE] },
-    wave: { label: 'Wave Encounter', teamIds: ['mire', 'kestrel', 'rook', 'nyx'], waves: [WAVE_1, WAVE_2, WAVE_3] }
+    wave: { label: 'Wave Encounter', teamIds: ['mire', 'kestrel', 'rook', 'nyx'], waves: [WAVE_1, WAVE_2, WAVE_3] },
+    champion: { label: 'Champion Trial', teamIds: ['wren', 'vara', 'rook'], waves: [CHAMPION_TRIAL] }
   };
+  // Champion Trial is the dedicated Shard node (see ENCOUNTER_SHARD_REWARD
+  // below) - it deliberately doesn't pay Scrap or drop gear/charms
+  // (ENCOUNTER_DROPS has no 'champion' entry), keeping it a distinct
+  // farm target from Boss (gear) / Wave (scrap+charms) rather than a
+  // strictly-better version of either.
+  var ENCOUNTER_GOLD_REWARD = { boss: 30, wave: 45, champion: 50 };
+  var ENCOUNTER_XP_REWARD = { boss: 20, wave: 30, champion: 40 };
+  var ENCOUNTER_SHARD_REWARD = { champion: 3 };
   var ENCOUNTER_SCRAP_REWARD = { boss: 40, wave: 60 };
-  var ENCOUNTER_GOLD_REWARD = { boss: 30, wave: 45 };
-  var ENCOUNTER_XP_REWARD = { boss: 20, wave: 30 };
-  var SHARD_DROP_CHANCE = { boss: 0.15, wave: 0.08 };
 
   // Gear/charm drops on victory: each encounter rolls independent chances
   // for a gear piece and a charm, both landing on the same weighted-rarity
@@ -1888,10 +1918,13 @@
     var rewardEl = document.getElementById('resultReward');
     if (won) {
       var reward = Math.round((ENCOUNTER_SCRAP_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
-      scrap += reward;
-      saveScrap();
-      logLine('logSys', 'Earned ' + reward + ' Scrap.');
-      var rewardLines = ['+' + reward + ' Scrap'];
+      var rewardLines = [];
+      if (reward > 0) {
+        scrap += reward;
+        saveScrap();
+        logLine('logSys', 'Earned ' + reward + ' Scrap.');
+        rewardLines.push('+' + reward + ' Scrap');
+      }
 
       var goldReward = Math.round((ENCOUNTER_GOLD_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
       gold += goldReward;
@@ -1909,11 +1942,12 @@
       logLine('logSys', 'Squad gained ' + xpReward + ' XP.');
       rewardLines.push('+' + xpReward + ' XP to your squad');
 
-      if (Math.random() < (SHARD_DROP_CHANCE[currentEncounterId] || 0)) {
-        shards += 1;
+      var shardReward = Math.round((ENCOUNTER_SHARD_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
+      if (shardReward > 0) {
+        shards += shardReward;
         saveShards();
-        logLine('logSys', 'Shard drop!');
-        rewardLines.push('+1 Shard');
+        logLine('logSys', 'Earned ' + shardReward + ' Shard' + (shardReward === 1 ? '' : 's') + '.');
+        rewardLines.push('+' + shardReward + ' Shard' + (shardReward === 1 ? '' : 's'));
       }
 
       var dropCfg = ENCOUNTER_DROPS[currentEncounterId];
@@ -2401,9 +2435,10 @@
 
   document.getElementById('startBossBtn').addEventListener('click', function () { openTeamSelect('boss'); });
   document.getElementById('startWaveBtn').addEventListener('click', function () { openTeamSelect('wave'); });
+  document.getElementById('startChampionBtn').addEventListener('click', function () { openTeamSelect('champion'); });
 
   function renderStageLabels() {
-    ['boss', 'wave'].forEach(function (id) {
+    ['boss', 'wave', 'champion'].forEach(function (id) {
       var stage = getSelectedStage(id);
       var cleared = stageProgress[id] || 0;
       document.getElementById(id + 'StageLabel').textContent = 'Stage ' + stage + (stage > cleared ? ' (new)' : '');
@@ -2417,6 +2452,8 @@
   document.getElementById('bossStageUpBtn').addEventListener('click', function () { setSelectedStage('boss', getSelectedStage('boss') + 1); renderStageLabels(); });
   document.getElementById('waveStageDownBtn').addEventListener('click', function () { setSelectedStage('wave', getSelectedStage('wave') - 1); renderStageLabels(); });
   document.getElementById('waveStageUpBtn').addEventListener('click', function () { setSelectedStage('wave', getSelectedStage('wave') + 1); renderStageLabels(); });
+  document.getElementById('championStageDownBtn').addEventListener('click', function () { setSelectedStage('champion', getSelectedStage('champion') - 1); renderStageLabels(); });
+  document.getElementById('championStageUpBtn').addEventListener('click', function () { setSelectedStage('champion', getSelectedStage('champion') + 1); renderStageLabels(); });
 
   // ---------------------------------------------------------------
   // ARMORY
