@@ -309,7 +309,7 @@
 
   <div id="gearFarm" class="farmPanel">
     <h2>Farm Gear</h2>
-    <div style="color:#888;font-size:0.7rem;">Test-only acquisition until real battle rewards exist. Rolls a main stat + rarity-scaled substats.</div>
+    <div style="color:#888;font-size:0.7rem;">Test-only acquisition until gear/charm drops exist as battle rewards. Rolls a main stat + rarity-scaled substats.</div>
     <div class="farmControls">
       <button id="farmGearSlotBtn" class="armorySlotBtn"></button>
       <button id="farmGearRarityBtn" class="armorySlotBtn"></button>
@@ -321,7 +321,7 @@
 
   <div id="charmFarm" class="farmPanel">
     <h2>Farm Charms</h2>
-    <div style="color:#888;font-size:0.7rem;">Test-only acquisition until real battle rewards exist.</div>
+    <div style="color:#888;font-size:0.7rem;">Test-only acquisition until gear/charm drops exist as battle rewards.</div>
     <div class="farmControls">
       <button id="farmCharmTypeBtn" class="armorySlotBtn"></button>
       <button id="farmRarityBtn" class="armorySlotBtn"></button>
@@ -364,6 +364,7 @@
 
 <div class="overlay" id="resultOverlay">
   <h2 id="resultText"></h2>
+  <div id="resultReward" style="text-align:center;color:#fbbf24;font-size:0.9rem;"></div>
   <button class="overlayBtn" id="restartBtn" style="align-self:center;">RESTART</button>
 </div>
 
@@ -1191,6 +1192,7 @@
     boss: { label: 'Boss Encounter', teamIds: ['vara', 'mire', 'kestrel', 'rook', 'nyx'], waves: [BOSS_WAVE] },
     wave: { label: 'Wave Encounter', teamIds: ['mire', 'kestrel', 'rook', 'nyx'], waves: [WAVE_1, WAVE_2, WAVE_3] }
   };
+  var ENCOUNTER_SCRAP_REWARD = { boss: 40, wave: 60 };
 
   // ---------------------------------------------------------------
   // BATTLE STATE
@@ -1670,6 +1672,16 @@
     clearSave();
     logLine('logSys', won ? 'VICTORY.' : 'DEFEAT.');
     document.getElementById('resultText').textContent = won ? 'VICTORY' : 'DEFEAT';
+    var rewardEl = document.getElementById('resultReward');
+    if (won) {
+      var reward = ENCOUNTER_SCRAP_REWARD[currentEncounterId] || 0;
+      scrap += reward;
+      saveScrap();
+      logLine('logSys', 'Earned ' + reward + ' Scrap.');
+      rewardEl.textContent = '+' + reward + ' Scrap';
+    } else {
+      rewardEl.textContent = '';
+    }
     document.getElementById('resultOverlay').classList.add('show');
   }
 
