@@ -67,6 +67,33 @@
   #teamSelectActions { display: flex; gap: 12px; justify-content: center; margin-top: 20px; }
   #teamSelectActions .overlayBtn { margin: 0; }
 
+  /* ---------------- ARMORY ---------------- */
+  #armoryScreen { display: none; text-align: center; padding: 30px 16px; }
+  #armoryGrid { display: flex; flex-direction: column; gap: 10px; max-width: 520px; margin: 20px auto 0; }
+  .armoryRow {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    background: #15151f;
+    border: 1px solid #2a2a3a;
+    border-radius: 10px;
+    padding: 10px 12px;
+    text-align: left;
+  }
+  .armoryName { font-weight: 600; width: 70px; flex: 0 0 auto; }
+  .armorySlotBtn {
+    background: #23233a;
+    border: 1px solid #4c1d95;
+    color: #ddd;
+    padding: 6px 10px;
+    border-radius: 7px;
+    font-size: 0.72rem;
+    flex: 1 1 140px;
+  }
+  .armoryBonus { flex: 1 1 100%; font-size: 0.65rem; color: #86efac; }
+  #armoryScreen .overlayBtn { margin: 24px auto 0; }
+
   /* ---------------- ROTATE HINT ---------------- */
   #rotateHint {
     display: none;
@@ -253,6 +280,14 @@
   <button id="resumeBtn" style="display:none;">RESUME BATTLE</button>
   <button id="startBossBtn" data-encounter="boss">BOSS ENCOUNTER (5v5)</button>
   <button id="startWaveBtn" data-encounter="wave">WAVE ENCOUNTER (4v4 x3)</button>
+  <button id="armoryBtn">ARMORY</button>
+</div>
+
+<div id="armoryScreen">
+  <h1>ARMORY</h1>
+  <div style="color:#999;font-size:0.8rem;">Tap a slot to cycle through available gear.</div>
+  <div id="armoryGrid"></div>
+  <button id="armoryBackBtn" class="overlayBtn">BACK</button>
 </div>
 
 <div id="teamSelectScreen">
@@ -535,6 +570,60 @@
   ];
 
   // ---------------------------------------------------------------
+  // GEAR (minimal MVP: 2 slots, fixed stats, hardcoded item pool,
+  // no sets/substats/rarity/rolls yet - see the Armory screen)
+  // ---------------------------------------------------------------
+  var GEAR_SLOTS = ['weapon', 'armor'];
+  var GEAR_ITEMS = [
+    { id: 'iron_blade', name: 'Iron Blade', slot: 'weapon', stats: { atk: 15 } },
+    { id: 'serrated_edge', name: 'Serrated Edge', slot: 'weapon', stats: { atk: 10, critChance: 10 } },
+    { id: 'chainmail_vest', name: 'Chainmail Vest', slot: 'armor', stats: { hp: 80 } },
+    { id: 'bulwark_plate', name: 'Bulwark Plate', slot: 'armor', stats: { def: 40, hp: 30 } }
+  ];
+  var EQUIPMENT_KEY = 'machineborn_equipment_v1';
+
+  function loadEquipment() {
+    try {
+      var raw = localStorage.getItem(EQUIPMENT_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) { return {}; }
+  }
+  function saveEquipment() {
+    try { localStorage.setItem(EQUIPMENT_KEY, JSON.stringify(equipment)); } catch (e) { /* private mode / quota */ }
+  }
+  var equipment = loadEquipment(); // { championId: { weapon: itemId|null, armor: itemId|null } }
+
+  function getEquippedItem(championId, slot) {
+    var champEquip = equipment[championId];
+    if (!champEquip || !champEquip[slot]) return null;
+    return GEAR_ITEMS.find(function (g) { return g.id === champEquip[slot]; }) || null;
+  }
+
+  function gearBonusFor(championId) {
+    var bonus = {};
+    GEAR_SLOTS.forEach(function (slot) {
+      var item = getEquippedItem(championId, slot);
+      if (!item) return;
+      Object.keys(item.stats).forEach(function (stat) {
+        bonus[stat] = (bonus[stat] || 0) + item.stats[stat];
+      });
+    });
+    return bonus;
+  }
+
+  function applyGearToUnit(unit) {
+    var bonus = gearBonusFor(unit.id);
+    if (bonus.atk) unit.atk += bonus.atk;
+    if (bonus.def) unit.def += bonus.def;
+    if (bonus.spd) unit.spd += bonus.spd;
+    if (bonus.critChance) unit.critChance += bonus.critChance;
+    if (bonus.critDamage) unit.critDamage += bonus.critDamage;
+    if (bonus.acc) unit.acc += bonus.acc;
+    if (bonus.res) unit.res += bonus.res;
+    if (bonus.hp) { unit.maxHp += bonus.hp; unit.hp += bonus.hp; }
+  }
+
+  // ---------------------------------------------------------------
   // ENEMY DEFINITIONS
   // ---------------------------------------------------------------
   var BOSS_WAVE = [
@@ -614,7 +703,11 @@
     currentWaves = config.waves;
     currentTeamIds = teamIds || config.teamIds;
     waveIndex = 0;
-    team = currentTeamIds.map(function (id) { return makeUnit(CHAMPIONS.find(function (c) { return c.id === id; }), false); });
+    team = currentTeamIds.map(function (id) {
+      var unit = makeUnit(CHAMPIONS.find(function (c) { return c.id === id; }), false);
+      applyGearToUnit(unit);
+      return unit;
+    });
     spawnWave(currentWaves[waveIndex]);
     battleOver = false;
     pendingAction = null;
@@ -704,7 +797,11 @@
     currentWaves = config.waves;
     currentTeamIds = saved.teamIds || config.teamIds;
     waveIndex = saved.waveIndex || 0;
-    team = currentTeamIds.map(function (id) { return makeUnit(CHAMPIONS.find(function (c) { return c.id === id; }), false); });
+    team = currentTeamIds.map(function (id) {
+      var unit = makeUnit(CHAMPIONS.find(function (c) { return c.id === id; }), false);
+      applyGearToUnit(unit);
+      return unit;
+    });
     spawnWave(currentWaves[waveIndex]);
     applySavedUnitState(team, saved.team);
     applySavedUnitState(enemies, saved.enemies);
@@ -1468,11 +1565,16 @@
     var selected = selectedTeamIds.indexOf(champ.id) !== -1;
     var full = selectedTeamIds.length >= squadSizeFor(pendingEncounterId);
     var disabled = !selected && full;
+    var bonus = gearBonusFor(champ.id);
+    var geared = Object.keys(bonus).length > 0;
+    var dispHp = champ.hp + (bonus.hp || 0);
+    var dispAtk = champ.atk + (bonus.atk || 0);
+    var dispSpd = champ.spd + (bonus.spd || 0);
     return '' +
       '<button class="selectCard' + (selected ? ' selected' : '') + '" data-id="' + champ.id + '"' + (disabled ? ' disabled' : '') + '>' +
-        '<div class="selectName">' + champ.name + '</div>' +
+        '<div class="selectName">' + champ.name + (geared ? ' ⚙' : '') + '</div>' +
         '<div class="selectRole">' + champ.role + '</div>' +
-        '<div class="selectStats">HP ' + champ.hp + ' / ATK ' + champ.atk + ' / SPD ' + champ.spd + '</div>' +
+        '<div class="selectStats">HP ' + dispHp + ' / ATK ' + dispAtk + ' / SPD ' + dispSpd + '</div>' +
       '</button>';
   }
 
@@ -1503,6 +1605,51 @@
 
   document.getElementById('startBossBtn').addEventListener('click', function () { openTeamSelect('boss'); });
   document.getElementById('startWaveBtn').addEventListener('click', function () { openTeamSelect('wave'); });
+
+  // ---------------------------------------------------------------
+  // ARMORY
+  // ---------------------------------------------------------------
+  function cycleGearSlot(championId, slot) {
+    var options = [null].concat(GEAR_ITEMS.filter(function (g) { return g.slot === slot; }).map(function (g) { return g.id; }));
+    var current = (equipment[championId] && equipment[championId][slot]) || null;
+    var next = options[(options.indexOf(current) + 1) % options.length];
+    if (!equipment[championId]) equipment[championId] = {};
+    equipment[championId][slot] = next;
+    saveEquipment();
+    renderArmory();
+  }
+
+  function armoryRowHtml(champ) {
+    var slotsHtml = GEAR_SLOTS.map(function (slot) {
+      var item = getEquippedItem(champ.id, slot);
+      var label = slot.charAt(0).toUpperCase() + slot.slice(1) + ': ' + (item ? item.name : 'Empty');
+      return '<button class="armorySlotBtn" data-champ="' + champ.id + '" data-slot="' + slot + '">' + label + '</button>';
+    }).join('');
+    var bonus = gearBonusFor(champ.id);
+    var bonusText = Object.keys(bonus).map(function (k) { return '+' + bonus[k] + ' ' + k; }).join(', ') || 'No bonuses equipped';
+    return '<div class="armoryRow"><div class="armoryName">' + champ.name + '</div>' + slotsHtml + '<div class="armoryBonus">' + bonusText + '</div></div>';
+  }
+
+  function renderArmory() {
+    document.getElementById('armoryGrid').innerHTML = CHAMPIONS.map(armoryRowHtml).join('');
+  }
+
+  document.getElementById('armoryGrid').addEventListener('click', function (e) {
+    var btn = e.target.closest('.armorySlotBtn');
+    if (!btn) return;
+    cycleGearSlot(btn.getAttribute('data-champ'), btn.getAttribute('data-slot'));
+  });
+
+  document.getElementById('armoryBtn').addEventListener('click', function () {
+    document.getElementById('startScreen').style.display = 'none';
+    document.getElementById('armoryScreen').style.display = 'block';
+    renderArmory();
+  });
+
+  document.getElementById('armoryBackBtn').addEventListener('click', function () {
+    document.getElementById('armoryScreen').style.display = 'none';
+    document.getElementById('startScreen').style.display = '';
+  });
 
   document.getElementById('resumeBtn').addEventListener('click', function () {
     var saved = loadSavedBattle();
