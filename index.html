@@ -401,8 +401,8 @@
       },
       active2: {
         name: 'Culling Blow', cd: 4, targetType: 'enemy',
-        desc: 'Single-target true-damage hit — completely ignores the target\'s Defense.',
-        coeff: 1.0, aoe: false, trueDamage: true
+        desc: 'Single-target true-damage hit — ignores Defense entirely. A kill grants Rook an immediate extra turn.',
+        coeff: 1.0, aoe: false, trueDamage: true, extraTurnOnKill: true
       }
     },
     {
@@ -633,7 +633,7 @@
 
     if (saved.pendingActorId) {
       var actor = team.find(function (u) { return u.id === saved.pendingActorId && u.alive; });
-      pendingAction = actor ? { actor: actor, chosen: saved.pendingChosen || null } : null;
+      pendingAction = actor ? { actor: actor, chosen: saved.pendingChosen || 'basic' } : null;
     } else {
       pendingAction = null;
     }
@@ -956,7 +956,19 @@
     if (checkBattleEnd()) { render(); return; }
     var actor = advanceToNextActor();
     if (!actor) { render(); return; }
-    actor.tm -= 100;
+    takeTurn(actor, false);
+  }
+
+  // isExtra: an immediate bonus turn granted by an interaction (e.g. Rook's
+  // Culling Blow on a kill) rather than one earned by ticking turn meter.
+  // Extra turns do not consume/refund turn meter, but everything else about
+  // a turn still happens - cooldowns keep ticking down, start-of-turn
+  // effects still fire - "extra turns do not automatically reset cooldowns."
+  function takeTurn(actor, isExtra) {
+    if (!isExtra) {
+      extraTurnChain = 0;
+      actor.tm -= 100;
+    }
     Object.keys(actor.cooldowns).forEach(function (k) { if (actor.cooldowns[k] > 0) actor.cooldowns[k] -= 1; });
 
     startOfTurnEffects(actor);
@@ -979,7 +991,7 @@
       finishTurn(actor);
       runUntilPlayerInput();
     } else {
-      pendingAction = { actor: actor, chosen: null };
+      pendingAction = { actor: actor, chosen: 'basic' };
       highlightedSlot = 'basic';
       render();
     }
@@ -987,6 +999,18 @@
 
   function finishTurn(actor) {
     processDurations(actor);
+  }
+
+  function grantExtraTurn(actor) {
+    if (checkBattleEnd()) { render(); return; }
+    if (extraTurnChain >= MAX_EXTRA_TURN_CHAIN) {
+      logLine('logSys', actor.name + "'s extra-turn chain caps out.");
+      runUntilPlayerInput();
+      return;
+    }
+    extraTurnChain += 1;
+    logLine('logBoss', actor.name + ' gains an extra turn! (chain ' + extraTurnChain + '/' + MAX_EXTRA_TURN_CHAIN + ')');
+    takeTurn(actor, true);
   }
 
   // ---------------------------------------------------------------
@@ -1097,10 +1121,15 @@
       performAttack(actor, target, ability, enemies, true);
     }
 
+    var earnedExtraTurn = kind !== 'basic' && ability.extraTurnOnKill && target.alive === false;
+
     pendingAction = null;
     finishTurn(actor);
     render();
-    setTimeout(function () { runUntilPlayerInput(); }, 250);
+    setTimeout(function () {
+      if (earnedExtraTurn) grantExtraTurn(actor);
+      else runUntilPlayerInput();
+    }, 250);
   }
 
   // ---------------------------------------------------------------
