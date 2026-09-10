@@ -309,7 +309,7 @@
 
   <div id="gearFarm" class="farmPanel">
     <h2>Farm Gear</h2>
-    <div style="color:#888;font-size:0.7rem;">Test-only acquisition until gear/charm drops exist as battle rewards. Rolls a main stat + rarity-scaled substats.</div>
+    <div style="color:#888;font-size:0.7rem;">Manual roll for testing — battle victories also drop gear now. Rolls a main stat + rarity-scaled substats.</div>
     <div class="farmControls">
       <button id="farmGearSlotBtn" class="armorySlotBtn"></button>
       <button id="farmGearRarityBtn" class="armorySlotBtn"></button>
@@ -321,7 +321,7 @@
 
   <div id="charmFarm" class="farmPanel">
     <h2>Farm Charms</h2>
-    <div style="color:#888;font-size:0.7rem;">Test-only acquisition until gear/charm drops exist as battle rewards.</div>
+    <div style="color:#888;font-size:0.7rem;">Manual roll for testing — battle victories also drop charms now.</div>
     <div class="farmControls">
       <button id="farmCharmTypeBtn" class="armorySlotBtn"></button>
       <button id="farmRarityBtn" class="armorySlotBtn"></button>
@@ -1194,6 +1194,37 @@
   };
   var ENCOUNTER_SCRAP_REWARD = { boss: 40, wave: 60 };
 
+  // Gear/charm drops on victory: each encounter rolls independent chances
+  // for a gear piece and a charm, both landing on the same weighted-rarity
+  // table the farm buttons use for manual testing. Boss (harder, single
+  // wave) guarantees gear and favors a charm too; Wave (easier, but three
+  // fights) drops less reliably per victory.
+  var ENCOUNTER_DROPS = { boss: { gearChance: 1, charmChance: 0.5 }, wave: { gearChance: 0.6, charmChance: 0.3 } };
+  var DROP_RARITY_WEIGHTS = { Common: 50, Rare: 30, Epic: 15, Legendary: 5 };
+
+  function rollDropRarity() {
+    var total = RARITY_ORDER.reduce(function (sum, r) { return sum + DROP_RARITY_WEIGHTS[r]; }, 0);
+    var roll = Math.random() * total;
+    for (var i = 0; i < RARITY_ORDER.length; i++) {
+      roll -= DROP_RARITY_WEIGHTS[RARITY_ORDER[i]];
+      if (roll <= 0) return RARITY_ORDER[i];
+    }
+    return RARITY_ORDER[RARITY_ORDER.length - 1];
+  }
+
+  function rollGearDrop() {
+    var slot = GEAR_SLOTS[Math.floor(Math.random() * GEAR_SLOTS.length)];
+    var rarity = rollDropRarity();
+    var template = GEAR_TEMPLATES.find(function (t) { return t.slot === slot && t.rarity === rarity; });
+    return farmGear(template.id);
+  }
+
+  function rollCharmDrop() {
+    var charmType = CHARM_TYPES[Math.floor(Math.random() * CHARM_TYPES.length)];
+    var rarity = rollDropRarity();
+    return farmCharm(charmType.id, rarity);
+  }
+
   // ---------------------------------------------------------------
   // BATTLE STATE
   // ---------------------------------------------------------------
@@ -1678,7 +1709,22 @@
       scrap += reward;
       saveScrap();
       logLine('logSys', 'Earned ' + reward + ' Scrap.');
-      rewardEl.textContent = '+' + reward + ' Scrap';
+      var rewardLines = ['+' + reward + ' Scrap'];
+
+      var dropCfg = ENCOUNTER_DROPS[currentEncounterId];
+      if (dropCfg) {
+        if (Math.random() < dropCfg.gearChance) {
+          var gearDrop = rollGearDrop();
+          logLine('logSys', 'Gear drop: ' + gearInstanceLabel(gearDrop));
+          rewardLines.push('Gear: ' + gearInstanceLabel(gearDrop));
+        }
+        if (Math.random() < dropCfg.charmChance) {
+          var charmDrop = rollCharmDrop();
+          logLine('logSys', 'Charm drop: ' + charmInstanceLabel(charmDrop));
+          rewardLines.push('Charm: ' + charmInstanceLabel(charmDrop));
+        }
+      }
+      rewardEl.innerHTML = rewardLines.map(function (l) { return '<div>' + l + '</div>'; }).join('');
     } else {
       rewardEl.textContent = '';
     }
