@@ -2,19 +2,24 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Machineborn</title>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  body {
+  html, body {
+    height: 100%;
     margin: 0;
+    overscroll-behavior: none;
+  }
+  body {
     background: #0b0b12;
     color: #eee;
     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    padding: 10px;
-    padding-bottom: 40px;
     font-size: 14px;
   }
+
+  /* ---------------- START SCREEN ---------------- */
+  #startScreen { text-align: center; padding: 40px 16px; }
   h1 {
     text-align: center;
     letter-spacing: 3px;
@@ -22,8 +27,7 @@
     color: #a78bfa;
     margin: 8px 0 12px;
   }
-  #startScreen { text-align: center; padding-top: 40px; }
-  #startScreen button, .restartBtn {
+  #startScreen button, .overlayBtn {
     font-size: 1.1rem;
     padding: 16px 32px;
     background: #7c3aed;
@@ -32,32 +36,102 @@
     border-radius: 12px;
     margin-top: 20px;
   }
-  #startScreen button:active, .restartBtn:active { background: #5b21b6; }
-  #battle { display: none; }
-  .section-label {
-    text-transform: uppercase;
-    font-size: 0.7rem;
-    color: #888;
-    letter-spacing: 1px;
-    margin: 10px 0 4px;
+  #startScreen button:active, .overlayBtn:active { background: #5b21b6; }
+
+  /* ---------------- ROTATE HINT ---------------- */
+  #rotateHint {
+    display: none;
+    position: fixed; inset: 0;
+    background: #0b0b12;
+    color: #ccc;
+    z-index: 30;
+    align-items: center; justify-content: center;
+    flex-direction: column;
+    text-align: center;
+    padding: 24px;
+    font-size: 1.1rem;
   }
-  #turnOrder { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+  #rotateHint .spin { font-size: 2.2rem; margin-bottom: 12px; }
+
+  @media (orientation: portrait) {
+    body.battleActive #rotateHint { display: flex; }
+    body.battleActive #battle.active { display: none; }
+  }
+
+  /* ---------------- BATTLE LAYOUT (landscape, top/bottom split) ---------------- */
+  #battle {
+    display: none;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+  #battle.active { display: flex; }
+
+  #topBar {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 4px 6px;
+    background: #101018;
+    border-bottom: 1px solid #232334;
+  }
   .tOrderChip {
     flex: 0 0 auto;
     background: #1c1c28;
     border-radius: 8px;
-    padding: 4px 8px;
-    font-size: 0.7rem;
+    padding: 3px 7px;
+    font-size: 0.65rem;
     border: 1px solid #333;
   }
   .tOrderChip.enemy { border-color: #7f1d1d; }
+
+  #infoBar {
+    flex: 0 0 auto;
+    padding: 3px 8px;
+    font-size: 0.68rem;
+    color: #a78bfa;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    background: #0f0f16;
+    border-bottom: 1px solid #1e1e2a;
+  }
+
+  .unitZone {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: row;
+    gap: 4px;
+    padding: 4px 6px;
+    overflow-x: auto;
+    min-height: 0;
+  }
+
+  #logStrip {
+    flex: 0 0 auto;
+    padding: 2px 8px;
+    font-size: 0.62rem;
+    color: #7dd3fc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    background: #0f0f16;
+    border-top: 1px solid #1e1e2a;
+    border-bottom: 1px solid #1e1e2a;
+  }
+
   .unitCard {
+    flex: 1 1 0;
+    min-width: 0;
     background: #15151f;
     border: 1px solid #2a2a3a;
-    border-radius: 10px;
-    padding: 8px 10px;
-    margin-bottom: 6px;
+    border-radius: 8px;
+    padding: 5px 6px;
     position: relative;
+    display: flex;
+    flex-direction: column;
   }
   .unitCard.dead { opacity: 0.35; }
   .unitCard.targetable {
@@ -65,35 +139,43 @@
     box-shadow: 0 0 0 2px rgba(167,139,250,0.4);
   }
   .unitCard.acting { border-color: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.5); }
-  .unitTop { display: flex; justify-content: space-between; align-items: baseline; }
-  .unitName { font-weight: 600; }
-  .unitRole { font-size: 0.65rem; color: #888; margin-left: 4px; }
-  .bar { background: #26263a; border-radius: 6px; height: 8px; margin-top: 4px; overflow: hidden; }
+  .unitTop { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; overflow: hidden; }
+  .unitName { font-weight: 600; font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .unitRole { font-size: 0.58rem; color: #888; white-space: nowrap; display: none; }
+  .bar { background: #26263a; border-radius: 6px; height: 6px; margin-top: 3px; overflow: hidden; }
   .bar > div { height: 100%; }
   .hpFill { background: linear-gradient(90deg,#22c55e,#16a34a); }
   .tmFill { background: linear-gradient(90deg,#38bdf8,#0284c7); }
-  .barLabel { font-size: 0.6rem; color: #999; display:flex; justify-content: space-between; margin-top:1px;}
-  .effects { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 3px; }
-  .effTag { font-size: 0.6rem; padding: 1px 5px; border-radius: 6px; background: #23233a; border: 1px solid #3a3a55; }
+  .barLabel { font-size: 0.55rem; color: #999; display:flex; justify-content: space-between; margin-top:1px;}
+  .effects { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 2px; overflow: hidden; max-height: 32px; }
+  .effTag { font-size: 0.52rem; padding: 1px 4px; border-radius: 5px; background: #23233a; border: 1px solid #3a3a55; white-space: nowrap; }
   .effTag.buff { border-color: #16a34a; color: #86efac; }
   .effTag.debuff { border-color: #b91c1c; color: #fca5a5; }
-  #actions { margin-top: 6px; }
-  .kitHeader { color: #aaa; font-size: 0.75rem; margin-bottom: 6px; }
-  .kitHeader .champName { color: #eee; font-weight: 600; }
-  .kitLine { margin-top: 2px; }
-  .kitLine .kitTag { color: #f472b6; font-weight: 600; margin-right: 4px; }
-  .kitLine.sig .kitTag { color: #fde68a; }
-  .actGroup { margin-bottom: 8px; }
+
+  /* ---------------- SKILL BAR (bottom, Raid-style) ---------------- */
+  #actions {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: row;
+    gap: 4px;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+    background: #12121a;
+    border-top: 1px solid #2a2a3a;
+  }
+  #actions.waiting { padding-top: 10px; padding-bottom: 10px; justify-content: center; }
+  .actGroup { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
   .actBtn {
     background: #23233a;
     border: 1px solid #4c1d95;
     color: #ddd;
-    padding: 9px 12px;
+    padding: 7px 6px;
     border-radius: 8px 8px 0 0;
-    font-size: 0.8rem;
+    font-size: 0.7rem;
     width: 100%;
-    display: block;
-    text-align: left;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .actBtn:disabled { opacity: 0.35; }
   .actBtn.selected { background: #4c1d95; }
@@ -102,67 +184,108 @@
     border: 1px solid #2f2f45;
     border-top: none;
     border-radius: 0 0 8px 8px;
-    padding: 6px 10px;
-    font-size: 0.68rem;
+    padding: 4px 6px;
+    font-size: 0.58rem;
+    line-height: 1.25;
     color: #999;
-    margin-bottom: 6px;
+    flex: 1;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
-  #log {
-    background: #0f0f16;
-    border: 1px solid #2a2a3a;
-    border-radius: 8px;
-    padding: 6px 8px;
-    height: 130px;
+  #targetHint {
+    position: absolute;
+    top: 4px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(124,58,237,0.9);
+    color: #fff;
+    font-size: 0.65rem;
+    padding: 3px 10px;
+    border-radius: 6px;
+    z-index: 5;
+    display: none;
+  }
+  #targetHint.show { display: block; }
+
+  /* ---------------- OVERLAYS ---------------- */
+  .overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.9);
+    z-index: 25;
+    flex-direction: column;
+    padding: 16px;
     overflow-y: auto;
-    font-size: 0.72rem;
-    line-height: 1.35;
   }
-  #log div { margin-bottom: 2px; }
+  .overlay.show { display: flex; }
+  .overlayClose {
+    align-self: flex-end;
+    background: #23233a;
+    border: 1px solid #4c1d95;
+    color: #ddd;
+    padding: 6px 14px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    font-size: 0.85rem;
+  }
+  .kitBlock { margin-bottom: 14px; }
+  .kitBlock h3 { margin: 0 0 4px; color: #a78bfa; font-size: 1rem; }
+  .kitBlock .tag { color: #f472b6; font-weight: 600; font-size: 0.75rem; }
+  .kitBlock .tag.sig { color: #fde68a; }
+  .kitBlock p { margin: 3px 0 8px; font-size: 0.82rem; color: #ddd; line-height: 1.4; }
+  #logOverlay #logFull div { margin-bottom: 4px; font-size: 0.8rem; }
   .logSys { color: #7dd3fc; }
   .logDmg { color: #fca5a5; }
   .logHeal { color: #86efac; }
   .logBuff { color: #fde68a; }
   .logBoss { color: #f472b6; }
+
   #resultOverlay {
-    display: none;
-    position: fixed; inset: 0;
-    background: rgba(0,0,0,0.85);
-    z-index: 20;
     align-items: center; justify-content: center;
-    flex-direction: column;
   }
-  #resultOverlay h2 { font-size: 1.6rem; }
+  #resultOverlay h2 { font-size: 1.6rem; text-align: center; }
 </style>
 </head>
 <body>
 
-<h1>MACHINEBORN</h1>
+<div id="rotateHint">
+  <div class="spin">🔄</div>
+  <div>Rotate your phone sideways to battle.</div>
+</div>
 
 <div id="startScreen">
+  <h1>MACHINEBORN</h1>
   <div style="color:#999;">Collect tools. Understand rules. Build machines. Break encounters.</div>
   <button id="startBtn">START BATTLE</button>
 </div>
 
 <div id="battle">
-  <div class="section-label">Turn Order</div>
-  <div id="turnOrder"></div>
+  <div id="topBar"></div>
+  <div id="infoBar">Waiting...</div>
 
-  <div class="section-label">Enemies</div>
-  <div id="enemyList"></div>
+  <div class="unitZone" id="enemyList"></div>
 
-  <div class="section-label">Team</div>
-  <div id="teamList"></div>
+  <div id="logStrip">Combat log — tap to expand</div>
 
-  <div class="section-label">Actions</div>
+  <div class="unitZone" id="teamList"></div>
+
   <div id="actions"></div>
-
-  <div class="section-label">Combat Log</div>
-  <div id="log"></div>
 </div>
 
-<div id="resultOverlay">
+<div class="overlay" id="kitOverlay">
+  <button class="overlayClose" data-close="kitOverlay">Close</button>
+  <div id="kitOverlayBody"></div>
+</div>
+
+<div class="overlay" id="logOverlay">
+  <button class="overlayClose" data-close="logOverlay">Close</button>
+  <div id="logFull"></div>
+</div>
+
+<div class="overlay" id="resultOverlay">
   <h2 id="resultText"></h2>
-  <button class="restartBtn" id="restartBtn">RESTART</button>
+  <button class="overlayBtn" id="restartBtn" style="align-self:center;">RESTART</button>
 </div>
 
 <script>
@@ -703,7 +826,7 @@
     battleOver = true;
     logLine('logSys', won ? 'VICTORY.' : 'DEFEAT.');
     document.getElementById('resultText').textContent = won ? 'VICTORY' : 'DEFEAT';
-    document.getElementById('resultOverlay').style.display = 'flex';
+    document.getElementById('resultOverlay').classList.add('show');
   }
 
   // ---------------------------------------------------------------
@@ -855,14 +978,18 @@
   // ---------------------------------------------------------------
   // LOGGING
   // ---------------------------------------------------------------
-  function clearLog() { document.getElementById('log').innerHTML = ''; }
+  function clearLog() {
+    document.getElementById('logFull').innerHTML = '';
+    document.getElementById('logStrip').textContent = 'Combat log — tap to expand';
+  }
   function logLine(cls, text) {
-    var log = document.getElementById('log');
+    var logFull = document.getElementById('logFull');
     var div = document.createElement('div');
     div.className = cls;
     div.textContent = text;
-    log.appendChild(div);
-    log.scrollTop = log.scrollHeight;
+    logFull.appendChild(div);
+    logFull.scrollTop = logFull.scrollHeight;
+    document.getElementById('logStrip').textContent = text;
   }
 
   // ---------------------------------------------------------------
@@ -895,11 +1022,10 @@
     var cls = 'unitCard' + (!unit.alive ? ' dead' : '') + (isActingActor ? ' acting' : '') + (targetable ? ' targetable' : '');
     return '' +
       '<div class="' + cls + '" data-uid="' + unit.uid + '">' +
-        '<div class="unitTop"><span class="unitName">' + unit.name + '</span><span class="unitRole">' + (unit.role || '') + '</span></div>' +
+        '<div class="unitTop"><span class="unitName">' + unit.name + '</span></div>' +
         '<div class="bar hpFillWrap"><div class="hpFill" style="width:' + hpPct + '%"></div></div>' +
-        '<div class="barLabel"><span>HP ' + unit.hp + '/' + unit.maxHp + '</span><span>' + hpPct + '%</span></div>' +
+        '<div class="barLabel"><span>' + unit.hp + '/' + unit.maxHp + '</span><span>' + hpPct + '%</span></div>' +
         '<div class="bar"><div class="tmFill" style="width:' + tmPct + '%"></div></div>' +
-        '<div class="barLabel"><span>TM</span><span>' + tmPct + '%</span></div>' +
         effectTags(unit) +
       '</div>';
   }
@@ -919,11 +1045,15 @@
     var actor = pendingAction ? pendingAction.actor : null;
     var targetType = currentTargetType();
 
-    document.getElementById('turnOrder').innerHTML = allUnits()
+    document.getElementById('topBar').innerHTML = allUnits()
       .filter(function (u) { return u.alive; })
       .sort(function (a, b) { return b.tm - a.tm; })
       .map(function (u) { return '<div class="tOrderChip' + (u.isEnemy ? ' enemy' : '') + '">' + u.name + ' ' + Math.round(u.tm) + '%</div>'; })
       .join('');
+
+    document.getElementById('infoBar').textContent = actor
+      ? actor.name + "'s turn — tap for kit details"
+      : 'Resolving turn order...';
 
     document.getElementById('enemyList').innerHTML = enemies.map(function (u) {
       var targetable = !!(targetType === 'enemy' && u.alive);
@@ -951,17 +1081,29 @@
 
   function renderActions() {
     var el = document.getElementById('actions');
-    if (!pendingAction) { el.innerHTML = '<div style="color:#666;">Waiting for turn order...</div>'; return; }
+    if (!pendingAction) {
+      el.className = 'waiting';
+      el.innerHTML = '<div style="color:#666;">Waiting for turn order...</div>';
+      return;
+    }
+    el.className = '';
     var actor = pendingAction.actor;
-    var html = '<div class="kitHeader"><span class="champName">' + actor.name + '</span>\'s turn</div>';
-    if (actor.passive) html += '<div class="kitLine"><span class="kitTag">PASSIVE</span>' + actor.passive + '</div>';
-    if (actor.signature) html += '<div class="kitLine sig"><span class="kitTag">SIGNATURE</span>' + actor.signature + '</div>';
-    html += '<div class="section-label" style="margin-top:8px;">Choose an ability</div>';
-    html += abilityButtonHtml('basic', actor.basic, actor);
-    html += abilityButtonHtml('active1', actor.active1, actor);
-    html += abilityButtonHtml('active2', actor.active2, actor);
-    if (pendingAction.chosen) html += '<div style="color:#7dd3fc;font-size:0.75rem;">Choose a target above.</div>';
+    var html = abilityButtonHtml('basic', actor.basic, actor) +
+      abilityButtonHtml('active1', actor.active1, actor) +
+      abilityButtonHtml('active2', actor.active2, actor);
     el.innerHTML = html;
+  }
+
+  function renderKitOverlay() {
+    var actor = pendingAction ? pendingAction.actor : null;
+    if (!actor) return;
+    var html = '<div class="kitBlock"><h3>' + actor.name + ' — ' + (actor.role || '') + '</h3></div>';
+    [['Basic', actor.basic], ['Active 1', actor.active1], ['Active 2', actor.active2]].forEach(function (pair) {
+      html += '<div class="kitBlock"><span class="tag">' + pair[0].toUpperCase() + '</span><p><strong>' + pair[1].name + '</strong> — ' + (pair[1].desc || '') + '</p></div>';
+    });
+    html += '<div class="kitBlock"><span class="tag">PASSIVE</span><p>' + (actor.passive || '') + '</p></div>';
+    html += '<div class="kitBlock"><span class="tag sig">SIGNATURE</span><p>' + (actor.signature || '') + '</p></div>';
+    document.getElementById('kitOverlayBody').innerHTML = html;
   }
 
   // ---------------------------------------------------------------
@@ -989,15 +1131,32 @@
     if (target) playerChooseTarget(target);
   });
 
+  document.getElementById('infoBar').addEventListener('click', function () {
+    if (!pendingAction) return;
+    renderKitOverlay();
+    document.getElementById('kitOverlay').classList.add('show');
+  });
+
+  document.getElementById('logStrip').addEventListener('click', function () {
+    document.getElementById('logOverlay').classList.add('show');
+  });
+
+  document.querySelectorAll('[data-close]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.getElementById(btn.getAttribute('data-close')).classList.remove('show');
+    });
+  });
+
   document.getElementById('startBtn').addEventListener('click', function () {
     document.getElementById('startScreen').style.display = 'none';
-    document.getElementById('battle').style.display = 'block';
+    document.body.classList.add('battleActive');
+    document.getElementById('battle').classList.add('active');
     newBattle();
     runUntilPlayerInput();
   });
 
   document.getElementById('restartBtn').addEventListener('click', function () {
-    document.getElementById('resultOverlay').style.display = 'none';
+    document.getElementById('resultOverlay').classList.remove('show');
     newBattle();
     runUntilPlayerInput();
   });
