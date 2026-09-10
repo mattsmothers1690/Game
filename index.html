@@ -352,10 +352,11 @@
       },
       active1: {
         name: "Guardian's Stand", cd: 3, targetType: 'ally',
-        desc: 'Shields the chosen ally for 30% of their max HP, hardens Vara\'s own Defense, and Provokes so enemies attack her instead.',
+        desc: 'Shields the chosen ally for 30% of their max HP and grants them Resistance Up, hardens Vara\'s own Defense, and Provokes so enemies attack her instead.',
         coeff: 0, aoe: false,
         effect: function (self, target, ctx) {
           applyBuff(target, 'Shield', 30, 2, ctx);
+          applyBuff(target, 'Resistance Up', 30, 2, ctx);
           applyBuff(self, 'Defense Up', 30, 2, ctx);
           applyDebuff(self, 'Provoke', 0, 2, self);
           logLine('logBuff', self.name + ' shields ' + target.name + ' and steps in to draw every hit.');
@@ -418,8 +419,10 @@
       },
       active2: {
         name: 'Static Field', cd: 4, targetType: 'enemy',
-        desc: 'Light AoE hit with a strong chance (70%) to Block Buffs on every enemy.',
-        coeff: 0.3, aoe: true, applyDebuff: { type: 'Block Buffs', chance: 70 }
+        desc: 'Light AoE hit with a strong chance (70%) to Block Buffs and a chance (50%) to apply Accuracy Down to every enemy.',
+        coeff: 0.3, aoe: true,
+        applyDebuff: { type: 'Block Buffs', chance: 70 },
+        applyDebuff2: { type: 'Accuracy Down', chance: 50 }
       }
     },
     {
@@ -434,8 +437,12 @@
       },
       active1: {
         name: 'Execute', cd: 3, targetType: 'enemy',
-        desc: 'Single-target hit, dealing far more damage (2.2x instead of 1.2x coefficient) if the target is below 50% HP.',
-        coeff: 1.2, executeCoeff: 2.2, aoe: false
+        desc: 'Single-target hit, dealing far more damage (2.2x instead of 1.2x coefficient) if the target is below 50% HP. Rook gains Accuracy Up afterward.',
+        coeff: 1.2, executeCoeff: 2.2, aoe: false,
+        onResolved: function (self) {
+          applyBuff(self, 'Accuracy Up', 30, 2, {});
+          logLine('logBuff', self.name + ' finds his rhythm — Accuracy Up.');
+        }
       },
       active2: {
         name: 'Culling Blow', cd: 4, targetType: 'enemy',
@@ -473,14 +480,16 @@
       },
       active2: {
         name: 'Curse Weave', cd: 3, targetType: 'enemy',
-        desc: 'No damage. Strong chance (70% each) to apply both Attack Down and Defense Down to the target.',
+        desc: 'No damage. Strong chance (70% each) to apply Attack Down and Defense Down, plus a chance (60%) to apply Resistance Down.',
         coeff: 0, aoe: false,
         effect: function (self, target) {
           var hitAtk = accuracyRoll(self, target, 70);
           var hitDef = accuracyRoll(self, target, 70);
+          var hitRes = accuracyRoll(self, target, 60);
           if (hitAtk) applyDebuff(target, 'Attack Down', 30, 2, self);
           if (hitDef) applyDebuff(target, 'Defense Down', 30, 2, self);
-          logLine('logBuff', self.name + ' weaves curses onto ' + target.name + (hitAtk || hitDef ? '.' : ', but none take hold.'));
+          if (hitRes) applyDebuff(target, 'Resistance Down', 30, 2, self);
+          logLine('logBuff', self.name + ' weaves curses onto ' + target.name + ((hitAtk || hitDef || hitRes) ? '.' : ', but none take hold.'));
         }
       }
     },
@@ -502,12 +511,13 @@
       },
       active1: {
         name: 'Rallying Ward', cd: 3, targetType: 'ally',
-        desc: 'Grants the chosen ally Regeneration and Counter for 2 turns.',
+        desc: 'Grants the chosen ally Regeneration, Counter, and a Block Debuffs ward for 2 turns.',
         coeff: 0, aoe: false,
         effect: function (self, target) {
           applyBuff(target, 'Regeneration', 0, 2, {});
           applyBuff(target, 'Counter', 25, 2, {});
-          logLine('logBuff', self.name + ' wards ' + target.name + ' — Regeneration and Counter.');
+          applyBuff(target, 'Block Debuffs', 0, 2, {});
+          logLine('logBuff', self.name + ' wards ' + target.name + ' — Regeneration, Counter, and a debuff ward.');
         }
       },
       active2: {
@@ -867,8 +877,8 @@
   }
 
   function applyDebuff(unit, type, value, duration, source) {
-    if (unit.buffs.some(function (b) { return b.type === 'Immunity'; })) {
-      logLine('logSys', unit.name + ' is immune.');
+    if (unit.buffs.some(function (b) { return b.type === 'Immunity' || b.type === 'Block Debuffs'; })) {
+      logLine('logSys', unit.name + ' resists the effect.');
       return false;
     }
     if (STACKING_DEBUFF_TYPES.indexOf(type) !== -1) {
@@ -882,16 +892,18 @@
     return true;
   }
 
-  function statMult(unit, type, upName, downName) {
+  function statMult(unit, upName, downName) {
     var mult = 1;
     unit.buffs.forEach(function (b) { if (b.type === upName) mult += 0.30; });
     unit.debuffs.forEach(function (d) { if (d.type === downName) mult -= 0.30; });
     return Math.max(0.1, mult);
   }
 
-  function effectiveAtk(unit) { return unit.atk * statMult(unit, 'atk', 'Attack Up', 'Attack Down'); }
-  function effectiveDef(unit) { return unit.def * statMult(unit, 'def', 'Defense Up', 'Defense Down'); }
-  function effectiveSpd(unit) { return unit.spd * statMult(unit, 'spd', 'Speed Up', 'Speed Down'); }
+  function effectiveAtk(unit) { return unit.atk * statMult(unit, 'Attack Up', 'Attack Down'); }
+  function effectiveDef(unit) { return unit.def * statMult(unit, 'Defense Up', 'Defense Down'); }
+  function effectiveSpd(unit) { return unit.spd * statMult(unit, 'Speed Up', 'Speed Down'); }
+  function effectiveAcc(unit) { return unit.acc * statMult(unit, 'Accuracy Up', 'Accuracy Down'); }
+  function effectiveRes(unit) { return unit.res * statMult(unit, 'Resistance Up', 'Resistance Down'); }
 
   // ---------------------------------------------------------------
   // DAMAGE / ACCURACY MATH
@@ -911,7 +923,7 @@
   }
 
   function accuracyRoll(attacker, target, baseChance) {
-    var acc = attacker.acc || 0, res = target.res || 0;
+    var acc = effectiveAcc(attacker), res = effectiveRes(target);
     var edge = (acc - res) / 200; // acc-vs-res advantage, roughly -0.5..0.5
     var finalChance = Math.min(100, Math.max(5, baseChance + edge * 30));
     return Math.random() * 100 < finalChance;
