@@ -87,6 +87,7 @@ dependencies, no server). Served via GitHub Pages at
 | `machineborn_stat_catalyst_v1` | Stat Catalyst currency (a number) — Tower/Rework: main stat value only | Persistent |
 | `machineborn_substat_catalyst_v1` | Substat Catalyst currency (a number) — Tower/Rework: substats only | Persistent |
 | `machineborn_charmdust_v1` | Charm Dust currency (a number) — Faction Wars' charm economy (Scrap's counterpart) | Persistent |
+| `machineborn_arena_medal_v1` | Arena Medal currency (a number) — Grand Arena's economy, spent on Arena Pulls (guaranteed Vanguard-set gear, otherwise unobtainable) | Persistent |
 
 Every inventory is a flat array of independent rolled instances keyed
 by a generated `instanceId`; equipping references an instance by ID.
@@ -120,7 +121,11 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
    stat-led at 2pc with an event effect at 4pc (venomous also has a
    6pc capstone); the other 4 flip the pattern — a small-%-chance
    mechanical effect (Stun/Poison/extra-turn/cooldown-reduction) at
-   2pc, a stat held back for 4pc.
+   2pc, a stat held back for 4pc. A 9th set, **Vanguard**
+   (`ARENA_GEAR_SET_ID`, defined in `GEAR_SETS` but deliberately left
+   OUT of `GEAR_SET_IDS`), exists only as Grand Arena's Arena Pull
+   reward — see "Galactic War" below/Content framework's Grand Arena
+   entry.
 6. **Scrap economy** (Tower's currency, gear-only): salvage an
    unequipped gear instance for Scrap (rarity-scaled payout,
    `GEAR_SALVAGE_VALUE`). Spend Scrap on **Upgrade** (levels 0–12,
@@ -182,6 +187,27 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
     at Campaign Ch.10 alongside Dungeon. Pays bulk Scrap+Gold+XP with
     no specialist material of its own — the deliberate exception to
     every other mode's single-material rule.
+12. **Grand Arena** (`grandarena`, see Content framework below): the
+    "smart AI" mode — 3v3 against one of four pre-built archetype
+    squads (`GRAND_ARENA_ARCHETYPES`: Aggro/Control/Stall/Burst) that
+    actually pick targets and fire Actives on cooldown via a
+    `chooseAction` hook on each enemy unit (`enemyAct` dispatches to it
+    when present; every other enemy in the game has none and keeps the
+    original simple-random-basic-attack AI unchanged — see
+    `focusLowestHpChooseAction` / `controlChooseAction` /
+    `stallChooseAction`). Stage cycles through the 4 archetypes forever
+    (`archetypeForStage`/`ENCOUNTERS[id].archetypeCycle`, resolved in
+    `wavesForBattle`) — still an infinite ladder like the others, just
+    with a rotating opponent identity instead of a rotating raw number.
+    Both the stage-select label and the team-select title name the
+    upcoming archetype so counter-picking a squad is actually possible
+    before committing. Unlocks at Campaign Ch.10 alongside
+    Dungeon/Galactic War. Pays Arena Medals only (`ENCOUNTER_ARENA_
+    MEDAL_REWARD`) — no gear/charms drop from victory itself (reward
+    purity); Medals are spent in the Armory's Arena Shop on
+    `pullArenaGear`, a normal rolled gear instance (random slot/rarity-
+    floor-Epic/main stat/substats) forced to the Vanguard set instead
+    of an independent set roll — see the gear-sets bullet above.
 
 ## Content framework
 
@@ -196,7 +222,10 @@ once Campaign clears the threshold, that mode is open forever.
 **Galactic War** is the one deliberate exception to "exactly ONE
 material identity": it's the "big generic farm" node by design, so it
 pays bulk Scrap+Gold+XP instead of owning a new specialist material —
-see its row below and the implementation notes.
+see its row below and the implementation notes. **Grand Arena** keeps
+one material identity (Arena Medals) but is the one mode whose reward
+is spent on a gear *set* found nowhere else, rather than gating a
+stat axis or an economy shared with other modes.
 
 | Mode (`ENCOUNTERS` id) | Squad | Progression | Unlocks at | Rewards |
 |---|---|---|---|---|
@@ -206,6 +235,7 @@ see its row below and the implementation notes.
 | **Main Boss** (`mainboss`) | 3v3 | Infinite stage ladder | Campaign Ch.8 | Gold + XP (champion leveling) + Shards (level cap) |
 | **Dungeon** (`dungeon`) | 4v4 | Infinite stage ladder | Campaign Ch.10 | Ascension Cores only |
 | **Galactic War** (`galactic`) | 5v5 × 5 waves | Infinite stage ladder, no retreat between waves within one attempt | Campaign Ch.10 (same threshold as Dungeon — a "you finished Campaign" bonus node, not a fifth step in the unlock sequence) | Bulk Scrap + Gold + XP only — no gear/charms/shards/catalysts/Ascension Cores |
+| **Grand Arena** (`grandarena`) | 3v3 vs. one of 4 AI archetype squads | Infinite stage ladder, stage number cycles through the 4 archetypes (`(stage - 1) % 4`) forever | Campaign Ch.10 (alongside Dungeon/Galactic War) | Arena Medals only — spent on Arena Pulls (Vanguard-set gear), never dropped directly |
 
 Dungeon is deliberately different in *kind*, not just reward: every
 enemy in `DUNGEON_WAVE_1` leads with a debuff instead of raw damage
@@ -232,26 +262,59 @@ so a clean, fast, high-burst/AoE clear reaches the finale before Fervor
 stacks up much, while a slow, grindy clear is fighting later waves at
 a real Attack disadvantage on top of their own escalation.
 
+Grand Arena earns its place on yet another axis: it's the only mode
+where the *opponent's decision-making* is the test, not a stat curve or
+a debuff/turn-economy mechanic. Every other enemy in the game (Campaign
+through Galactic War) uses the same simple AI — `pickEnemyTarget` picks
+a uniformly random living target (respecting Provoke) and always uses
+`actor.basic`. Grand Arena's four archetype squads instead carry a
+`chooseAction(actor, {foes, allies})` on every unit, and `enemyAct`
+dispatches to it when present: Aggro/Burst always fire an Active the
+instant it's off cooldown and finish off the lowest-HP% living foe;
+Control fires its AoE lockdown Active whenever available and otherwise
+targets whichever foe currently hits hardest; Stall spends a support
+Active on its own lowest-HP% squadmate before ever attacking. Because
+the archetype identity is tied to stage number (Aggro/Control/Stall/
+Burst cycle in that fixed order), Burst — last in the cycle — is always
+first met at a higher stage multiplier than Aggro; its base numbers are
+tuned down from what its "big single hit" identity would otherwise
+warrant specifically to offset that, rather than letting compounding
+stage scaling stack with an already-hard-hitting kit into something
+uncounterable on a fresh squad's very first turn.
+
 Implementation notes:
-- **Fixed vs. infinite**: `ENCOUNTERS[id].fixedChapters` (an array of
-  chapter template arrays) marks Campaign as non-scaling — `spawnWave`
-  passes stage `1` to `scaledEnemyTemplate` for such encounters instead
-  of the real stage, so a chapter's authored numbers ARE its
-  difficulty, forever. `getSelectedStage`/`setSelectedStage` both cap
-  at `fixedChapters.length` so there's no "Chapter 11" once all 10
-  chapters are cleared — Tower/Faction Wars/Main Boss/Dungeon have no
-  such cap (`Infinity`), matching their infinite-ladder nature.
+- **Fixed vs. infinite vs. cycling**: `ENCOUNTERS[id].fixedChapters`
+  (an array of chapter template arrays) marks Campaign as non-scaling —
+  `spawnWave` passes stage `1` to `scaledEnemyTemplate` for such
+  encounters instead of the real stage, so a chapter's authored numbers
+  ARE its difficulty, forever. `getSelectedStage`/`setSelectedStage`
+  both cap at `fixedChapters.length` so there's no "Chapter 11" once
+  all 10 chapters are cleared. `ENCOUNTERS[id].archetypeCycle` is
+  Grand Arena's equivalent for picking *which* opponent squad a stage
+  fights (`archetypeForStage`), while still scaling stats and rewards
+  by the real stage number like an infinite ladder — the two flags are
+  independent, resolved together in `wavesForBattle`. Tower/Faction
+  Wars/Main Boss/Dungeon/Galactic War have neither flag and no stage
+  cap (`Infinity`), the plain infinite-ladder case.
 - **Unlock UI**: a locked node's start button is `disabled` and its
   stage label reads "Locked — Campaign Ch. N" (`isContentUnlocked`,
   wired into `renderStageLabels`) rather than being hidden — the gate
   is visible, not mysterious. Clearing the exact Campaign chapter that
   unlocks a mode surfaces it on the victory screen ("Tower unlocked!").
+  For Grand Arena specifically, both the stage label and the
+  team-select title also name the upcoming archetype (" — vs Control"),
+  since counter-picking only works if you know the opponent before
+  locking in your squad.
 - **Reward purity**: every `ENCOUNTER_*_REWARD` / `ENCOUNTER_DROPS` /
   `GEAR_REWORK_CATALYST_CHANCE` table only has entries for the mode(s)
   that actually own that material — e.g. `ENCOUNTER_GOLD_REWARD` has
   only `campaign`, `mainboss`, and `galactic` keys (Galactic War is the
   one intentional multi-mode overlap — see above — never a specialist
-  material like gear/charms/shards/Ascension Cores). `endBattle` guards
+  material like gear/charms/shards/Ascension Cores/Arena Medals).
+  `ENCOUNTER_ARENA_MEDAL_REWARD` has only `grandarena`, and there is no
+  `ENCOUNTER_DROPS.grandarena` entry at all — Grand Arena's gear payoff
+  (`pullArenaGear`) is a manual Armory spend, never a victory-screen
+  roll, so the reward line itself stays Medals-only. `endBattle` guards
   every reward block with `if (reward > 0)` so a mode that doesn't
   grant something never shows a useless "+0 X" line.
 - Champion leveling itself (Gold/XP spend, level curve, Shard-gated
@@ -319,24 +382,19 @@ acquisition path anymore.
 
 ## Next up (not yet built)
 
-The content framework's first six modes are built: Campaign (the
+The content framework's full seven modes are built: Campaign (the
 gate, 10 fixed chapters), Tower/Faction Wars/Main Boss/Dungeon (each
 single-material specialists unlocked by Campaign progress), Galactic
-War (the generic bulk-farm node, unlocked alongside Dungeon), Champion
-leveling, Ascension, and Gear Rework — see "Systems that exist today"
-and "Content framework" above.
+War (the generic bulk-farm node, unlocked alongside Dungeon), Grand
+Arena (the "smart AI" counter-picking node, also unlocked alongside
+Dungeon), Champion leveling, Ascension, and Gear Rework — see "Systems
+that exist today" and "Content framework" above.
 
-The user's full target roster is **Main Boss, Faction Wars, Tower,
-Dungeon, Galactic Challenge/War, Grand Arena** — the first five now
-exist; **Grand Arena** is the one still to build, per the user's
-explicit "one at a time" preference (build, test, ship one before
-starting the next):
-- **Grand Arena**: proposed design (confirmed with the user, not yet
-  built) — PvE vs. pre-built AI archetype squads (Aggro/Control/
-  Stall/Burst) that actually use their full kit intelligently (unlike
-  the simple AI other content uses), so it tests counter-picking, not
-  just stat totals. Reward: a new Arena Medal currency for an
-  Arena-exclusive gear/accessory pool not available anywhere else.
+The user's full target roster — **Main Boss, Faction Wars, Tower,
+Dungeon, Galactic Challenge/War, Grand Arena** — is now complete. There
+is no next mode queued; further content work should wait for the user
+to ask, per their explicit "one at a time" preference that guided this
+whole buildout (build, test, ship one before starting the next).
 
 Note: "Rework node" turned out to mean gear substat/set/stat-value
 rerolls, not a champion build-choice system — champions still have

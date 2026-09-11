@@ -118,10 +118,11 @@
     padding: 3px 8px; border-radius: 6px; font-size: 0.62rem;
   }
   .invActionBtn:disabled { opacity: 0.4; }
-  #scrapDisplay, #goldDisplay, #shardDisplay, #charmDustDisplay, #ascensionDisplay, #catalystDisplay { color: #fbbf24; font-size: 0.85rem; margin: 4px 0 0; }
+  #scrapDisplay, #goldDisplay, #shardDisplay, #charmDustDisplay, #ascensionDisplay, #arenaMedalDisplay, #catalystDisplay { color: #fbbf24; font-size: 0.85rem; margin: 4px 0 0; }
   #shardDisplay { color: #a78bfa; }
   #charmDustDisplay { color: #86efac; }
   #ascensionDisplay { color: #f472b6; }
+  #arenaMedalDisplay { color: #38bdf8; }
   #catalystDisplay { color: #7dd3fc; font-size: 0.7rem; }
   .xpFill { background: linear-gradient(90deg,#a78bfa,#7c3aed); }
 
@@ -357,6 +358,14 @@
       <button id="galacticStageUpBtn" class="stageStepBtn">+</button>
     </div>
   </div>
+  <div class="nodeRow">
+    <button id="startGrandarenaBtn" data-encounter="grandarena">GRAND ARENA (3v3)</button>
+    <div class="stageStepper">
+      <button id="grandarenaStageDownBtn" class="stageStepBtn">−</button>
+      <span id="grandarenaStageLabel" class="stageLabel"></span>
+      <button id="grandarenaStageUpBtn" class="stageStepBtn">+</button>
+    </div>
+  </div>
   <button id="armoryBtn">ARMORY</button>
 </div>
 
@@ -368,6 +377,7 @@
   <div id="shardDisplay"></div>
   <div id="charmDustDisplay"></div>
   <div id="ascensionDisplay"></div>
+  <div id="arenaMedalDisplay"></div>
   <div id="catalystDisplay"></div>
   <div id="armoryGrid"></div>
 
@@ -378,6 +388,15 @@
     <div class="farmControls">
       <button id="raiseLevelCapBtn" class="overlayBtn"></button>
     </div>
+  </div>
+
+  <div id="arenaShopPanel" class="farmPanel">
+    <h2>Arena Shop</h2>
+    <div style="color:#888;font-size:0.7rem;">Grand Arena victories pay Arena Medals. Spend them on an Arena Pull — a rolled gear piece (Epic or Legendary, random slot/stats) guaranteed to carry the Vanguard set, found nowhere else.</div>
+    <div class="farmControls">
+      <button id="arenaPullBtn" class="overlayBtn"></button>
+    </div>
+    <div id="arenaPullDesc"></div>
   </div>
 
   <div id="gearFarm" class="farmPanel">
@@ -865,8 +884,31 @@
         }
       },
       bonus4: { stats: { acc: 10 } }
+    },
+    // Vanguard is Arena-exclusive - deliberately left OUT of GEAR_SET_IDS
+    // (the pool every normal drop/farm roll picks from) so it can never
+    // come from Tower/Faction Wars/Galactic War. The only way to get a
+    // Vanguard-set piece is spending Arena Medals on an Arena Pull (see
+    // pullArenaGear) - still a rolled instance (random slot/rarity/main
+    // stat/substats), just with the set identity guaranteed instead of
+    // a fourth independent roll. Themed around surviving Grand Arena's
+    // Control archetype (Resistance) and punishing anyone who keeps
+    // attacking into it (Counter).
+    vanguard: {
+      name: 'Vanguard',
+      bonus2: { stats: { res: 12 } },
+      bonus4: {
+        trigger: 'damageTaken', chance: 20,
+        desc: '20% chance to gain Counter for 1 turn when hit.',
+        condition: function (p, ownerId) { return p.unit.id === ownerId; },
+        effect: function (owner) {
+          applyBuff(owner, 'Counter', 30, 1, {});
+          logLine('logBuff', owner.name + "'s Vanguard set (4pc) procs - Counter!");
+        }
+      }
     }
   };
+  var ARENA_GEAR_SET_ID = 'vanguard';
 
   var EQUIPMENT_KEY = 'machineborn_equipment_v1';
   var GEAR_INVENTORY_KEY = 'machineborn_gear_v1';
@@ -1034,6 +1076,33 @@
     unit.hp = unit.maxHp;
     unit.atk = Math.round(unit.atk * mult);
     unit.def = Math.round(unit.def * mult);
+  }
+
+  // ---------------------------------------------------------------
+  // ARENA MEDALS: Grand Arena's material. Unlike every other mode's
+  // material, victory does NOT drop gear directly (reward purity - see
+  // Content framework) - it only pays bulk Medals. Medals are then
+  // spent on an Arena Pull (pullArenaGear, in the Armory) that rolls a
+  // normal gear instance (random slot/rarity/main stat/substats, same
+  // rolled-instance philosophy as everything else) but force-set to
+  // the Vanguard set, which is otherwise unobtainable.
+  // ---------------------------------------------------------------
+  var ARENA_MEDAL_KEY = 'machineborn_arena_medal_v1';
+  function loadArenaMedal() {
+    try { var raw = localStorage.getItem(ARENA_MEDAL_KEY); return raw ? (parseInt(raw, 10) || 0) : 0; } catch (e) { return 0; }
+  }
+  function saveArenaMedal() {
+    try { localStorage.setItem(ARENA_MEDAL_KEY, String(arenaMedal)); } catch (e) { /* private mode / quota */ }
+  }
+  var arenaMedal = loadArenaMedal();
+  var ARENA_PULL_COST = 8;
+
+  function pullArenaGear() {
+    if (arenaMedal < ARENA_PULL_COST) return null;
+    arenaMedal -= ARENA_PULL_COST;
+    saveArenaMedal();
+    var instance = rollArenaGearDrop();
+    return instance;
   }
 
   var GEAR_SALVAGE_VALUE = { Common: 15, Rare: 35, Epic: 80, Legendary: 200 };
@@ -1668,6 +1737,156 @@
   var GALACTIC_WAR_FERVOR_STEP = 15; // % Attack Up stacked onto every wave after the first
 
   // ---------------------------------------------------------------
+  // GRAND ARENA: 3v3 vs. one of four pre-built AI archetype squads
+  // (Aggro/Control/Stall/Burst) that pick real targets and fire real
+  // Actives on cooldown instead of the simple random-basic-attack AI
+  // every other enemy in the game uses (see enemyAct/pickEnemyTarget) -
+  // the "smart AI" this mode is built around. Each unit's `chooseAction`
+  // is the archetype's whole personality; the enemy templates otherwise
+  // use the exact same basic/active1/cd/coeff/applyDebuff/effect shape
+  // Champions already use, nothing new there. Stage cycles through the
+  // 4 archetypes forever (see GRAND_ARENA_ARCHETYPES/archetypeCycle) so
+  // it's still an infinite ladder like Tower/Faction/Main Boss/Dungeon,
+  // just with a rotating opponent identity instead of a rotating raw
+  // difficulty number - the actual "counter-picking" test the user
+  // asked for.
+  // ---------------------------------------------------------------
+  function availableActiveKinds(actor) {
+    if (actor.debuffs.some(function (d) { return d.type === 'Silence'; })) return [];
+    return ['active1', 'active2'].filter(function (k) { return actor[k] && !(actor.cooldowns[k] > 0); });
+  }
+
+  function highestAtkUnit(list) {
+    var alive = list.filter(function (u) { return u.alive; });
+    if (!alive.length) return null;
+    return alive.reduce(function (a, b) { return effectiveAtk(b) > effectiveAtk(a) ? b : a; });
+  }
+
+  // Aggro and Burst share this: always fire an Active the instant it's
+  // off cooldown, always finish off the squishiest living foe. The two
+  // archetypes only differ in their numbers (Aggro: fast/frequent/
+  // modest hits; Burst: slow/rare/devastating hits), which is enough to
+  // demand a different counter (sustain/cleanse vs. a defensive
+  // cooldown timed for the alpha strike) without needing different AI.
+  function focusLowestHpChooseAction(actor, ctx) {
+    if (!ctx.foes.length) return null;
+    var actives = availableActiveKinds(actor);
+    var kind = actives.length ? actives[0] : 'basic';
+    return { kind: kind, target: lowestHpAlly(ctx.foes) };
+  }
+
+  // Control: fire its AoE lockdown Active whenever it's up (target
+  // doesn't matter for an AoE); otherwise its basic pokes whichever
+  // living foe currently hits hardest, to blunt the biggest threat
+  // instead of just chipping the low-HP target like Aggro does.
+  function controlChooseAction(actor, ctx) {
+    if (!ctx.foes.length) return null;
+    var actives = availableActiveKinds(actor);
+    var kind = actives.length ? actives[0] : 'basic';
+    var ability = actor[kind];
+    var target = ability.aoe ? ctx.foes[0] : highestAtkUnit(ctx.foes);
+    return { kind: kind, target: target };
+  }
+
+  // Stall: whenever a support Active (targetType 'ally') is up, use it
+  // on its own lowest-HP% squadmate (a shield/heal) instead of
+  // attacking at all - it would rather stabilize than deal damage.
+  // Only attacks (with whatever's left) once no support Active is
+  // available this turn.
+  function stallChooseAction(actor, ctx) {
+    var actives = availableActiveKinds(actor);
+    var supportKind = actives.filter(function (k) { return actor[k].targetType === 'ally'; })[0];
+    if (supportKind) {
+      var lowestAlly = lowestHpAlly(ctx.allies);
+      if (lowestAlly) return { kind: supportKind, target: lowestAlly };
+    }
+    if (!ctx.foes.length) return null;
+    var kind = actives.length ? actives[0] : 'basic';
+    return { kind: kind, target: lowestHpAlly(ctx.foes) };
+  }
+
+  var ARENA_AGGRO_SQUAD = [
+    { id: 'berserker', name: 'Berserker', hp: 150, atk: 75, def: 40, spd: 100, critChance: 20, critDamage: 170, acc: 15, res: 10,
+      basic: { name: 'Savage Cut', coeff: 0.9, aoe: false },
+      active1: { name: 'Frenzy', cd: 3, coeff: 1.0, aoe: false, targetType: 'enemy' },
+      chooseAction: focusLowestHpChooseAction },
+    { id: 'blitzer', name: 'Blitzer', hp: 130, atk: 70, def: 35, spd: 115, critChance: 15, critDamage: 160, acc: 10, res: 10,
+      basic: { name: 'Quick Jab', coeff: 0.8, aoe: false },
+      active1: { name: 'Rampage', cd: 2, coeff: 0.9, aoe: false, targetType: 'enemy' },
+      chooseAction: focusLowestHpChooseAction },
+    { id: 'warhound', name: 'Warhound', hp: 140, atk: 68, def: 45, spd: 95, critChance: 10, critDamage: 150, acc: 15, res: 15,
+      basic: { name: 'Bite', coeff: 0.85, aoe: false, applyDebuff: { type: 'Bleed', chance: 40 } },
+      active1: { name: 'Rending Leap', cd: 3, coeff: 1.0, aoe: false, targetType: 'enemy', applyDebuff: { type: 'Bleed', chance: 60 } },
+      chooseAction: focusLowestHpChooseAction }
+  ];
+  var ARENA_CONTROL_SQUAD = [
+    { id: 'warden_arena', name: 'Warden', hp: 180, atk: 50, def: 70, spd: 90, critChance: 10, critDamage: 150, acc: 20, res: 25,
+      basic: { name: 'Baton Strike', coeff: 0.7, aoe: false, applyDebuff: { type: 'Defense Down', chance: 30 } },
+      active1: { name: 'Concussive Wave', cd: 4, coeff: 0.5, aoe: true, targetType: 'enemy', applyDebuff: { type: 'Stun', chance: 35 } },
+      chooseAction: controlChooseAction },
+    { id: 'binder', name: 'Binder', hp: 150, atk: 55, def: 55, spd: 95, critChance: 10, critDamage: 150, acc: 25, res: 20,
+      basic: { name: 'Shackle Bolt', coeff: 0.6, aoe: false, applyDebuff: { type: 'Speed Down', chance: 40 } },
+      active1: { name: 'Binding Field', cd: 4, coeff: 0.4, aoe: true, targetType: 'enemy', applyDebuff: { type: 'Block Buffs', chance: 60 } },
+      chooseAction: controlChooseAction },
+    { id: 'chronomancer', name: 'Chronomancer', hp: 140, atk: 52, def: 50, spd: 105, critChance: 10, critDamage: 150, acc: 20, res: 20,
+      basic: { name: 'Time Nip', coeff: 0.6, aoe: false, applyDebuff: { type: 'Accuracy Down', chance: 30 } },
+      active1: { name: 'Temporal Lock', cd: 4, coeff: 0.3, aoe: true, targetType: 'enemy', applyDebuff: { type: 'Speed Down', chance: 70 } },
+      chooseAction: controlChooseAction }
+  ];
+  var ARENA_STALL_SQUAD = [
+    { id: 'aegis_warden', name: 'Aegis Warden', hp: 220, atk: 45, def: 90, spd: 80, critChance: 5, critDamage: 150, acc: 10, res: 35,
+      basic: { name: 'Guard Poke', coeff: 0.5, aoe: false },
+      active1: {
+        name: 'Bastion Ward', cd: 3, coeff: 0, aoe: false, targetType: 'ally',
+        effect: function (self, target) { applyBuff(target, 'Shield', 25, 2, {}); applyBuff(target, 'Defense Up', 30, 2, {}); }
+      },
+      chooseAction: stallChooseAction },
+    { id: 'lifebinder', name: 'Lifebinder', hp: 190, atk: 48, def: 60, spd: 88, critChance: 5, critDamage: 150, acc: 10, res: 30,
+      basic: { name: 'Drain Touch', coeff: 0.5, aoe: false, drainPct: 30 },
+      active1: {
+        name: 'Mend', cd: 3, coeff: 0, aoe: false, targetType: 'ally',
+        effect: function (self, target) { applyBuff(target, 'Regeneration', 0, 2, {}); }
+      },
+      chooseAction: stallChooseAction },
+    { id: 'stonewall', name: 'Stonewall', hp: 240, atk: 42, def: 95, spd: 75, critChance: 5, critDamage: 150, acc: 10, res: 30,
+      basic: { name: 'Slow Crush', coeff: 0.55, aoe: false, applyDebuff: { type: 'Attack Down', chance: 25 } },
+      active1: {
+        name: 'Fortify', cd: 4, coeff: 0, aoe: false, targetType: 'ally',
+        effect: function (self, target) { applyBuff(target, 'Shield', 35, 2, {}); applyBuff(target, 'Resistance Up', 30, 2, {}); }
+      },
+      chooseAction: stallChooseAction }
+  ];
+  // Burst is the last archetype in the cycle, so it's always first met at
+  // stage 4's stat multiplier (~1.4x) - unlike Aggro, which is always met
+  // at stage 1 baseline. Its base numbers are tuned down accordingly so
+  // its FIRST appearance lands at a similar effective difficulty to the
+  // others' first appearance, rather than compounding "hits hardest" with
+  // "met at the highest stage multiplier."
+  var ARENA_BURST_SQUAD = [
+    { id: 'sniper', name: 'Sniper', hp: 120, atk: 48, def: 30, spd: 100, critChance: 15, critDamage: 165, acc: 20, res: 10,
+      basic: { name: 'Steady Shot', coeff: 0.5, aoe: false },
+      active1: { name: 'Kill Shot', cd: 5, coeff: 0.9, aoe: false, targetType: 'enemy' },
+      chooseAction: focusLowestHpChooseAction },
+    { id: 'detonator', name: 'Detonator', hp: 140, atk: 40, def: 35, spd: 90, critChance: 10, critDamage: 150, acc: 15, res: 10,
+      basic: { name: 'Prime Charge', coeff: 0.4, aoe: false },
+      active1: { name: 'Overload Blast', cd: 5, coeff: 0.6, aoe: true, targetType: 'enemy' },
+      chooseAction: focusLowestHpChooseAction },
+    { id: 'ambusher', name: 'Ambusher', hp: 135, atk: 45, def: 35, spd: 110, critChance: 15, critDamage: 160, acc: 15, res: 10,
+      basic: { name: 'Feint', coeff: 0.45, aoe: false },
+      active1: { name: 'Killing Blow', cd: 4, coeff: 0.9, aoe: false, targetType: 'enemy' },
+      chooseAction: focusLowestHpChooseAction }
+  ];
+  var GRAND_ARENA_ARCHETYPES = [
+    { name: 'Aggro', squad: ARENA_AGGRO_SQUAD },
+    { name: 'Control', squad: ARENA_CONTROL_SQUAD },
+    { name: 'Stall', squad: ARENA_STALL_SQUAD },
+    { name: 'Burst', squad: ARENA_BURST_SQUAD }
+  ];
+  function archetypeForStage(config, stage) {
+    return config.archetypeCycle[(stage - 1) % config.archetypeCycle.length];
+  }
+
+  // ---------------------------------------------------------------
   // ENCOUNTERS
   // Squad size follows content type: 3v3 for Campaign and Main Boss,
   // 5v5 for Tower and Galactic War, 4v4 for Faction Wars and Dungeon
@@ -1681,7 +1900,8 @@
     faction: { label: 'Faction Wars', teamIds: ['mire', 'kestrel', 'rook', 'nyx'], waves: [WAVE_1, WAVE_2, WAVE_3] },
     mainboss: { label: 'Main Boss', teamIds: ['wren', 'vara', 'rook'], waves: [CHAMPION_TRIAL] },
     dungeon: { label: 'Dungeon', teamIds: ['vara', 'wren', 'mire', 'nyx'], waves: [DUNGEON_WAVE_1] },
-    galactic: { label: 'Galactic War', teamIds: ['vara', 'mire', 'kestrel', 'rook', 'nyx'], waves: GALACTIC_WAVES, stackingBuffPerWave: true }
+    galactic: { label: 'Galactic War', teamIds: ['vara', 'mire', 'kestrel', 'rook', 'nyx'], waves: GALACTIC_WAVES, stackingBuffPerWave: true },
+    grandarena: { label: 'Grand Arena', teamIds: ['vara', 'kestrel', 'rook'], archetypeCycle: GRAND_ARENA_ARCHETYPES }
   };
 
   // Content framework: each mode owns exactly ONE material identity -
@@ -1693,11 +1913,11 @@
   // target. Clearing Campaign chapters is what unlocks the rest -
   // CONTENT_UNLOCKS below. Dungeon gates behind Ch.10 (Campaign's true
   // finale) rather than Ch.8, since it's meant to come after the other
-  // three are already open. Galactic War shares that same Ch.10
-  // threshold - it's not a fifth specialist unlocked in sequence, it's
-  // the "you've finished Campaign, now push everything at once" bonus
-  // node that opens alongside Dungeon.
-  var CONTENT_UNLOCKS = { tower: 3, faction: 5, mainboss: 8, dungeon: 10, galactic: 10 };
+  // three are already open. Galactic War and Grand Arena share that
+  // same Ch.10 threshold - neither is a fifth/sixth specialist unlocked
+  // in sequence, they're both "you've finished Campaign, now push
+  // everything at once" bonus nodes that open alongside Dungeon.
+  var CONTENT_UNLOCKS = { tower: 3, faction: 5, mainboss: 8, dungeon: 10, galactic: 10, grandarena: 10 };
   function isContentUnlocked(encounterId) {
     var required = CONTENT_UNLOCKS[encounterId];
     return !required || (stageProgress.campaign || 0) >= required;
@@ -1706,6 +1926,7 @@
   var ENCOUNTER_SCRAP_REWARD = { campaign: 10, tower: 40, galactic: 90 };
   var ENCOUNTER_GOLD_REWARD = { campaign: 10, mainboss: 50, galactic: 90 };
   var ENCOUNTER_XP_REWARD = { mainboss: 40, galactic: 70 };
+  var ENCOUNTER_ARENA_MEDAL_REWARD = { grandarena: 4 };
   var ENCOUNTER_SHARD_REWARD = { mainboss: 3 };
   var ENCOUNTER_CHARMDUST_REWARD = { faction: 60 };
   var ENCOUNTER_ASCENSION_REWARD = { dungeon: 2 };
@@ -1797,6 +2018,21 @@
     return farmCharm(charmType.id, rarity);
   }
 
+  // Arena Pull: same rolled-instance mechanics as any other gear roll
+  // (random slot, random main stat/substats within the rarity) but the
+  // rarity floor is Epic (never Common/Rare) and the set is forced to
+  // the Vanguard set instead of an independent roll - that guarantee is
+  // the entire point of spending Medals on this over a normal farm.
+  function rollArenaGearDrop() {
+    var slot = GEAR_SLOTS[Math.floor(Math.random() * GEAR_SLOTS.length)];
+    var rarity = Math.random() < 0.5 ? 'Epic' : 'Legendary';
+    var template = GEAR_TEMPLATES.find(function (t) { return t.slot === slot && t.rarity === rarity; });
+    var instance = farmGear(template.id);
+    instance.set = ARENA_GEAR_SET_ID;
+    saveGearInventory();
+    return instance;
+  }
+
   // ---------------------------------------------------------------
   // BATTLE STATE
   // ---------------------------------------------------------------
@@ -1822,11 +2058,17 @@
     }
   }
 
+  function wavesForBattle(config, stage) {
+    if (config.fixedChapters) return [config.fixedChapters[stage - 1]];
+    if (config.archetypeCycle) return [archetypeForStage(config, stage).squad];
+    return config.waves;
+  }
+
   function newBattle(encounterId, teamIds, stage) {
     var config = ENCOUNTERS[encounterId];
     currentEncounterId = encounterId;
     currentStage = stage || 1;
-    currentWaves = config.fixedChapters ? [config.fixedChapters[currentStage - 1]] : config.waves;
+    currentWaves = wavesForBattle(config, currentStage);
     currentTeamIds = teamIds || config.teamIds;
     waveIndex = 0;
     team = currentTeamIds.map(function (id) {
@@ -1927,7 +2169,7 @@
     if (!config) { clearSave(); return; } // save from an encounter that no longer exists
     currentEncounterId = saved.encounterId;
     currentStage = saved.stage || 1;
-    currentWaves = config.fixedChapters ? [config.fixedChapters[currentStage - 1]] : config.waves;
+    currentWaves = wavesForBattle(config, currentStage);
     currentTeamIds = saved.teamIds || config.teamIds;
     waveIndex = saved.waveIndex || 0;
     team = currentTeamIds.map(function (id) {
@@ -2350,6 +2592,14 @@
         rewardLines.push('+' + ascensionReward + ' Ascension Core' + (ascensionReward === 1 ? '' : 's'));
       }
 
+      var arenaMedalReward = Math.round((ENCOUNTER_ARENA_MEDAL_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
+      if (arenaMedalReward > 0) {
+        arenaMedal += arenaMedalReward;
+        saveArenaMedal();
+        logLine('logSys', 'Earned ' + arenaMedalReward + ' Arena Medal' + (arenaMedalReward === 1 ? '' : 's') + '.');
+        rewardLines.push('+' + arenaMedalReward + ' Arena Medal' + (arenaMedalReward === 1 ? '' : 's'));
+      }
+
       var dropCfg = ENCOUNTER_DROPS[currentEncounterId];
       if (dropCfg) {
         if (Math.random() < dropCfg.gearChance) {
@@ -2470,12 +2720,39 @@
   // ---------------------------------------------------------------
   // ENEMY AI
   // ---------------------------------------------------------------
+  // Grand Arena's archetype squads carry a `chooseAction` on every unit
+  // and take this branch instead - real Active usage on cooldown, and
+  // targeting that actually varies by archetype (see
+  // focusLowestHpChooseAction/controlChooseAction/stallChooseAction).
+  // Every other enemy in the game has no `chooseAction`, so it falls
+  // straight into the original simple-random-basic-attack behavior,
+  // completely unchanged.
   function enemyAct(actor) {
-    var target = pickEnemyTarget(actor);
-    if (!target) return;
-    var ability = actor.basic;
-    logLine('logSys', actor.name + ' uses ' + ability.name + ' on ' + target.name + '.');
-    performAttack(actor, target, ability, team, false);
+    if (!actor.chooseAction) {
+      var target = pickEnemyTarget(actor);
+      if (!target) return;
+      var ability = actor.basic;
+      logLine('logSys', actor.name + ' uses ' + ability.name + ' on ' + target.name + '.');
+      performAttack(actor, target, ability, team, false);
+      return;
+    }
+
+    var foes = aliveTeam();
+    var decision = actor.chooseAction(actor, { foes: foes, allies: aliveEnemies() });
+    if (!decision) return;
+    var kind = decision.kind;
+    var ability = actor[kind];
+    var smartTarget = decision.target;
+    var provoked = foes.filter(function (u) { return u.debuffs.some(function (d) { return d.type === 'Provoke'; }); });
+    if (provoked.length && ability.targetType !== 'ally') smartTarget = provoked[Math.floor(Math.random() * provoked.length)];
+    if (!smartTarget) return;
+    if (kind !== 'basic') actor.cooldowns[kind] = ability.cd;
+    logLine('logSys', actor.name + ' uses ' + ability.name + ' on ' + smartTarget.name + '.');
+    if (kind !== 'basic' && !(ability.coeff > 0 || ability.executeCoeff)) {
+      useEffectAbility(actor, smartTarget, ability, { team: team, enemies: enemies });
+    } else {
+      performAttack(actor, smartTarget, ability, team, false);
+    }
   }
 
   function pickEnemyTarget(actor) {
@@ -2834,7 +3111,9 @@
   function renderTeamSelect() {
     var config = ENCOUNTERS[pendingEncounterId];
     var squadSize = squadSizeFor(pendingEncounterId);
-    document.getElementById('teamSelectTitle').textContent = config.label.toUpperCase() + ' — STAGE ' + pendingStage;
+    var title = config.label.toUpperCase() + ' — STAGE ' + pendingStage;
+    if (config.archetypeCycle) title += ' — VS ' + archetypeForStage(config, pendingStage).name.toUpperCase();
+    document.getElementById('teamSelectTitle').textContent = title;
     document.getElementById('teamSelectCounter').textContent = 'Selected ' + selectedTeamIds.length + ' / ' + squadSize;
     document.getElementById('teamSelectGrid').innerHTML = CHAMPIONS.map(teamSelectCardHtml).join('');
     document.getElementById('teamSelectBeginBtn').disabled = selectedTeamIds.length !== squadSize;
@@ -2864,9 +3143,10 @@
   document.getElementById('startMainbossBtn').addEventListener('click', function () { if (isContentUnlocked('mainboss')) openTeamSelect('mainboss'); });
   document.getElementById('startDungeonBtn').addEventListener('click', function () { if (isContentUnlocked('dungeon')) openTeamSelect('dungeon'); });
   document.getElementById('startGalacticBtn').addEventListener('click', function () { if (isContentUnlocked('galactic')) openTeamSelect('galactic'); });
+  document.getElementById('startGrandarenaBtn').addEventListener('click', function () { if (isContentUnlocked('grandarena')) openTeamSelect('grandarena'); });
 
   function renderStageLabels() {
-    ['campaign', 'tower', 'faction', 'mainboss', 'dungeon', 'galactic'].forEach(function (id) {
+    ['campaign', 'tower', 'faction', 'mainboss', 'dungeon', 'galactic', 'grandarena'].forEach(function (id) {
       var config = ENCOUNTERS[id];
       var locked = !isContentUnlocked(id);
       var startBtn = document.getElementById('start' + capitalize(id) + 'Btn');
@@ -2881,7 +3161,9 @@
       var cleared = stageProgress[id] || 0;
       var maxChapter = config.fixedChapters ? config.fixedChapters.length : Infinity;
       var stageNoun = config.fixedChapters ? 'Chapter' : 'Stage';
-      document.getElementById(id + 'StageLabel').textContent = stageNoun + ' ' + stage + (stage > cleared ? ' (new)' : '');
+      var labelText = stageNoun + ' ' + stage + (stage > cleared ? ' (new)' : '');
+      if (config.archetypeCycle) labelText += ' — vs ' + archetypeForStage(config, stage).name;
+      document.getElementById(id + 'StageLabel').textContent = labelText;
       document.getElementById(id + 'StageDownBtn').disabled = stage <= 1;
       document.getElementById(id + 'StageUpBtn').disabled = stage >= Math.min(cleared + 1, maxChapter);
     });
@@ -2900,6 +3182,8 @@
   document.getElementById('dungeonStageUpBtn').addEventListener('click', function () { setSelectedStage('dungeon', getSelectedStage('dungeon') + 1); renderStageLabels(); });
   document.getElementById('galacticStageDownBtn').addEventListener('click', function () { setSelectedStage('galactic', getSelectedStage('galactic') - 1); renderStageLabels(); });
   document.getElementById('galacticStageUpBtn').addEventListener('click', function () { setSelectedStage('galactic', getSelectedStage('galactic') + 1); renderStageLabels(); });
+  document.getElementById('grandarenaStageDownBtn').addEventListener('click', function () { setSelectedStage('grandarena', getSelectedStage('grandarena') - 1); renderStageLabels(); });
+  document.getElementById('grandarenaStageUpBtn').addEventListener('click', function () { setSelectedStage('grandarena', getSelectedStage('grandarena') + 1); renderStageLabels(); });
 
   // ---------------------------------------------------------------
   // ARMORY
@@ -2988,11 +3272,13 @@
     document.getElementById('shardDisplay').textContent = 'Shards: ' + shards;
     document.getElementById('charmDustDisplay').textContent = 'Charm Dust: ' + charmDust;
     document.getElementById('ascensionDisplay').textContent = 'Ascension Cores: ' + ascensionCore;
+    document.getElementById('arenaMedalDisplay').textContent = 'Arena Medals: ' + arenaMedal;
     document.getElementById('catalystDisplay').textContent =
       'Set Catalyst: ' + setCatalyst + ' · Stat Catalyst: ' + statCatalyst + ' · Substat Catalyst: ' + substatCatalyst;
     renderChampions();
     renderGearFarm();
     renderCharmFarm();
+    renderArenaShop();
   }
 
   // ---------------------------------------------------------------
@@ -3040,6 +3326,21 @@
 
   document.getElementById('raiseLevelCapBtn').addEventListener('click', function () {
     raiseLevelCap();
+    renderArmory();
+  });
+
+  // ---------------------------------------------------------------
+  // ARENA SHOP (Grand Arena's Medal economy - see pullArenaGear)
+  // ---------------------------------------------------------------
+  function renderArenaShop() {
+    var btn = document.getElementById('arenaPullBtn');
+    btn.textContent = 'Arena Pull (' + ARENA_PULL_COST + ' Medals)';
+    btn.disabled = arenaMedal < ARENA_PULL_COST;
+  }
+
+  document.getElementById('arenaPullBtn').addEventListener('click', function () {
+    var instance = pullArenaGear();
+    document.getElementById('arenaPullDesc').textContent = instance ? 'Pulled: ' + gearInstanceLabel(instance) + '!' : '';
     renderArmory();
   });
 
