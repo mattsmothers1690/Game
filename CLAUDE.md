@@ -462,23 +462,50 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
     `isBoss: true` on `GUILD_BOSS_WAVE` reuses the existing devour-a-
     debuff-for-Fury mechanic (`hollowKingMechanic`) like every other
     named boss in the game — no parallel mechanic invented.
-    - **Retuned per explicit follow-up feedback**: the first pass
-      (900 hp/40 atk/30 def) was still clearable by a fresh Level-1
-      unlock squad in most attempts - too easy, missing the whole point
-      of "not defeating him in 1 shot." The user's explicit target: a
-      first unlock should only reach roughly the first quarter (Chest 1,
-      75% hp) before wiping, with real further progress (Chests 2-4, a
-      full clear) requiring actually leveling/gearing up through the
-      other modes first, not just repeated Main Boss attempts alone.
-      Retuned to `hp: 2600, atk: 80, def: 35` and probed via
-      `probe_guildboss.js` (scratchpad, 8 trials, fresh Level-1 4-
-      starter squad on Auto Battle): 0/8 full clears, average depletion
-      27.5% (range 16-36%) - lands right on target. A separately-probed
-      Level-25 squad (`probe_guildboss_leveled.js`) fully clears it,
-      confirming the progression curve actually works: weak at unlock,
-      beatable once genuinely grown through other modes. Still a first
-      pass past Level 1 - expect iteration at higher levels, same as
-      every other hand-tuned encounter in this file.
+    - **First retune** (per explicit follow-up feedback): the initial
+      pass (900 hp/40 atk/30 def, 3v3, single-target) was still
+      clearable by a fresh Level-1 unlock squad in most attempts - too
+      easy, missing the whole point of "not defeating him in 1 shot."
+      Retuned to `hp: 2600, atk: 80, def: 35` and probed at 0/8 full
+      clears, ~27.5% average depletion.
+    - **Second retune — 5v5 and a per-turn Attack ramp** (further
+      explicit feedback: "Boss should be 5v5 with ramping damage
+      mechanics... needs a full team to deal with... early levels his
+      stats are low enough your base team can do some minimal damage
+      and get base rewards but you'll have to build a real team to beat
+      him"). Main Boss's squad went from 3v3 to 5v5
+      (`ENCOUNTERS.mainboss.teamIds`, 5 members) and the boss's basic
+      attack from single-target to AoE (`aoe: true`, coeff dropped from
+      0.85 to 0.5 to compensate for hitting all 5 instead of 1) so the
+      *whole* squad has to survive him, not just whoever gets focused.
+      The real difficulty lever is now `guildBossRamp(boss)`: an
+      **unconditional** +`GUILD_BOSS_RAMP_STEP` (6%) Attack Up every
+      Guild Boss own-turn, compounding, called from `takeTurn` right
+      alongside `hollowKingMechanic` but gated on
+      `currentEncounterId === 'mainboss'` so it never touches any other
+      boss. Deliberately separate from `hollowKingMechanic` - Hollow
+      King's Fury only ramps when it has a debuff to devour (and applies
+      to every `isBoss` unit in the game); this one always fires,
+      purely punishing a fight that runs long, regardless of debuffs.
+      Stats retuned again for the bigger squad + AoE + ramp combination
+      to `hp: 4400, atk: 62, def: 35`. Probed via `probe_guildboss.js`
+      (8 trials, fresh Level-1 5-champion squad on Auto Battle, roster
+      seeded with Bastian since a fresh save's 4 starters alone can't
+      field 5): 0/8 full clears, ~34% average depletion (range 22-67% -
+      real variance from the ramp mechanic, not just a flat number).
+      `probe_guildboss_leveled.js` confirms the progression curve: a
+      Level-25 squad reaches 96% depletion but still loses (the ramp
+      genuinely threatens even a strong-but-not-strong-enough team, not
+      just a weak one), while a Level-35 squad fully clears it -
+      "beatable once you've actually built a real team," not "beatable
+      just by grinding attempts." Still a first pass - expect iteration
+      at other levels/gear tiers, same as every other hand-tuned
+      encounter in this file. Main Boss now unlocks (Campaign Stage 4)
+      one stage before the roster can actually field a full 5v5 (Bastian
+      joins at Stage 6) - left as-is rather than moving the unlock,
+      matching the existing "gate is visible, not mysterious" convention
+      (team-select just shows 4/5 selected, Begin disabled, until
+      Bastian joins two stages later).
 19. **Auto-Level** (`autoLevelSquad`/`anyAutoLevelAvailable`, victory-
     screen `#autoLevelBtn`): the user asked for a way to auto-spend
     banked progression after a battle instead of clicking into the
@@ -526,7 +553,7 @@ stat axis or an economy shared with other modes.
 | **Campaign** (`campaign`) | 4v4 × 3 waves, every chapter including Chapter 1 | 132 fixed hand-authored stages (`CAMPAIGN_CHAPTERS` = `CAMPAIGN_CH1_STAGES` (12) + 10 chapters × 12 stages each via the `buildChapterArc` generator — see "New-game onboarding" and "Campaign 4v4/3-wave restructure" below) — **not** the infinite ladder, no stat compounding, replaying an old stage is always the same fight | Always open | Scrap + Gold only (bootstrap) |
 | **Tower** (`tower`) | 5v5 | Infinite stage ladder | Stage 7 | Gear (guaranteed) + Gear Rework Catalysts (rare, rides gear drops) + Scrap |
 | **Faction Wars** (`faction`) | 4v4 × 3 waves | Infinite stage ladder | Stage 10 | Charms (rolled chance) + Charm Dust (guaranteed) |
-| **Main Boss** (`mainboss`) | 3v3 vs. 1 Guild Boss | "Levels" (reuses the infinite-ladder `stageProgress` mechanism — a level IS a stage) | Stage 4 | Gold + XP + Shards + Summon Shards, paid out via 4 chests unlocked at 75%/50%/25%/0% of the boss's health, ramping in value per chest and per level (see "Main Boss: Guild Boss redesign" below) |
+| **Main Boss** (`mainboss`) | 5v5 vs. 1 Guild Boss (AoE basic, Attack ramps every own turn) | "Levels" (reuses the infinite-ladder `stageProgress` mechanism — a level IS a stage) | Stage 4 | Gold + XP + Shards + Summon Shards, paid out via 4 chests unlocked at 75%/50%/25%/0% of the boss's health, ramping in value per chest and per level (see "Main Boss: Guild Boss redesign" below) |
 | **Dungeon** (`dungeon`) | 4v4 | Infinite stage ladder | Stage 132 (Campaign complete) | Ascension Cores only |
 | **Galactic War** (`galactic`) | 5v5 × 5 waves | Infinite stage ladder, no retreat between waves within one attempt | Stage 132 (same threshold as Dungeon — a "you finished Campaign" bonus node, not a fifth step in the unlock sequence) | Bulk Scrap + Gold + XP only — no gear/charms/shards/catalysts/Ascension Cores |
 | **Grand Arena** (`grandarena`) | 3v3 vs. one of 4 AI archetype squads | Infinite stage ladder, stage number cycles through the 4 archetypes (`(stage - 1) % 4`) forever | Stage 132 (alongside Dungeon/Galactic War) | Arena Medals only — spent on Arena Pulls (Vanguard-set gear), never dropped directly |
@@ -536,8 +563,13 @@ CAMPAIGN_CHAPTERS.length, galactic: CAMPAIGN_CHAPTERS.length,
 grandarena: CAMPAIGN_CHAPTERS.length }` — keyed to Campaign's flat
 stage index now, not a "chapter number" (Chapter 1 alone spans 12
 stages). Main Boss deliberately unlocks *before* Tower despite Tower's
-old head-start, because Main Boss's 3v3 matches the 3-champion starter
-roster exactly while Tower's 5v5 doesn't — see "New-game onboarding".
+old head-start — originally because Main Boss's squad (3v3 at the
+time) matched the 3-champion starter roster exactly while Tower's 5v5
+didn't; Main Boss has since become 5v5 itself (see Systems item 18's
+"Second retune"), so it now unlocks one stage before it's actually
+fully fieldable (Stage 6's Bastian is the roster's 5th member) — see
+"New-game onboarding" and that Systems item for both the original
+reasoning and the current state.
 
 Dungeon is deliberately different in *kind*, not just reward: every
 enemy in `DUNGEON_WAVE_1` leads with a debuff instead of raw damage
@@ -1253,6 +1285,28 @@ the item above, addressed in the same session:
    section's own follow-up bullet under "Content framework" above for
    the full mechanism and probe numbers.
 
+**Third follow-up round — built.** One more explicit correction to the
+Guild Boss, since item 3 above still wasn't landing the intended feel:
+"Boss should be 5v5 with ramping damage mechanics. Goal is to balance
+him so he's hard and needs a full team to deal with. Early levels his
+stats are low enough your base team can do some minimal damage and get
+base rewards but you'll have to build a real team to beat him." Main
+Boss went from 3v3 to 5v5, the boss's basic attack from single-target
+to AoE, and a new unconditional per-own-turn Attack ramp
+(`guildBossRamp`, +6%/turn compounding) was added as the actual
+difficulty engine - see Systems item 18's "Second retune" bullet for
+the full mechanism, stat numbers (4400 hp/62 atk/35 def), and probe
+results (0/8 full clears at Level 1, ~34% average depletion; a
+Level-25 squad reaches 96% but still loses; a Level-35 squad clears).
+The user also restated the core design mandate directly: *"this game
+needs to be mechanically driven and balanced enough that it's a
+constant plateau → divert to another game mode to push to get stronger
+via rewards then cycle through all content this way."* Keep this as
+the standing bar for every future difficulty pass, not just Main
+Boss's - a mode is tuned correctly when it stops a fresh/underpowered
+squad cold while staying genuinely clearable by a squad that actually
+detoured through the rest of the content loop to grow first.
+
 Known gaps/tradeoffs from this pass, left for a future iteration:
 - `CAMPAIGN_STORY`/`CAMPAIGN_STORY_AFTER` and the Lore & Narrative
   section's own stage-number citations were NOT re-extended/re-mapped
@@ -1263,11 +1317,12 @@ Known gaps/tradeoffs from this pass, left for a future iteration:
   chest messages instead, not surfaced in the final summary) — a
   deliberate but not fully polished consequence of moving that reward
   identity onto the chest mechanic.
-- `GUILD_BOSS_WAVE`'s stats (2600 hp, 80 atk/35 def, retuned once
-  already per explicit feedback) and `guildBossChestReward`'s payout
-  curve are still only probed at Level 1 vs. a Level-1/Level-25 squad —
-  expect retuning at the levels in between and at higher gear tiers
-  once real play exercises them.
+- `GUILD_BOSS_WAVE`'s stats (4400 hp/62 atk/35 def, 5v5/AoE/ramp,
+  retuned twice already per explicit feedback), `GUILD_BOSS_RAMP_STEP`
+  (6%/turn), and `guildBossChestReward`'s payout curve are still only
+  probed at Level 1 vs. Level-1/25/35 squads — expect retuning at the
+  levels in between and at higher gear tiers once real play exercises
+  them.
 - Several pre-existing scratchpad Playwright tests (not committed —
   see "Testing methodology") hardcode the old 42-stage Campaign total
   for unlock-gating seeds (`galactic_war`, `grand_arena`,

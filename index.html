@@ -2055,20 +2055,37 @@
   // isBoss:true reuses the existing devour-a-debuff-for-Fury mechanic
   // (hollowKingMechanic) same as every other named boss in the game.
   // ---------------------------------------------------------------
-  // Numbers retuned per explicit user feedback: the first unlock (Level
-  // 1, a fresh unleveled/ungeared 4-starter squad) should only be able
-  // to chip the boss down to roughly its first quarter (Chest 1, 75%
-  // hp) before wiping - real further progress (Chests 2-4, a full
-  // clear) requires actually leveling/gearing up through the other
-  // modes first, not just repeated Main Boss attempts alone. HP/ATK
-  // raised well past the original pass (900/40) specifically so the
-  // fight lasts long enough for the boss's own hits to matter - probed
-  // via probe_guildboss.js (scratchpad).
+  // Second retune: moved from 3v3 to 5v5 ("needs a full team to deal
+  // with him") and the basic attack from single-target to AoE, so the
+  // WHOLE squad has to survive him, not just whoever gets focused. The
+  // real difficulty lever is now `guildBossRamp` below - an unconditional
+  // per-own-turn Attack Up (not gated on a debuff to consume, unlike
+  // hollowKingMechanic's Fury) so the fight gets harder purely by
+  // running long: a fresh/weak squad can tank the early, low-ramp turns
+  // for some chip damage and base rewards (per the user's own framing),
+  // but only a squad that's actually been built up through the other
+  // modes (more damage = fewer turns taken = the ramp never gets a
+  // chance to matter) can burst him down before it snowballs.
+  // `GUILD_BOSS_RAMP_STEP` = 6% Attack per own turn, compounding -
+  // probed via probe_guildboss.js (scratchpad): fresh Level-1 5-starter
+  // squad averages ~25% depletion before wiping, 0 full clears; see
+  // "Main Boss: Guild Boss redesign" in CLAUDE.md for the full numbers.
+  var GUILD_BOSS_RAMP_STEP = 0.06;
   var GUILD_BOSS_WAVE = [
-    { id: 'guildboss', name: 'Guild Boss', hp: 2600, atk: 80, def: 35, spd: 85, critChance: 12, critDamage: 160, acc: 16, res: 22,
+    { id: 'guildboss', name: 'Guild Boss', hp: 4400, atk: 62, def: 35, spd: 85, critChance: 12, critDamage: 160, acc: 16, res: 22,
       isBoss: true,
-      basic: { name: "Warlord's Onslaught", coeff: 0.85, aoe: false, applyDebuff: { type: 'Defense Down', chance: 30 } } }
+      basic: { name: "Warlord's Onslaught", coeff: 0.5, aoe: true, applyDebuff: { type: 'Defense Down', chance: 30 } } }
   ];
+
+  // Unconditional escalation, called every Guild Boss own-turn
+  // regardless of debuffs present - deliberately separate from
+  // hollowKingMechanic (which only ramps when it has a debuff to
+  // devour, and applies to every isBoss unit in the game). This one is
+  // Main Boss-specific and always fires, so a slow/passive fight is
+  // punished purely for taking too long.
+  function guildBossRamp(boss) {
+    boss.atk = Math.round(boss.atk * (1 + GUILD_BOSS_RAMP_STEP));
+  }
 
   function mainbossStageLabel(stage) { return 'Guild Boss — Level ' + stage; }
 
@@ -3069,21 +3086,20 @@
 
   // ---------------------------------------------------------------
   // ENCOUNTERS
-  // Squad size follows content type: 3v3 for Main Boss (vs. its single
-  // Guild Boss), 5v5 for Tower and Galactic War, 4v4 for Faction Wars
-  // and Dungeon (per design direction - not a change to the combat
-  // engine's default, just a per-encounter squad size). Campaign's own
-  // squad size is stage-dependent - see squadSizeFor: 3v3 for Chapter 1
-  // (Stages 1-12, to match the exact 3-champion starter roster), 4v4
-  // for Chapter 2+ (Stage 13+, via the buildChapterArc-generated 4v4/
-  // 3-wave arcs). `fixedChapters` marks Campaign as non-scaling (see
-  // spawnWave) regardless of squad size.
+  // Squad size follows content type: 5v5 for Tower, Galactic War, and
+  // Main Boss (vs. its single, AoE-basic, per-turn-ramping Guild Boss -
+  // see guildBossRamp), 4v4 for Faction Wars, Dungeon, and Campaign
+  // (every chapter, via squadSizeFor - see the 4v4/3-wave restructure
+  // in CLAUDE.md) - per design direction, not a change to the combat
+  // engine's default, just a per-encounter squad size. `fixedChapters`
+  // marks Campaign as non-scaling (see spawnWave) regardless of squad
+  // size.
   // ---------------------------------------------------------------
   var ENCOUNTERS = {
     campaign: { label: 'Campaign', teamIds: ['zephyr', 'fang', 'squall', 'vex'], fixedChapters: CAMPAIGN_CHAPTERS, stageLabelFor: campaignStageLabel },
     tower: { label: 'Tower', teamIds: ['zephyr', 'fang', 'squall', 'bastian', 'vara'], waves: [BOSS_WAVE] },
     faction: { label: 'Faction Wars', teamIds: ['fang', 'squall', 'bastian', 'vara'], waves: [WAVE_1, WAVE_2, WAVE_3] },
-    mainboss: { label: 'Main Boss', teamIds: ['zephyr', 'fang', 'squall'], waves: [GUILD_BOSS_WAVE], stageLabelFor: mainbossStageLabel },
+    mainboss: { label: 'Main Boss', teamIds: ['zephyr', 'fang', 'squall', 'vex', 'bastian'], waves: [GUILD_BOSS_WAVE], stageLabelFor: mainbossStageLabel },
     dungeon: { label: 'Dungeon', teamIds: ['vara', 'wren', 'mire', 'nyx'], waves: [DUNGEON_WAVE_1] },
     galactic: { label: 'Galactic War', teamIds: ['vara', 'mire', 'kestrel', 'rook', 'nyx'], waves: GALACTIC_WAVES, stackingBuffPerWave: true },
     grandarena: { label: 'Grand Arena', teamIds: ['vara', 'kestrel', 'rook'], archetypeCycle: GRAND_ARENA_ARCHETYPES }
@@ -4107,6 +4123,7 @@
     if (checkBattleEnd()) { render(); return; }
 
     if (actor.isBoss) hollowKingMechanic(actor);
+    if (actor.isBoss && currentEncounterId === 'mainboss') guildBossRamp(actor);
 
     var stunned = actor.debuffs.some(function (d) { return d.type === 'Stun'; });
     if (stunned) {
