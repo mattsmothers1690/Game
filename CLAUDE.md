@@ -97,25 +97,45 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
 
 ## Systems that exist today
 
-1. **Champions** (`CHAMPIONS`, 6 total): Vara (Guardian), Mire
-   (Plaguebearer), Kestrel (Controller), Rook (Executioner), Nyx
-   (Contagionist), Wren (Sentinel). Each has basic/active1/active2/
-   passive/signature — fixed kits, no build choices. Base stats are
-   modified by equipped gear and by champion level (see Champion
-   leveling below). Each champion also carries a `rarity` (reusing the
-   same Common/Rare/Epic/Legendary scale as gear/charms — all 6 are
-   currently Legendary) and a `faction` tag. Factions
-   (`FACTIONS`/`FACTION_TIERS`) work like a team-composition mirror of
-   gear sets: `factionBonusStatsFor(teamIds)` counts how many fielded
-   champions share a faction and, at 2/3-member thresholds, applies a
-   flat stat bonus to the *whole squad* (not just that faction's
-   members) via `applyFactionBonusToUnit` — same generalized-tier
-   pattern as `SET_TIERS`/`GEAR_SETS`, computed once per battle in
-   `newBattle`/`resumeBattle` alongside gear/level/ascension. Current
-   factions: Ironclad (Vara, Wren), Blightkin (Mire, Nyx), Stormcallers
-   (Kestrel), Deathmark (Rook) — only Ironclad/Blightkin can reach
-   bonus2 today since the other two have just one member each; that's
-   expected to fill in as more champions are added, not a bug.
+1. **Champions** (`CHAMPIONS`, 10 total): the original six —
+   Vara (Guardian), Mire (Plaguebearer), Kestrel (Controller), Rook
+   (Executioner), Nyx (Contagionist), Wren (Sentinel), all Legendary
+   rarity with the full basic/active1/active2/passive/signature kit —
+   plus four new lower-rarity champions seeding the summon pool:
+   Zephyr (Common, Stormcallers), Squall (Rare, Stormcallers), Fang
+   (Common, Deathmark), Vex (Rare, Deathmark). No build choices on any
+   of them. Base stats are modified by equipped gear and by champion
+   level (see Champion leveling below).
+   - **Rarity** reuses the same Common/Rare/Epic/Legendary scale as
+     gear/charms rather than a parallel one. **Kit complexity scales
+     with rarity**, mirroring how `GEAR_SUBSTAT_COUNT` scales gear's
+     substat count: Common ships with basic+active1 only, Rare adds
+     active2, Epic would add a passive, Legendary (the original six)
+     has the full basic/active1/active2/passive/signature kit. A
+     missing `active2`/`passive`/`signature` renders safely (the
+     button/info-tab for it is simply omitted) — `renderActions`,
+     `slotInfo`, and `parsePassive` all check for presence first; this
+     was NOT true before this pass (`skillButtonHtml('active2',
+     actor.active2, ...)` used to assume every champion had one and
+     would throw otherwise) — a real fix, not speculative, since Zephyr
+     and Fang actually ship without it. Passives/signatures are still
+     NOT data-driven from the `passive`/`signature` string fields
+     (those are UI-only flavor text) — real behavior is hand-wired per
+     champion id inside `wireEventHooks()`, so a future Epic/Legendary
+     addition needs its own bespoke block there, same as the original
+     six; Zephyr/Squall/Fang/Vex have none, so nothing was added there.
+   - **Factions** (`FACTIONS`/`FACTION_TIERS`) work like a
+     team-composition mirror of gear sets: `factionBonusStatsFor(teamIds)`
+     counts how many fielded champions share a faction and, at 2/3-member
+     thresholds, applies a flat stat bonus to the *whole squad* (not
+     just that faction's members) via `applyFactionBonusToUnit` — same
+     generalized-tier pattern as `SET_TIERS`/`GEAR_SETS`, computed once
+     per battle in `newBattle`/`resumeBattle` alongside gear/level/
+     ascension. Current factions: Ironclad (Vara, Wren), Blightkin
+     (Mire, Nyx), Stormcallers (Kestrel, Squall, Zephyr), Deathmark
+     (Rook, Vex, Fang) — every faction can now reach bonus2 (2 members);
+     bonus3 (3 members) is defined but not yet reachable by any faction,
+     which is expected to fill in as more champions are added, not a bug.
 2. **Buffs/debuffs**: full set including +/- Atk/Def/Spd/Res/Acc,
    Shield, Block Buffs, Block Debuffs, Stun, Poison, Bleed, Burn,
    Counter, Provoke, etc.
@@ -428,20 +448,13 @@ level instead of a single mode's material. Confirmed with the user:
   `factionBonusStatsFor`).
 
 Still to design/build, in rough order:
-1. **New lower-rarity champions** (Common/Rare/Epic) to seed the summon
-   pool and populate Stormcallers/Deathmark past 1 member each. Kit
-   complexity should scale with rarity the same way gear substat count
-   does — e.g. Common/Rare could ship without a `passive`/`signature`
-   (both already render safely when absent - `parsePassive`/`slotInfo`
-   handle a missing string). **`active2` is NOT currently optional** -
-   `skillButtonHtml`/`renderActions` assume every champion has one and
-   will throw on `ability.name` if it's undefined - either give every
-   new champion a real (even weak) `active2`, or guard that render path
-   first. Passives/signatures are NOT data-driven from the `passive`/
-   `signature` string fields (those are UI-only flavor text) - actual
-   behavior is hand-wired per champion id inside `wireEventHooks()`, so
-   a new champion's passive/signature (if any) needs its own bespoke
-   block there, same as the existing 6.
+1. ~~New lower-rarity champions~~ **Built**: Zephyr/Squall (Common/Rare
+   Stormcallers), Fang/Vex (Common/Rare Deathmark) — see the Champions
+   bullet above. `active2`/`passive`/`signature` are now genuinely
+   optional (renderActions/slotInfo/parsePassive all guard for
+   presence). Epic-tier champions (to reach faction bonus3, and to
+   round out the rarity ladder before the summon pool goes live) are
+   still open.
 2. **Summon currency + Armory action**: a new currency (name TBD, kept
    distinct from the existing `machineborn_shards_v1` — that one is
    already Main Boss's level-cap resource, a same-named "Shards" would

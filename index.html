@@ -707,6 +707,80 @@
           emit('buffsExtended', { unit: target, source: self });
         }
       }
+    },
+    // --- Below: first Common/Rare champions, seeding the Stormcallers
+    // and Deathmark factions past their single Legendary member and
+    // establishing the kit-complexity-scales-with-rarity convention -
+    // Common ships with basic+active1 only, Rare adds active2, neither
+    // has a passive/signature yet (both render safely absent - see
+    // parsePassive/slotInfo/renderActions). No wireEventHooks entries
+    // for these four, matching "no passive/signature" exactly.
+    {
+      id: 'zephyr', name: 'Zephyr', role: 'Skirmisher', rarity: 'Common', faction: 'stormcallers',
+      hp: 100, atk: 48, def: 45, spd: 110, critChance: 10, critDamage: 150, acc: 15, res: 15,
+      basic: {
+        name: 'Gale Jab', desc: 'Single-target hit.',
+        coeff: 0.85, aoe: false, targetType: 'enemy'
+      },
+      active1: {
+        name: 'Windburst', cd: 3, targetType: 'enemy',
+        desc: 'Light AoE hit with a chance to apply Speed Down to every enemy.',
+        coeff: 0.5, aoe: true, applyDebuff: { type: 'Speed Down', chance: 50 }
+      }
+    },
+    {
+      id: 'squall', name: 'Squall', role: 'Stormcaller', rarity: 'Rare', faction: 'stormcallers',
+      hp: 105, atk: 52, def: 48, spd: 112, critChance: 10, critDamage: 155, acc: 15, res: 18,
+      basic: {
+        name: 'Static Jolt', desc: 'Single-target hit.',
+        coeff: 0.8, aoe: false, targetType: 'enemy'
+      },
+      active1: {
+        name: 'Thunderclap', cd: 3, targetType: 'enemy',
+        desc: 'AoE hit with a chance to Stun every enemy.',
+        coeff: 0.5, aoe: true, applyDebuff: { type: 'Stun', chance: 30 }
+      },
+      active2: {
+        name: 'Tailwind', cd: 4, targetType: 'ally',
+        desc: 'Grants the chosen ally Speed Up for 2 turns.',
+        coeff: 0, aoe: false,
+        effect: function (self, target) {
+          applyBuff(target, 'Speed Up', 30, 2, {});
+          logLine('logBuff', self.name + ' calls a tailwind for ' + target.name + ' — Speed Up.');
+        }
+      }
+    },
+    {
+      id: 'fang', name: 'Fang', role: 'Duelist', rarity: 'Common', faction: 'deathmark',
+      hp: 95, atk: 62, def: 35, spd: 100, critChance: 20, critDamage: 160, acc: 10, res: 10,
+      basic: {
+        name: 'Quick Cut', desc: 'Single-target hit. Deals 20% more damage to targets above 80% HP.',
+        coeff: 0.9, aoe: false, targetType: 'enemy',
+        conditionalMult: function (target) { return (target.hp / target.maxHp) > 0.8 ? 1.2 : 1; }
+      },
+      active1: {
+        name: 'Puncture', cd: 3, targetType: 'enemy',
+        desc: 'Heavier single-target hit.',
+        coeff: 1.1, aoe: false
+      }
+    },
+    {
+      id: 'vex', name: 'Vex', role: 'Assassin', rarity: 'Rare', faction: 'deathmark',
+      hp: 100, atk: 66, def: 38, spd: 102, critChance: 20, critDamage: 165, acc: 12, res: 12,
+      basic: {
+        name: 'Rend', desc: 'Single-target hit, chance to apply Defense Down.',
+        coeff: 0.85, aoe: false, targetType: 'enemy', applyDebuff: { type: 'Defense Down', chance: 30 }
+      },
+      active1: {
+        name: 'Finishing Strike', cd: 3, targetType: 'enemy',
+        desc: 'Heavy single-target hit.',
+        coeff: 1.3, aoe: false
+      },
+      active2: {
+        name: 'Coup de Grace', cd: 4, targetType: 'enemy',
+        desc: 'Single-target hit, dealing far more damage (1.8x instead of 0.9x coefficient) if the target is below 50% HP.',
+        coeff: 0.9, executeCoeff: 1.8, aoe: false
+      }
     }
   ];
 
@@ -3037,7 +3111,7 @@
   function slotInfo(actor, slot) {
     if (slot === 'basic') return { name: actor.basic.name, text: actor.basic.desc || '' };
     if (slot === 'active1') return { name: actor.active1.name, text: actor.active1.desc || '' };
-    if (slot === 'active2') return { name: actor.active2.name, text: actor.active2.desc || '' };
+    if (slot === 'active2') return actor.active2 ? { name: actor.active2.name, text: actor.active2.desc || '' } : { name: '', text: '' };
     if (slot === 'passive') return parsePassive(actor);
     return { name: 'Signature', text: actor.signature || '' };
   }
@@ -3072,9 +3146,9 @@
     document.getElementById('skillRow').innerHTML =
       skillButtonHtml('basic', actor.basic, actor) +
       skillButtonHtml('active1', actor.active1, actor) +
-      skillButtonHtml('active2', actor.active2, actor) +
-      infoButtonHtml('passive', passiveInfo.name) +
-      infoButtonHtml('signature', 'Signature');
+      (actor.active2 ? skillButtonHtml('active2', actor.active2, actor) : '') +
+      (actor.passive ? infoButtonHtml('passive', passiveInfo.name) : '') +
+      (actor.signature ? infoButtonHtml('signature', 'Signature') : '');
 
     var info = slotInfo(actor, highlightedSlot);
     var detailHtml = '<span class="detailName">' + info.name + '</span>' + info.text;
