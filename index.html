@@ -118,8 +118,9 @@
     padding: 3px 8px; border-radius: 6px; font-size: 0.62rem;
   }
   .invActionBtn:disabled { opacity: 0.4; }
-  #scrapDisplay, #goldDisplay, #shardDisplay { color: #fbbf24; font-size: 0.85rem; margin: 4px 0 0; }
+  #scrapDisplay, #goldDisplay, #shardDisplay, #catalystDisplay { color: #fbbf24; font-size: 0.85rem; margin: 4px 0 0; }
   #shardDisplay { color: #a78bfa; }
+  #catalystDisplay { color: #7dd3fc; font-size: 0.7rem; }
   .xpFill { background: linear-gradient(90deg,#a78bfa,#7c3aed); }
 
   /* ---------------- ROTATE HINT ---------------- */
@@ -339,6 +340,7 @@
   <div id="scrapDisplay"></div>
   <div id="goldDisplay"></div>
   <div id="shardDisplay"></div>
+  <div id="catalystDisplay"></div>
   <div id="armoryGrid"></div>
 
   <div id="championPanel" class="farmPanel">
@@ -1003,6 +1005,61 @@
     return true;
   }
 
+  // ---------------------------------------------------------------
+  // GEAR REWORK: unlike Reforge (rerolls ONE substat, still bound by
+  // the piece's original set/main stat), Rework rerolls exactly one of
+  // a gear piece's three independent rolls (set / main stat value /
+  // whole substat block) while leaving the other two untouched - for
+  // "great roll, wrong set" or "right set, dead substats" pieces where
+  // Reforge alone can't fix the actual problem. Each type spends its
+  // own scarce Catalyst (a rare bonus alongside gear drops), not Scrap
+  // - "relatively limited" is a property of the resource, not a price.
+  // ---------------------------------------------------------------
+  var SET_CATALYST_KEY = 'machineborn_set_catalyst_v1';
+  var STAT_CATALYST_KEY = 'machineborn_stat_catalyst_v1';
+  var SUBSTAT_CATALYST_KEY = 'machineborn_substat_catalyst_v1';
+  function loadCatalyst(key) {
+    try { var raw = localStorage.getItem(key); return raw ? (parseInt(raw, 10) || 0) : 0; } catch (e) { return 0; }
+  }
+  function saveCatalyst(key, value) {
+    try { localStorage.setItem(key, String(value)); } catch (e) { /* private mode / quota */ }
+  }
+  var setCatalyst = loadCatalyst(SET_CATALYST_KEY);
+  var statCatalyst = loadCatalyst(STAT_CATALYST_KEY);
+  var substatCatalyst = loadCatalyst(SUBSTAT_CATALYST_KEY);
+
+  var GEAR_REWORK_COST = { set: 1, mainStat: 1, substats: 2 };
+
+  function reworkGearSet(instanceId) {
+    var inst = gearInventory.find(function (g) { return g.instanceId === instanceId; });
+    if (!inst) return false;
+    if (setCatalyst < GEAR_REWORK_COST.set) return false;
+    setCatalyst -= GEAR_REWORK_COST.set;
+    inst.set = GEAR_SET_IDS[Math.floor(Math.random() * GEAR_SET_IDS.length)];
+    saveGearInventory(); saveCatalyst(SET_CATALYST_KEY, setCatalyst);
+    return true;
+  }
+
+  function reworkGearMainStat(instanceId) {
+    var inst = gearInventory.find(function (g) { return g.instanceId === instanceId; });
+    if (!inst) return false;
+    if (statCatalyst < GEAR_REWORK_COST.mainStat) return false;
+    statCatalyst -= GEAR_REWORK_COST.mainStat;
+    inst.mainValue = rollStatValue(inst.mainStat, inst.rarity, true);
+    saveGearInventory(); saveCatalyst(STAT_CATALYST_KEY, statCatalyst);
+    return true;
+  }
+
+  function reworkGearSubstats(instanceId) {
+    var inst = gearInventory.find(function (g) { return g.instanceId === instanceId; });
+    if (!inst || !inst.substats.length) return false;
+    if (substatCatalyst < GEAR_REWORK_COST.substats) return false;
+    substatCatalyst -= GEAR_REWORK_COST.substats;
+    inst.substats = rollSubstats(inst.mainStat, inst.rarity);
+    saveGearInventory(); saveCatalyst(SUBSTAT_CATALYST_KEY, substatCatalyst);
+    return true;
+  }
+
   function loadEquipment() {
     try {
       var raw = localStorage.getItem(EQUIPMENT_KEY);
@@ -1363,6 +1420,13 @@
   // fights) drops less reliably per victory.
   var ENCOUNTER_DROPS = { boss: { gearChance: 1, charmChance: 0.5 }, wave: { gearChance: 0.6, charmChance: 0.3 } };
   var DROP_RARITY_WEIGHTS = { Common: 50, Rare: 30, Epic: 15, Legendary: 5 };
+
+  // Rework Catalysts are a rare bonus riding on an actual gear drop (not
+  // an independent roll) - they're gear-adjacent materials, so they only
+  // ever show up alongside gear, never on their own.
+  var GEAR_REWORK_CATALYST_CHANCE = { boss: 0.12, wave: 0.06 };
+  var CATALYST_KEYS = [SET_CATALYST_KEY, STAT_CATALYST_KEY, SUBSTAT_CATALYST_KEY];
+  var CATALYST_LABELS = { machineborn_set_catalyst_v1: 'Set Catalyst', machineborn_stat_catalyst_v1: 'Stat Catalyst', machineborn_substat_catalyst_v1: 'Substat Catalyst' };
 
   // ---------------------------------------------------------------
   // INFINITE STAGE PROGRESSION - each encounter is a never-ending
@@ -1956,6 +2020,16 @@
           var gearDrop = rollGearDrop(currentStage);
           logLine('logSys', 'Gear drop: ' + gearInstanceLabel(gearDrop));
           rewardLines.push('Gear: ' + gearInstanceLabel(gearDrop));
+
+          if (Math.random() < (GEAR_REWORK_CATALYST_CHANCE[currentEncounterId] || 0)) {
+            var catalystKey = CATALYST_KEYS[Math.floor(Math.random() * CATALYST_KEYS.length)];
+            if (catalystKey === SET_CATALYST_KEY) { setCatalyst += 1; saveCatalyst(SET_CATALYST_KEY, setCatalyst); }
+            else if (catalystKey === STAT_CATALYST_KEY) { statCatalyst += 1; saveCatalyst(STAT_CATALYST_KEY, statCatalyst); }
+            else { substatCatalyst += 1; saveCatalyst(SUBSTAT_CATALYST_KEY, substatCatalyst); }
+            var catalystLabel = CATALYST_LABELS[catalystKey];
+            logLine('logSys', catalystLabel + ' drop!');
+            rewardLines.push('+1 ' + catalystLabel);
+          }
         }
         if (Math.random() < dropCfg.charmChance) {
           var charmDrop = rollCharmDrop(currentStage);
@@ -2540,6 +2614,8 @@
     document.getElementById('scrapDisplay').textContent = 'Scrap: ' + scrap;
     document.getElementById('goldDisplay').textContent = 'Gold: ' + gold;
     document.getElementById('shardDisplay').textContent = 'Shards: ' + shards;
+    document.getElementById('catalystDisplay').textContent =
+      'Set Catalyst: ' + setCatalyst + ' · Stat Catalyst: ' + statCatalyst + ' · Substat Catalyst: ' + substatCatalyst;
     renderChampions();
     renderGearFarm();
     renderCharmFarm();
@@ -2611,6 +2687,9 @@
               '<button class="invActionBtn" data-action="upgrade-gear" data-id="' + inst.instanceId + '"' + (maxed || scrap < upgradeCost ? ' disabled' : '') + '>' + (maxed ? 'MAX' : 'Upgrade (' + upgradeCost + ')') + '</button>' +
               '<button class="invActionBtn" data-action="reforge-gear" data-id="' + inst.instanceId + '"' + (scrap < reforgeCost ? ' disabled' : '') + '>Reforge (' + reforgeCost + ')</button>' +
               '<button class="invActionBtn" data-action="salvage-gear" data-id="' + inst.instanceId + '"' + (owner ? ' disabled' : '') + '>Salvage (+' + salvageValue + ')</button>' +
+              '<button class="invActionBtn" data-action="rework-set" data-id="' + inst.instanceId + '"' + (setCatalyst < GEAR_REWORK_COST.set ? ' disabled' : '') + '>Rework Set (' + GEAR_REWORK_COST.set + ')</button>' +
+              '<button class="invActionBtn" data-action="rework-stat" data-id="' + inst.instanceId + '"' + (statCatalyst < GEAR_REWORK_COST.mainStat ? ' disabled' : '') + '>Rework Stat (' + GEAR_REWORK_COST.mainStat + ')</button>' +
+              '<button class="invActionBtn" data-action="rework-substats" data-id="' + inst.instanceId + '"' + (substatCatalyst < GEAR_REWORK_COST.substats ? ' disabled' : '') + '>Rework Substats (' + GEAR_REWORK_COST.substats + ')</button>' +
             '</div></div>';
         }).join('')
       : '<div style="color:#666;font-size:0.7rem;">No gear farmed yet.</div>';
@@ -2624,6 +2703,9 @@
     if (action === 'upgrade-gear') upgradeGear(id);
     else if (action === 'reforge-gear') reforgeGear(id);
     else if (action === 'salvage-gear') salvageGear(id);
+    else if (action === 'rework-set') reworkGearSet(id);
+    else if (action === 'rework-stat') reworkGearMainStat(id);
+    else if (action === 'rework-substats') reworkGearSubstats(id);
     renderArmory();
   });
 

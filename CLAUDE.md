@@ -80,6 +80,9 @@ dependencies, no server). Served via GitHub Pages at
 | `machineborn_shards_v1` | Shard currency (a number) — level-cap only | Persistent |
 | `machineborn_champion_progress_v1` | `{ championId: { level, xp } }` | Persistent |
 | `machineborn_levelcap_v1` | Account-wide level-cap tier (a number) | Persistent |
+| `machineborn_set_catalyst_v1` | Set Catalyst currency (a number) — Rework: Set only | Persistent |
+| `machineborn_stat_catalyst_v1` | Stat Catalyst currency (a number) — Rework: main stat value only | Persistent |
+| `machineborn_substat_catalyst_v1` | Substat Catalyst currency (a number) — Rework: substats only | Persistent |
 
 Every inventory is a flat array of independent rolled instances keyed
 by a generated `instanceId`; equipping references an instance by ID.
@@ -161,6 +164,24 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
     for-Fury mechanic generically (that mechanic triggers off
     `actor.isBoss`, it isn't actually Hollow-King-specific) instead of
     a parallel one.
+11. **Gear Rework**: three targeted rerolls that each touch exactly
+    ONE of a gear piece's three independent rolls (main stat *value*
+    only — the stat identity is slot-locked; whole set; whole substat
+    block) while leaving the other two untouched — for "great roll,
+    wrong set" or "right set, dead substats" pieces Reforge alone
+    can't fix (Reforge only rerolls one substat at a time, and never
+    touches set or main stat). Distinct from Reforge/Upgrade: spends
+    its own scarce **Catalyst** currency instead of Scrap — Set
+    Catalyst / Stat Catalyst / Substat Catalyst
+    (`machineborn_set_catalyst_v1` / `_stat_catalyst_v1` /
+    `_substat_catalyst_v1`, `GEAR_REWORK_COST` = `{set:1, mainStat:1,
+    substats:2}`). Catalysts are a rare bonus (`GEAR_REWORK_CATALYST_
+    CHANCE`) riding on an actual gear drop on Boss/Wave victories —
+    gear-adjacent materials that only ever show up alongside gear,
+    never as an independent roll; Champion Trial doesn't grant them
+    (it doesn't drop gear at all). `reworkGearSet` / `reworkGearMainStat`
+    / `reworkGearSubstats` live in the Armory's gear inventory list
+    alongside Upgrade/Reforge/Salvage.
 
 Manual "Farm Gear" / "Farm Charms" buttons in the Armory remain as a
 testing/manual shortcut alongside real battle drops — not the only
@@ -210,13 +231,15 @@ acquisition path anymore.
 
 ## Next up (not yet built)
 
-Champion leveling (Gold, XP/Level, Shard-gated level cap) and the
-Champion Trial node (the dedicated Shard source) are both built — see
-"Systems that exist today" above.
+Champion leveling (Gold, XP/Level, Shard-gated level cap), the
+Champion Trial node (the dedicated Shard source), and Gear Rework
+(Set / Stat / Substat, Catalyst-gated) are all built — see "Systems
+that exist today" above. Note: "Rework node" turned out to mean gear
+substat/set/stat-value rerolls, not a champion build-choice system —
+champions still have zero build choices, so a champion-facing Rework
+is not on the table until one exists.
 
 Longer-term, deferred until asked for:
-- A **Rework node** (materials to reroll a champion's build choice,
-  once such a choice exists beyond gear).
 - Possibly renaming/re-theming Boss/Wave into the "Gear Trial" /
   "Charm Vault" node identity discussed in design chat (Champion Trial
   already carries its real name) — not done yet, current code still
