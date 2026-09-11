@@ -2167,12 +2167,16 @@
   // - Stage 8: `unlockChampion('vara')` - a guaranteed Legendary. Roster
   //   is now exactly 5, so Tower (unlocked one stage earlier) is
   //   immediately fully fieldable, not just technically "unlocked."
-  // - Stage 9: the first real plateau - a genuine difficulty spike
-  //   (not just a gentle step) that a fresh, unleveled, ungeared
-  //   5-champion squad is meant to struggle with, pushing the player to
-  //   actually go spend a few Main Boss/Tower visits before returning.
+  // - Stages 9-12: originally a deliberate hard-wall spike at Stage 9;
+  //   retuned per explicit feedback into a smooth incremental ramp
+  //   (each stage a modest step above Stage 8, no single brick-wall
+  //   stage) - see the CAMPAIGN_C1S9-S12 definitions below for the
+  //   numbers and full reasoning. The push-and-return loop is now
+  //   carried more by the First-Clear Bonus (see FIRST_CLEAR_BONUS_MULT)
+  //   than by one deliberately-uncleaable stage.
   // - Stage 10: unlocks Faction Wars (`CONTENT_UNLOCKS.faction`) - the
-  //   charm detour, for whenever the *next* plateau demands it.
+  //   charm detour, for whenever the next real plateau (elsewhere in
+  //   the game) demands it.
   // - Stage 12: the chapter's boss capstone (`isBoss`, reuses the
   //   generic devour-a-debuff mechanic every other capstone already
   //   uses - see hollowKingMechanic).
@@ -2265,33 +2269,38 @@
       basic: { name: 'Ambush Strike', coeff: 0.9, aoe: false } },
     { name: 'Ridge Raider Captain', hp: 90, atk: 34, def: 27, spd: 89, critChance: 10, critDamage: 155, acc: 12, res: 17,
       basic: { name: 'Weakening Slash', coeff: 0.7, aoe: false, applyDebuff: { type: 'Defense Down', chance: 30 } } });
-  // Stage 9: the first real plateau - a genuine spike over Stage 8, not
-  // a gentle step, meant to send a fresh/ungeared squad back to
-  // Main Boss/Tower before it's beatable. Now 3 full waves of the same
-  // wall-tier unit rather than one wave of 3 - attrition across waves
-  // (no HP refill between them) keeps this a real wall under the 4v4/
-  // 3-wave format, not a step down from it.
+  // Stages 9-12: retuned per explicit feedback ("Campaign is a bit too
+  // strong in ch1... we want 9-12 to be slightly above 8") - Stage 9
+  // used to be a genuine spike/wall (190/64/40, over double Stage 8's
+  // numbers) that a fresh squad couldn't reliably clear even after
+  // picking up Bastian/Vara. Replaced with a smooth incremental ramp:
+  // each stage a modest step above the last, Stage 12's boss still a
+  // real capstone bump but proportionate to its own escorts rather
+  // than the previous ~2.3x jump. No more single deliberate "wall"
+  // stage in Chapter 1 - see the First-Clear Bonus above for the other
+  // half of this fix (smoothing the push-and-return cycle generally,
+  // not just softening one chapter).
   var CAMPAIGN_C1S9 = chapterOneWaveStage('c1s9',
-    { name: 'Warband Enforcer', hp: 190, atk: 64, def: 40, spd: 99, critChance: 14, critDamage: 160, acc: 14, res: 20,
-      basic: { name: 'Warband Slash', coeff: 0.95, aoe: false, applyDebuff: { type: 'Bleed', chance: 45 } } });
+    { name: 'Warband Enforcer', hp: 100, atk: 40, def: 28, spd: 95, critChance: 12, critDamage: 155, acc: 12, res: 17,
+      basic: { name: 'Warband Slash', coeff: 0.9, aoe: false, applyDebuff: { type: 'Bleed', chance: 40 } } });
   // Stage 10: clearing this unlocks Faction Wars (CONTENT_UNLOCKS.faction).
   var CAMPAIGN_C1S10 = chapterOneWaveStage('c1s10',
-    { name: 'Thornback Marauder', hp: 150, atk: 52, def: 36, spd: 96, critChance: 12, critDamage: 155, acc: 12, res: 18,
-      basic: { name: 'Thorned Lash', coeff: 0.9, aoe: false, applyDebuff: { type: 'Poison', chance: 40 } } });
+    { name: 'Thornback Marauder', hp: 112, atk: 43, def: 30, spd: 96, critChance: 12, critDamage: 155, acc: 12, res: 18,
+      basic: { name: 'Thorned Lash', coeff: 0.9, aoe: false, applyDebuff: { type: 'Poison', chance: 35 } } });
   var CAMPAIGN_C1S11 = chapterOneWaveStage('c1s11',
-    { name: 'Warcamp Veteran', hp: 145, atk: 50, def: 35, spd: 98, critChance: 14, critDamage: 158, acc: 14, res: 20,
+    { name: 'Warcamp Veteran', hp: 122, atk: 46, def: 32, spd: 97, critChance: 13, critDamage: 157, acc: 13, res: 19,
       basic: { name: 'Veteran Strike', coeff: 0.92, aoe: false } });
   // Stage 12: Chapter 1's boss capstone - single wave, no pre-waves,
   // matching every other chapter's Stage 12. Reuses the generic
   // devour-a-debuff mechanic every other capstone already uses.
   var CAMPAIGN_C1S12 = [
-    { id: 'c1s12_a', name: 'Warcamp Guard', hp: 120, atk: 48, def: 33, spd: 90, critChance: 10, critDamage: 150, acc: 12, res: 18,
+    { id: 'c1s12_a', name: 'Warcamp Guard', hp: 130, atk: 48, def: 34, spd: 90, critChance: 10, critDamage: 150, acc: 12, res: 18,
       basic: { name: 'Warcamp Cleave', coeff: 0.85, aoe: false } },
-    { id: 'c1s12_b', name: 'Warcamp Guard', hp: 120, atk: 48, def: 33, spd: 88, critChance: 10, critDamage: 150, acc: 12, res: 18,
+    { id: 'c1s12_b', name: 'Warcamp Guard', hp: 130, atk: 48, def: 34, spd: 88, critChance: 10, critDamage: 150, acc: 12, res: 18,
       basic: { name: 'Warcamp Cleave', coeff: 0.85, aoe: false } },
-    { id: 'c1s12_c', name: 'Warcamp Guard', hp: 120, atk: 48, def: 33, spd: 86, critChance: 10, critDamage: 150, acc: 12, res: 18,
+    { id: 'c1s12_c', name: 'Warcamp Guard', hp: 130, atk: 48, def: 34, spd: 86, critChance: 10, critDamage: 150, acc: 12, res: 18,
       basic: { name: 'Warcamp Cleave', coeff: 0.85, aoe: false } },
-    { id: 'c1s12_d', name: 'Chapter Warlord', hp: 280, atk: 68, def: 45, spd: 96, critChance: 18, critDamage: 165, acc: 16, res: 22,
+    { id: 'c1s12_d', name: 'Chapter Warlord', hp: 220, atk: 58, def: 40, spd: 96, critChance: 16, critDamage: 162, acc: 15, res: 21,
       isBoss: true,
       basic: { name: "Reckoning Blow", coeff: 1.0, aoe: false } }
   ];
@@ -3217,6 +3226,14 @@
   function stageStatMultiplier(stage) { return Math.pow(1.12, Math.max(0, stage - 1)); }
   function stageRewardMultiplier(stage) { return 1 + Math.max(0, stage - 1) * 0.25; }
 
+  // First-Clear Bonus: doubles every generic reward and guarantees any
+  // gear/charm drop, exactly once per stage per mode (see endBattle's
+  // isFirstClear check, driven by stageProgress - the same "have I ever
+  // cleared this exact stage before" test the unlock messaging already
+  // used). Smooths the push-one-mode-to-unlock-another loop without
+  // touching the repeatable farm reward a stage pays every time after.
+  var FIRST_CLEAR_BONUS_MULT = 2;
+
   function scaledEnemyTemplate(base, stage) {
     var mult = stageStatMultiplier(stage);
     return Object.assign({}, base, {
@@ -3948,8 +3965,28 @@
     var nextStageAvailable = false;
     lastGearDrop = null;
     if (won) {
-      var reward = Math.round((ENCOUNTER_SCRAP_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
+      // First-Clear Bonus: the exact first time a stage/level is
+      // cleared (never on a replay) pays double + guarantees any gear/
+      // charm drop that mode offers - smooths the push-one-mode-to-
+      // unlock-another cycle the whole game is built on, per the user's
+      // own framing ("push 1 content in order to get rewards to
+      // increase power to get through the next content's plateau").
+      // Computed and `stageProgress` updated up front (was previously
+      // done near the end of this block, purely for messaging) so every
+      // reward calculation below can use it.
+      var prevCleared = stageProgress[currentEncounterId] || 0;
+      var isFirstClear = currentStage > prevCleared;
+      stageProgress[currentEncounterId] = Math.max(prevCleared, currentStage);
+      saveStageProgress();
+      var rewardMult = stageRewardMultiplier(currentStage) * (isFirstClear ? FIRST_CLEAR_BONUS_MULT : 1);
+
+      var reward = Math.round((ENCOUNTER_SCRAP_REWARD[currentEncounterId] || 0) * rewardMult);
       var rewardLines = [];
+      // Main Boss is excluded here - its rewards moved entirely off
+      // these generic tables onto the Guild Boss chest mechanic (see
+      // grantGuildBossChest), which this multiplier never touches, so
+      // the tag would be misleading noise there.
+      if (isFirstClear && currentEncounterId !== 'mainboss') rewardLines.push('★ First-Clear Bonus! (2x rewards)');
       if (reward > 0) {
         scrap += reward;
         saveScrap();
@@ -3957,7 +3994,7 @@
         rewardLines.push('+' + reward + ' Scrap');
       }
 
-      var goldReward = Math.round((ENCOUNTER_GOLD_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
+      var goldReward = Math.round((ENCOUNTER_GOLD_REWARD[currentEncounterId] || 0) * rewardMult);
       if (goldReward > 0) {
         gold += goldReward;
         saveGold();
@@ -3965,7 +4002,7 @@
         rewardLines.push('+' + goldReward + ' Gold');
       }
 
-      var xpReward = Math.round((ENCOUNTER_XP_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
+      var xpReward = Math.round((ENCOUNTER_XP_REWARD[currentEncounterId] || 0) * rewardMult);
       if (xpReward > 0) {
         currentTeamIds.forEach(function (id) {
           var prog = championProgress[id] || { level: 1, xp: 0 };
@@ -3977,7 +4014,7 @@
         rewardLines.push('+' + xpReward + ' XP to your squad');
       }
 
-      var shardReward = Math.round((ENCOUNTER_SHARD_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
+      var shardReward = Math.round((ENCOUNTER_SHARD_REWARD[currentEncounterId] || 0) * rewardMult);
       if (shardReward > 0) {
         shards += shardReward;
         saveShards();
@@ -3985,7 +4022,7 @@
         rewardLines.push('+' + shardReward + ' Shard' + (shardReward === 1 ? '' : 's'));
       }
 
-      var summonShardReward = Math.round((ENCOUNTER_SUMMON_SHARD_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
+      var summonShardReward = Math.round((ENCOUNTER_SUMMON_SHARD_REWARD[currentEncounterId] || 0) * rewardMult);
       if (summonShardReward > 0) {
         summonShard += summonShardReward;
         saveSummonShard();
@@ -3993,7 +4030,7 @@
         rewardLines.push('+' + summonShardReward + ' Summon Shard' + (summonShardReward === 1 ? '' : 's'));
       }
 
-      var charmDustReward = Math.round((ENCOUNTER_CHARMDUST_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
+      var charmDustReward = Math.round((ENCOUNTER_CHARMDUST_REWARD[currentEncounterId] || 0) * rewardMult);
       if (charmDustReward > 0) {
         charmDust += charmDustReward;
         saveCharmDust();
@@ -4001,7 +4038,7 @@
         rewardLines.push('+' + charmDustReward + ' Charm Dust');
       }
 
-      var ascensionReward = Math.round((ENCOUNTER_ASCENSION_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
+      var ascensionReward = Math.round((ENCOUNTER_ASCENSION_REWARD[currentEncounterId] || 0) * rewardMult);
       if (ascensionReward > 0) {
         ascensionCore += ascensionReward;
         saveAscensionCore();
@@ -4009,7 +4046,7 @@
         rewardLines.push('+' + ascensionReward + ' Ascension Core' + (ascensionReward === 1 ? '' : 's'));
       }
 
-      var arenaMedalReward = Math.round((ENCOUNTER_ARENA_MEDAL_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
+      var arenaMedalReward = Math.round((ENCOUNTER_ARENA_MEDAL_REWARD[currentEncounterId] || 0) * rewardMult);
       if (arenaMedalReward > 0) {
         arenaMedal += arenaMedalReward;
         saveArenaMedal();
@@ -4019,7 +4056,12 @@
 
       var dropCfg = ENCOUNTER_DROPS[currentEncounterId];
       if (dropCfg) {
-        if (Math.random() < dropCfg.gearChance) {
+        // The isFirstClear bypass only applies to a material this mode
+        // can ever drop (chance > 0) - a first clear must never hand out
+        // a material that mode doesn't own (reward purity), e.g. Tower
+        // (charmChance: 0) must never drop a charm just because it's a
+        // first clear.
+        if ((dropCfg.gearChance > 0 && isFirstClear) || Math.random() < dropCfg.gearChance) {
           var gearDrop = rollGearDrop(currentStage);
           lastGearDrop = gearDrop;
           logLine('logSys', 'Gear drop: ' + gearInstanceLabel(gearDrop));
@@ -4035,7 +4077,7 @@
             rewardLines.push('+1 ' + catalystLabel);
           }
         }
-        if (Math.random() < dropCfg.charmChance) {
+        if ((dropCfg.charmChance > 0 && isFirstClear) || Math.random() < dropCfg.charmChance) {
           var charmDrop = rollCharmDrop(currentStage);
           logLine('logSys', 'Charm drop: ' + charmInstanceLabel(charmDrop));
           rewardLines.push('Charm: ' + charmInstanceLabel(charmDrop));
@@ -4045,10 +4087,7 @@
       var thisConfig = ENCOUNTERS[currentEncounterId];
       var stageNoun = thisConfig.fixedChapters ? 'Chapter' : 'Stage';
       var maxChapter = thisConfig.fixedChapters ? thisConfig.fixedChapters.length : Infinity;
-      var prevCleared = stageProgress[currentEncounterId] || 0;
-      stageProgress[currentEncounterId] = Math.max(prevCleared, currentStage);
-      saveStageProgress();
-      if (currentStage > prevCleared) {
+      if (isFirstClear) {
         rewardLines.push(currentEncounterId === 'campaign'
           ? campaignClearMessage(currentStage, maxChapter)
           : (currentEncounterId === 'mainboss'

@@ -529,6 +529,47 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
     Team-select's own champion grid is unaffected and still deliberately
     shows locked cards (so you can see what summoning would add) - this
     only applies to the two Armory panels.
+21. **First-Clear Bonus** (`FIRST_CLEAR_BONUS_MULT`, `isFirstClear` in
+    `endBattle`): the user's framing - Chapter 1's Stage 9 wall was
+    softened (see the Campaign bullet below), but the deeper ask was to
+    smooth the whole "push one mode to unlock/afford the next" cycle
+    more generally, by rewarding *reaching* new content, not only
+    grinding it: "give 1st time rewards from each stage of all the main
+    content so that we progress slightly faster but also a bit more
+    smoothly... push 1 content in order to get rewards to increase
+    power to get through the next content's plateau." The exact first
+    time any stage/level in any mode is cleared - `currentStage >
+    prevCleared`, the identical `stageProgress`-driven check the unlock
+    messaging already used - doubles every generic
+    `ENCOUNTER_*_REWARD` payout for that battle (`rewardMult =
+    stageRewardMultiplier(stage) * 2`) and guarantees any gear/charm
+    drop that mode can ever produce. Never repeats on a replay of an
+    already-cleared stage - a stage's normal (non-doubled, RNG-gated)
+    reward is untouched on every subsequent clear, so this only
+    accelerates *reaching* new content, not farming it.
+    - **Reward purity preserved**: the guaranteed-drop bypass only
+      applies when that mode's own `ENCOUNTER_DROPS` chance for that
+      material is already > 0 - `(dropCfg.gearChance > 0 &&
+      isFirstClear) || Math.random() < dropCfg.gearChance` and the
+      mirror check for `charmChance`. An earlier version bypassed the
+      RNG unconditionally and briefly made Tower's first clear drop a
+      Charm (a material Tower never owns) - caught via
+      `test_first_clear_bonus.js` and fixed; Tower still never drops
+      charms, Faction Wars still never drops gear, even on a first clear.
+    - **Main Boss is excluded from the bonus tag/multiplier entirely** -
+      its Gold/XP/Shard/Summon Shard identity already lives entirely on
+      the Guild Boss chest mechanic (`grantGuildBossChest`), not the
+      generic `ENCOUNTER_*_REWARD` tables this multiplier touches, so
+      showing "First-Clear Bonus! (2x rewards)" there would be pure
+      noise - nothing would actually double. `stageProgress`/
+      `isFirstClear` are still computed and drive its "Guild Boss Level
+      N cleared" messaging exactly as before; only the reward-doubling
+      tag is suppressed (`currentEncounterId !== 'mainboss'`).
+    - `stageProgress[currentEncounterId]` is now updated at the *top* of
+      `endBattle`'s `won` branch (it used to happen near the end, purely
+      for the "stage cleared" messaging) so every reward calculation in
+      between can read `isFirstClear` - a reordering, not a new
+      persistence mechanism.
 
 ## Content framework
 
@@ -635,6 +676,11 @@ fight all describe that earlier shape. The roster is now 4 starters
 grant Bastian. The stage-clear rewards, unlock sequencing, and overall
 narrative arc described below are all still accurate and still fire at
 the same stage numbers - only the battle format underneath changed.
+Separately, "Stage 9 was deliberately built as a wall the squad cannot
+reliably clear" (below) is ALSO now stale, on top of the format change
+- see "Chapter 1 Stages 9-12 retune" further down: that intentional
+wall was later removed entirely in favor of a smooth ramp, per direct
+follow-up feedback.
 - `CAMPAIGN_CH1_STAGES` (`CAMPAIGN_C1S1`..`CAMPAIGN_C1S12`) are 12 flat
   `fixedChapters` entries prepended to the `CAMPAIGN_CHAPTERS` array
   (now 132 stages total, once Chapters 2-11 each became their own
@@ -903,6 +949,32 @@ stage list themselves.
   stage, matching this file's established testing philosophy for large
   generated/restructured content batches.
 
+**Chapter 1 Stages 9-12 retune (removing the deliberate wall).** A
+later explicit follow-up: "Campaign is a bit too strong in ch1. We
+want 9-12 to be slightly above 8." Stage 9 had been deliberately built
+(see "New-game onboarding" above) as a hard wall a fresh squad could
+not reliably clear - `Warband Enforcer` at 190 hp/64 atk/40 def, more
+than double Stage 8's numbers, then Stage 10 written as a *relief*
+step below it. That "wall → relief → wall → capstone" shape was the
+original design intent, but the user later judged it too harsh once
+layered on top of the already-tougher 4v4/3-wave format. Replaced with
+a smooth incremental ramp - each of Stages 9-11 a modest step above
+the last (Stage 9's `Warband Enforcer` down to 100 hp/40 atk/28 def,
+Stage 10/11 stepping up gently from there), Stage 12's boss still a
+real capstone bump over its own escorts but proportionate (220 hp vs.
+their 130, not the previous 280 vs. 120) rather than a second brick.
+Probed via `probe_ch1_9to12_v2.js` (scratchpad, 4 trials each, the
+actual roster available by Stage 9+ in real play - 4 starters +
+Bastian + Vara, all Level 1, on Auto Battle): 4/4 at every one of
+Stages 9-12, confirming they're genuinely passable now rather than a
+deliberate brick. There is no longer a single designed-to-be-uncleared
+stage anywhere in Chapter 1 - the push-and-return loop for new players
+is now carried more by the First-Clear Bonus above (which pays out
+right as each new stage is *reached*, not gated behind an intentional
+wall) than by one stage nobody can beat on arrival. Not an exhaustive
+sweep - only Stages 9-12 were re-probed, matching this file's "first
+pass, expect iteration" convention for hand-tuned content.
+
 Implementation notes:
 - **Fixed vs. infinite vs. cycling**: `ENCOUNTERS[id].fixedChapters`
   (an array of chapter template arrays) marks Campaign as non-scaling —
@@ -929,20 +1001,25 @@ Implementation notes:
   locking in your squad.
 - **Reward purity**: every `ENCOUNTER_*_REWARD` / `ENCOUNTER_DROPS` /
   `GEAR_REWORK_CATALYST_CHANCE` table only has entries for the mode(s)
-  that actually own that material — e.g. `ENCOUNTER_GOLD_REWARD` has
-  only `campaign`, `mainboss`, and `galactic` keys (Galactic War is the
-  one intentional multi-mode overlap — see above — never a specialist
-  material like gear/charms/shards/Ascension Cores/Arena Medals).
-  `ENCOUNTER_ARENA_MEDAL_REWARD` has only `grandarena`, and there is no
-  `ENCOUNTER_DROPS.grandarena` entry at all — Grand Arena's gear payoff
-  (`pullArenaGear`) is a manual Armory spend, never a victory-screen
-  roll, so the reward line itself stays Medals-only.
-  `ENCOUNTER_SUMMON_SHARD_REWARD` has only `mainboss` — Main Boss's
-  champion-growth identity now covers Gold/XP/Shards *and* Summon
-  Shards, but `pullChampionSummon` is the same kind of manual Armory
-  spend as Grand Arena's gear pull, never a victory-screen roll.
+  that actually own that material. **Stale as of the Guild Boss
+  redesign** (Systems item 18): `ENCOUNTER_GOLD_REWARD`/`_XP_REWARD`/
+  `_SHARD_REWARD`/`_SUMMON_SHARD_REWARD` no longer have a `mainboss` key
+  at all - that whole reward identity moved onto the chest mechanic
+  (`grantGuildBossChest`), so a generic-table entry there would
+  double-pay. `ENCOUNTER_GOLD_REWARD` is now just `{ campaign: 10,
+  galactic: 90 }`; `ENCOUNTER_XP_REWARD` just `{ galactic: 70 }`;
+  `_SHARD_REWARD`/`_SUMMON_SHARD_REWARD` are both empty objects.
+  Galactic War remains the one intentional multi-mode overlap (bulk
+  Scrap+Gold+XP, no specialist material of its own) - never a
+  specialist material like gear/charms/shards/Ascension Cores/Arena
+  Medals. `ENCOUNTER_ARENA_MEDAL_REWARD` has only `grandarena`, and
+  there is no `ENCOUNTER_DROPS.grandarena` entry at all — Grand Arena's
+  gear payoff (`pullArenaGear`) is a manual Armory spend, never a
+  victory-screen roll, so the reward line itself stays Medals-only.
   `endBattle` guards every reward block with `if (reward > 0)` so a
   mode that doesn't grant something never shows a useless "+0 X" line.
+  The First-Clear Bonus (Systems item 21) respects this same purity
+  rule for its guaranteed-drop bypass - see that item for how.
 - Champion leveling itself (Gold/XP spend, level curve, Shard-gated
   cap) is unchanged from when it was Boss/Wave/Champion-Trial-agnostic
   — see the leveling bullet above; only Main Boss feeds it now.
@@ -1307,6 +1384,26 @@ Boss's - a mode is tuned correctly when it stops a fresh/underpowered
 squad cold while staying genuinely clearable by a squad that actually
 detoured through the rest of the content loop to grow first.
 
+**Fourth follow-up round — built.** Two related asks, both about the
+push-and-return loop feeling too harsh/choppy specifically in Chapter
+1: "Campaign is a bit too strong in ch1. We want 9-12 to be slightly
+above 8... we should maybe give 1st time rewards from each stage of
+all the main content so that we progress slightly faster but also a
+bit more smoothly... push 1 content in order to get rewards to
+increase power to get through the next content's plateau." Both built:
+1. **Chapter 1 Stages 9-12 retuned from a deliberate wall into a smooth
+   ramp** - see "Chapter 1 Stages 9-12 retune" under "Content
+   framework" above for the numbers and probe results (4/4 at every
+   stage 9-12 now, vs. the previous intentional 0/4 wall at Stage 9).
+2. **First-Clear Bonus** - a one-time doubled reward + guaranteed drop
+   the exact first time any stage/level in any mode is cleared, across
+   the whole game, not just Campaign - see Systems item 21 for the full
+   mechanism, the reward-purity bug caught and fixed during testing
+   (an unconditional guarantee briefly let Tower drop charms, a
+   material it never owns), and why Main Boss is deliberately excluded
+   from the bonus tag (its rewards already live entirely on the Guild
+   Boss chest mechanic, untouched by this multiplier).
+
 Known gaps/tradeoffs from this pass, left for a future iteration:
 - `CAMPAIGN_STORY`/`CAMPAIGN_STORY_AFTER` and the Lore & Narrative
   section's own stage-number citations were NOT re-extended/re-mapped
@@ -1334,11 +1431,17 @@ Known gaps/tradeoffs from this pass, left for a future iteration:
   `test_factions.js`, `test_auto_priority.js`, `test_new_champions.js`,
   `test_content_framework.js`, `test_galactic_war.js` - WERE fixed this
   round, since Campaign's squad size itself changed to 4 everywhere.)
-- Chapter 1's difficulty curve past the warm-up-wave discount is a
-  first pass, same as every other newly-restructured chapter - only
-  Stages 9/10 were actually re-probed after the discount (Stage 9 stays
-  an intended 0/4 wall, Stage 10 recovered to 3/4); Stages 1-8/11 were
-  not individually re-verified post-discount.
+- Chapter 1's difficulty curve is a first pass through two retunes now
+  (the warm-up-wave discount, then the Stages 9-12 wall removal) - only
+  Stages 9-12 were re-probed after the second retune (now 4/4 at each,
+  see "Chapter 1 Stages 9-12 retune"); Stages 1-8 were not individually
+  re-verified since the warm-up-wave discount pass.
+- The First-Clear Bonus's 2x multiplier and guaranteed-drop are a first
+  pass, untested at scale (i.e. whether doubling every mode's very
+  first Tower/Faction Wars/Dungeon/Galactic War/Grand Arena clear meshes
+  well with the roster-tier/stage-cap pacing elsewhere) - revisit the
+  multiplier if pushing through early game ends up feeling too fast
+  once real play exercises the whole loop.
 
 Longer-term, deferred until asked for:
 - A **Charm Upgrade** to pair with the new Charm Reforge — gear has
