@@ -537,6 +537,9 @@
   <div id="resultAutoEquip" style="text-align:center;margin-top:6px;display:none;">
     <button class="overlayBtn" id="autoEquipBtn" style="margin:0;">AUTO-EQUIP</button>
   </div>
+  <div id="resultAutoLevel" style="text-align:center;margin-top:6px;display:none;">
+    <button class="overlayBtn" id="autoLevelBtn" style="margin:0;">AUTO-LEVEL SQUAD</button>
+  </div>
   <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
     <button class="overlayBtn" id="restartBtn" style="margin:0;">RETRY</button>
     <button class="overlayBtn" id="nextStageBtn" style="margin:0;">NEXT STAGE</button>
@@ -1391,6 +1394,34 @@
     return true;
   }
 
+  // AUTO-LEVEL: offered on the victory screen alongside Auto-Equip -
+  // repeatedly spends banked XP+Gold (Level Up) and Ascension Cores
+  // (Ascend) on the just-used squad until nothing more is affordable,
+  // reusing levelUpChampion/ascendChampion exactly as the Armory's own
+  // buttons do rather than a parallel spend path. Scoped to
+  // currentTeamIds like Auto-Equip, per the same "the champs you just
+  // used" framing.
+  function autoLevelSquad() {
+    var ids = (currentTeamIds || []).filter(isChampionOwned);
+    var didAnything = false;
+    ids.forEach(function (id) {
+      while (levelUpChampion(id)) didAnything = true;
+      while (ascendChampion(id)) didAnything = true;
+    });
+    return didAnything;
+  }
+
+  function anyAutoLevelAvailable() {
+    return (currentTeamIds || []).some(function (id) {
+      if (!isChampionOwned(id)) return false;
+      var prog = championProgress[id] || { level: 1, xp: 0 };
+      var canLevel = prog.level < effectiveLevelCap() && prog.xp >= xpToNextLevel(prog.level) && gold >= levelUpCost(prog.level);
+      var rank = prog.ascension || 0;
+      var canAscend = rank < ASCENSION_RANK_MAX && ascensionCore >= ascensionCost(rank);
+      return canLevel || canAscend;
+    });
+  }
+
   function applyAscensionToUnit(unit) {
     var mult = ascensionMultiplier(championAscension(unit.id));
     unit.maxHp = Math.round(unit.maxHp * mult);
@@ -1444,7 +1475,11 @@
   // (see CAMPAIGN_CH1_STAGES: two of them are handed out as guaranteed,
   // deterministic stage-clear rewards early in Campaign Chapter 1
   // instead of an RNG pull - the rest stay real Summon Shard targets).
-  var STARTER_CHAMPION_IDS = ['zephyr', 'fang', 'squall'];
+  // 4 starters (2 Common + 2 Rare) so Chapter 1 can field a full 4v4
+  // squad from the very first battle, matching every other chapter's
+  // 4v4/3-wave format - Vex was already a Rare (Deathmark) champion in
+  // the roster, just not previously a starter.
+  var STARTER_CHAMPION_IDS = ['zephyr', 'fang', 'squall', 'vex'];
   function loadChampionRoster() {
     try {
       var raw = localStorage.getItem(CHAMPION_ROSTER_KEY);
@@ -2020,8 +2055,17 @@
   // isBoss:true reuses the existing devour-a-debuff-for-Fury mechanic
   // (hollowKingMechanic) same as every other named boss in the game.
   // ---------------------------------------------------------------
+  // Numbers retuned per explicit user feedback: the first unlock (Level
+  // 1, a fresh unleveled/ungeared 4-starter squad) should only be able
+  // to chip the boss down to roughly its first quarter (Chest 1, 75%
+  // hp) before wiping - real further progress (Chests 2-4, a full
+  // clear) requires actually leveling/gearing up through the other
+  // modes first, not just repeated Main Boss attempts alone. HP/ATK
+  // raised well past the original pass (900/40) specifically so the
+  // fight lasts long enough for the boss's own hits to matter - probed
+  // via probe_guildboss.js (scratchpad).
   var GUILD_BOSS_WAVE = [
-    { id: 'guildboss', name: 'Guild Boss', hp: 900, atk: 40, def: 30, spd: 85, critChance: 12, critDamage: 160, acc: 16, res: 22,
+    { id: 'guildboss', name: 'Guild Boss', hp: 2600, atk: 80, def: 35, spd: 85, critChance: 12, critDamage: 160, acc: 16, res: 22,
       isBoss: true,
       basic: { name: "Warlord's Onslaught", coeff: 0.85, aoe: false, applyDebuff: { type: 'Defense Down', chance: 30 } } }
   ];
@@ -2130,112 +2174,107 @@
   // squad - reconciling that difficulty seam is explicitly deferred,
   // not forgotten (see CLAUDE.md "Next up").
   // ---------------------------------------------------------------
-  var CAMPAIGN_C1S1 = [
-    { id: 'c1s1_a', name: 'Field Rat', hp: 38, atk: 18, def: 10, spd: 75, critChance: 5, critDamage: 150, acc: 0, res: 5,
-      basic: { name: 'Nibble', coeff: 0.8, aoe: false } },
-    { id: 'c1s1_b', name: 'Field Rat', hp: 38, atk: 18, def: 10, spd: 73, critChance: 5, critDamage: 150, acc: 0, res: 5,
-      basic: { name: 'Nibble', coeff: 0.8, aoe: false } },
-    { id: 'c1s1_c', name: 'Field Rat', hp: 38, atk: 18, def: 10, spd: 71, critChance: 5, critDamage: 150, acc: 0, res: 5,
-      basic: { name: 'Nibble', coeff: 0.8, aoe: false } }
-  ];
-  var CAMPAIGN_C1S2 = [
-    { id: 'c1s2_a', name: 'Startled Boar', hp: 45, atk: 20, def: 12, spd: 78, critChance: 5, critDamage: 150, acc: 0, res: 5,
-      basic: { name: 'Charge', coeff: 0.8, aoe: false } },
-    { id: 'c1s2_b', name: 'Startled Boar', hp: 45, atk: 20, def: 12, spd: 76, critChance: 5, critDamage: 150, acc: 0, res: 5,
-      basic: { name: 'Charge', coeff: 0.8, aoe: false } },
-    { id: 'c1s2_c', name: 'Startled Boar', hp: 45, atk: 20, def: 12, spd: 74, critChance: 5, critDamage: 150, acc: 0, res: 5,
-      basic: { name: 'Charge', coeff: 0.8, aoe: false } }
-  ];
-  var CAMPAIGN_C1S3 = [
-    { id: 'c1s3_a', name: 'Marsh Snapper', hp: 50, atk: 22, def: 14, spd: 81, critChance: 5, critDamage: 150, acc: 5, res: 5,
+  // Chapter 1 is 4v4/3-wave like every chapter after it (see the
+  // Campaign 4v4/3-wave restructure) - `chapterOneWaveStage(idPrefix,
+  // regular, special)` turns one hand-authored regular/special pair
+  // into 3 waves of 4: two warm-up waves of the regular unit, then a
+  // finale wave where the special unit (if this stage has one) joins 3
+  // regulars - the same "twist arrives in the last wave" shape
+  // `buildChapterArc` uses for its own mini-boss/elite stages. Declared
+  // here (a function declaration, hoisted) even though `waveOf4`/
+  // `scaleUnitStats` are textually defined later in the file, in the
+  // Campaign 4v4/3-wave restructure section.
+  function chapterOneWaveStage(idPrefix, regular, special) {
+    // Chapter 1's per-stage stats were originally tuned for ONE 3-enemy
+    // fight; converting that straight into 3 waves of 4 at full
+    // strength roughly quadruples total attrition (no HP refill between
+    // waves), turning stages like the Stage 9 wall into a near-brick
+    // even for a boosted squad (probed and confirmed too hard). The two
+    // warm-up waves are discounted to 55% of the original stage's own
+    // numbers so total difficulty across the 3-wave stage lands closer
+    // to its original single-fight intent, while the finale wave still
+    // hits at full, undiscounted strength - same "the real fight is the
+    // last wave" shape the mini-boss/boss stages already use.
+    var warmup = scaleUnitStats(regular, 0.55);
+    var wave1 = waveOf4(warmup, idPrefix + 'w0');
+    var wave2 = waveOf4(warmup, idPrefix + 'w1');
+    var wave3 = special
+      ? waveOf4(regular, idPrefix + 'w2').slice(0, 3).concat([Object.assign({}, special, { id: idPrefix + '_special' })])
+      : waveOf4(regular, idPrefix + 'w2');
+    return { waves: [wave1, wave2, wave3] };
+  }
+
+  var CAMPAIGN_C1S1 = chapterOneWaveStage('c1s1',
+    { name: 'Field Rat', hp: 38, atk: 18, def: 10, spd: 75, critChance: 5, critDamage: 150, acc: 0, res: 5,
+      basic: { name: 'Nibble', coeff: 0.8, aoe: false } });
+  var CAMPAIGN_C1S2 = chapterOneWaveStage('c1s2',
+    { name: 'Startled Boar', hp: 45, atk: 20, def: 12, spd: 78, critChance: 5, critDamage: 150, acc: 0, res: 5,
+      basic: { name: 'Charge', coeff: 0.8, aoe: false } });
+  var CAMPAIGN_C1S3 = chapterOneWaveStage('c1s3',
+    { name: 'Marsh Snapper', hp: 50, atk: 22, def: 14, spd: 81, critChance: 5, critDamage: 150, acc: 5, res: 5,
       basic: { name: 'Snap', coeff: 0.8, aoe: false } },
-    { id: 'c1s3_b', name: 'Marsh Snapper', hp: 50, atk: 22, def: 14, spd: 79, critChance: 5, critDamage: 150, acc: 5, res: 5,
-      basic: { name: 'Snap', coeff: 0.8, aoe: false } },
-    { id: 'c1s3_c', name: 'Marsh Adder', hp: 55, atk: 20, def: 16, spd: 76, critChance: 5, critDamage: 150, acc: 10, res: 5,
-      basic: { name: 'Venom Bite', coeff: 0.7, aoe: false, applyDebuff: { type: 'Poison', chance: 35 } } }
-  ];
+    { name: 'Marsh Adder', hp: 55, atk: 20, def: 16, spd: 76, critChance: 5, critDamage: 150, acc: 10, res: 5,
+      basic: { name: 'Venom Bite', coeff: 0.7, aoe: false, applyDebuff: { type: 'Poison', chance: 35 } } });
   // Stage 4: clearing this unlocks Main Boss (CONTENT_UNLOCKS.mainboss).
-  var CAMPAIGN_C1S4 = [
-    { id: 'c1s4_a', name: 'Highway Thief', hp: 58, atk: 25, def: 17, spd: 84, critChance: 8, critDamage: 150, acc: 8, res: 8,
-      basic: { name: 'Cudgel Swing', coeff: 0.85, aoe: false } },
-    { id: 'c1s4_b', name: 'Highway Thief', hp: 58, atk: 25, def: 17, spd: 82, critChance: 8, critDamage: 150, acc: 8, res: 8,
-      basic: { name: 'Cudgel Swing', coeff: 0.85, aoe: false } },
-    { id: 'c1s4_c', name: 'Highway Thief', hp: 58, atk: 25, def: 17, spd: 80, critChance: 8, critDamage: 150, acc: 8, res: 8,
-      basic: { name: 'Cudgel Swing', coeff: 0.85, aoe: false } }
-  ];
-  var CAMPAIGN_C1S5 = [
-    { id: 'c1s5_a', name: 'Wild Hound', hp: 65, atk: 28, def: 19, spd: 87, critChance: 8, critDamage: 150, acc: 8, res: 10,
+  var CAMPAIGN_C1S4 = chapterOneWaveStage('c1s4',
+    { name: 'Highway Thief', hp: 58, atk: 25, def: 17, spd: 84, critChance: 8, critDamage: 150, acc: 8, res: 8,
+      basic: { name: 'Cudgel Swing', coeff: 0.85, aoe: false } });
+  var CAMPAIGN_C1S5 = chapterOneWaveStage('c1s5',
+    { name: 'Wild Hound', hp: 65, atk: 28, def: 19, spd: 87, critChance: 8, critDamage: 150, acc: 8, res: 10,
       basic: { name: 'Bite', coeff: 0.85, aoe: false } },
-    { id: 'c1s5_b', name: 'Wild Hound', hp: 65, atk: 28, def: 19, spd: 85, critChance: 8, critDamage: 150, acc: 8, res: 10,
-      basic: { name: 'Bite', coeff: 0.85, aoe: false } },
-    { id: 'c1s5_c', name: 'Hound Alpha', hp: 70, atk: 26, def: 21, spd: 83, critChance: 8, critDamage: 150, acc: 8, res: 12,
-      basic: { name: 'Intimidating Roar', coeff: 0.6, aoe: false, applyDebuff: { type: 'Attack Down', chance: 30 } } }
-  ];
-  // Stage 6: clearing this grants Bastian (guaranteed Epic, no RNG).
-  var CAMPAIGN_C1S6 = [
-    { id: 'c1s6_a', name: 'Cave Lurker', hp: 72, atk: 30, def: 21, spd: 89, critChance: 10, critDamage: 150, acc: 10, res: 12,
+    { name: 'Hound Alpha', hp: 70, atk: 26, def: 21, spd: 83, critChance: 8, critDamage: 150, acc: 8, res: 12,
+      basic: { name: 'Intimidating Roar', coeff: 0.6, aoe: false, applyDebuff: { type: 'Attack Down', chance: 30 } } });
+  // Stage 6: Chapter 1's mini-boss slot (matching every other chapter's
+  // Stage 6) - "Cave Warden" is a new named unit, not present before
+  // this restructure, joining 3 Cave Lurkers in the finale wave. Never
+  // carries isBoss (mini-bosses never do). Clearing this stage still
+  // grants Bastian (guaranteed Epic, no RNG) regardless of enemy
+  // composition - CAMPAIGN_STAGE_CHAMPION_REWARDS fires on stage
+  // number, independent of what's fought.
+  var CAMPAIGN_C1S6 = chapterOneWaveStage('c1s6',
+    { name: 'Cave Lurker', hp: 72, atk: 30, def: 21, spd: 89, critChance: 10, critDamage: 150, acc: 10, res: 12,
       basic: { name: 'Claw Rake', coeff: 0.85, aoe: false } },
-    { id: 'c1s6_b', name: 'Cave Lurker', hp: 72, atk: 30, def: 21, spd: 87, critChance: 10, critDamage: 150, acc: 10, res: 12,
-      basic: { name: 'Claw Rake', coeff: 0.85, aoe: false } },
-    { id: 'c1s6_c', name: 'Cave Lurker', hp: 72, atk: 30, def: 21, spd: 85, critChance: 10, critDamage: 150, acc: 10, res: 12,
-      basic: { name: 'Claw Rake', coeff: 0.85, aoe: false } }
-  ];
+    { name: 'Cave Warden', hp: 112, atk: 44, def: 32, spd: 85, critChance: 12, critDamage: 158, acc: 12, res: 16,
+      basic: { name: "Warden's Slam", coeff: 0.9, aoe: false, applyDebuff: { type: 'Defense Down', chance: 35 } } });
   // Stage 7: clearing this unlocks Tower (CONTENT_UNLOCKS.tower).
-  var CAMPAIGN_C1S7 = [
-    { id: 'c1s7_a', name: 'Rockhide Brawler', hp: 78, atk: 33, def: 23, spd: 91, critChance: 10, critDamage: 150, acc: 10, res: 14,
-      basic: { name: 'Boulder Toss', coeff: 0.9, aoe: false } },
-    { id: 'c1s7_b', name: 'Rockhide Brawler', hp: 78, atk: 33, def: 23, spd: 89, critChance: 10, critDamage: 150, acc: 10, res: 14,
-      basic: { name: 'Boulder Toss', coeff: 0.9, aoe: false } },
-    { id: 'c1s7_c', name: 'Rockhide Brawler', hp: 78, atk: 33, def: 23, spd: 87, critChance: 10, critDamage: 150, acc: 10, res: 14,
-      basic: { name: 'Boulder Toss', coeff: 0.9, aoe: false } }
-  ];
+  var CAMPAIGN_C1S7 = chapterOneWaveStage('c1s7',
+    { name: 'Rockhide Brawler', hp: 78, atk: 33, def: 23, spd: 91, critChance: 10, critDamage: 150, acc: 10, res: 14,
+      basic: { name: 'Boulder Toss', coeff: 0.9, aoe: false } });
   // Stage 8: clearing this grants Vara (guaranteed Legendary, no RNG) -
-  // roster is now exactly 5, so Tower (unlocked one stage earlier) is
+  // roster is now exactly 6, so Tower (unlocked one stage earlier) is
   // immediately fully fieldable.
-  var CAMPAIGN_C1S8 = [
-    { id: 'c1s8_a', name: 'Ridge Raider', hp: 85, atk: 36, def: 25, spd: 93, critChance: 10, critDamage: 150, acc: 10, res: 15,
+  var CAMPAIGN_C1S8 = chapterOneWaveStage('c1s8',
+    { name: 'Ridge Raider', hp: 85, atk: 36, def: 25, spd: 93, critChance: 10, critDamage: 150, acc: 10, res: 15,
       basic: { name: 'Ambush Strike', coeff: 0.9, aoe: false } },
-    { id: 'c1s8_b', name: 'Ridge Raider', hp: 85, atk: 36, def: 25, spd: 91, critChance: 10, critDamage: 150, acc: 10, res: 15,
-      basic: { name: 'Ambush Strike', coeff: 0.9, aoe: false } },
-    { id: 'c1s8_c', name: 'Ridge Raider Captain', hp: 90, atk: 34, def: 27, spd: 89, critChance: 10, critDamage: 155, acc: 12, res: 17,
-      basic: { name: 'Weakening Slash', coeff: 0.7, aoe: false, applyDebuff: { type: 'Defense Down', chance: 30 } } }
-  ];
+    { name: 'Ridge Raider Captain', hp: 90, atk: 34, def: 27, spd: 89, critChance: 10, critDamage: 155, acc: 12, res: 17,
+      basic: { name: 'Weakening Slash', coeff: 0.7, aoe: false, applyDebuff: { type: 'Defense Down', chance: 30 } } });
   // Stage 9: the first real plateau - a genuine spike over Stage 8, not
   // a gentle step, meant to send a fresh/ungeared squad back to
-  // Main Boss/Tower before it's beatable.
-  var CAMPAIGN_C1S9 = [
-    { id: 'c1s9_a', name: 'Warband Enforcer', hp: 190, atk: 64, def: 40, spd: 99, critChance: 14, critDamage: 160, acc: 14, res: 20,
-      basic: { name: 'Warband Slash', coeff: 0.95, aoe: false, applyDebuff: { type: 'Bleed', chance: 45 } } },
-    { id: 'c1s9_b', name: 'Warband Enforcer', hp: 190, atk: 64, def: 40, spd: 97, critChance: 14, critDamage: 160, acc: 14, res: 20,
-      basic: { name: 'Warband Slash', coeff: 0.95, aoe: false, applyDebuff: { type: 'Bleed', chance: 45 } } },
-    { id: 'c1s9_c', name: 'Warband Enforcer', hp: 190, atk: 64, def: 40, spd: 95, critChance: 14, critDamage: 160, acc: 14, res: 20,
-      basic: { name: 'Warband Slash', coeff: 0.95, aoe: false, applyDebuff: { type: 'Bleed', chance: 45 } } }
-  ];
+  // Main Boss/Tower before it's beatable. Now 3 full waves of the same
+  // wall-tier unit rather than one wave of 3 - attrition across waves
+  // (no HP refill between them) keeps this a real wall under the 4v4/
+  // 3-wave format, not a step down from it.
+  var CAMPAIGN_C1S9 = chapterOneWaveStage('c1s9',
+    { name: 'Warband Enforcer', hp: 190, atk: 64, def: 40, spd: 99, critChance: 14, critDamage: 160, acc: 14, res: 20,
+      basic: { name: 'Warband Slash', coeff: 0.95, aoe: false, applyDebuff: { type: 'Bleed', chance: 45 } } });
   // Stage 10: clearing this unlocks Faction Wars (CONTENT_UNLOCKS.faction).
-  var CAMPAIGN_C1S10 = [
-    { id: 'c1s10_a', name: 'Thornback Marauder', hp: 150, atk: 52, def: 36, spd: 96, critChance: 12, critDamage: 155, acc: 12, res: 18,
-      basic: { name: 'Thorned Lash', coeff: 0.9, aoe: false, applyDebuff: { type: 'Poison', chance: 40 } } },
-    { id: 'c1s10_b', name: 'Thornback Marauder', hp: 150, atk: 52, def: 36, spd: 94, critChance: 12, critDamage: 155, acc: 12, res: 18,
-      basic: { name: 'Thorned Lash', coeff: 0.9, aoe: false, applyDebuff: { type: 'Poison', chance: 40 } } },
-    { id: 'c1s10_c', name: 'Thornback Marauder', hp: 150, atk: 52, def: 36, spd: 92, critChance: 12, critDamage: 155, acc: 12, res: 18,
-      basic: { name: 'Thorned Lash', coeff: 0.9, aoe: false, applyDebuff: { type: 'Poison', chance: 40 } } }
-  ];
-  var CAMPAIGN_C1S11 = [
-    { id: 'c1s11_a', name: 'Warcamp Veteran', hp: 145, atk: 50, def: 35, spd: 98, critChance: 14, critDamage: 158, acc: 14, res: 20,
-      basic: { name: 'Veteran Strike', coeff: 0.92, aoe: false } },
-    { id: 'c1s11_b', name: 'Warcamp Veteran', hp: 145, atk: 50, def: 35, spd: 96, critChance: 14, critDamage: 158, acc: 14, res: 20,
-      basic: { name: 'Veteran Strike', coeff: 0.92, aoe: false } },
-    { id: 'c1s11_c', name: 'Warcamp Veteran', hp: 145, atk: 50, def: 35, spd: 94, critChance: 14, critDamage: 158, acc: 14, res: 20,
-      basic: { name: 'Veteran Strike', coeff: 0.92, aoe: false } }
-  ];
-  // Stage 12: Chapter 1's boss capstone - reuses the generic
+  var CAMPAIGN_C1S10 = chapterOneWaveStage('c1s10',
+    { name: 'Thornback Marauder', hp: 150, atk: 52, def: 36, spd: 96, critChance: 12, critDamage: 155, acc: 12, res: 18,
+      basic: { name: 'Thorned Lash', coeff: 0.9, aoe: false, applyDebuff: { type: 'Poison', chance: 40 } } });
+  var CAMPAIGN_C1S11 = chapterOneWaveStage('c1s11',
+    { name: 'Warcamp Veteran', hp: 145, atk: 50, def: 35, spd: 98, critChance: 14, critDamage: 158, acc: 14, res: 20,
+      basic: { name: 'Veteran Strike', coeff: 0.92, aoe: false } });
+  // Stage 12: Chapter 1's boss capstone - single wave, no pre-waves,
+  // matching every other chapter's Stage 12. Reuses the generic
   // devour-a-debuff mechanic every other capstone already uses.
   var CAMPAIGN_C1S12 = [
     { id: 'c1s12_a', name: 'Warcamp Guard', hp: 120, atk: 48, def: 33, spd: 90, critChance: 10, critDamage: 150, acc: 12, res: 18,
       basic: { name: 'Warcamp Cleave', coeff: 0.85, aoe: false } },
     { id: 'c1s12_b', name: 'Warcamp Guard', hp: 120, atk: 48, def: 33, spd: 88, critChance: 10, critDamage: 150, acc: 12, res: 18,
       basic: { name: 'Warcamp Cleave', coeff: 0.85, aoe: false } },
-    { id: 'c1s12_c', name: 'Chapter Warlord', hp: 280, atk: 68, def: 45, spd: 96, critChance: 18, critDamage: 165, acc: 16, res: 22,
+    { id: 'c1s12_c', name: 'Warcamp Guard', hp: 120, atk: 48, def: 33, spd: 86, critChance: 10, critDamage: 150, acc: 12, res: 18,
+      basic: { name: 'Warcamp Cleave', coeff: 0.85, aoe: false } },
+    { id: 'c1s12_d', name: 'Chapter Warlord', hp: 280, atk: 68, def: 45, spd: 96, critChance: 18, critDamage: 165, acc: 16, res: 22,
       isBoss: true,
       basic: { name: "Reckoning Blow", coeff: 1.0, aoe: false } }
   ];
@@ -2302,7 +2341,7 @@
   // = Stages 20-22/old Ch.8-10), using the exact enemy names and unlock
   // points already shipped - nothing needed renaming to fit.
   var CAMPAIGN_STORY = {
-    1: 'A mixed patrol — Zephyr, Fang, and Squall — is sent to the unclaimed border after reports of wildlife turning strangely aggressive.',
+    1: 'A mixed patrol — Zephyr, Fang, Squall, and Vex — is sent to the unclaimed border after reports of wildlife turning strangely aggressive.',
     2: "The aggression isn't settling down. If anything, it's spreading further along the border than it should.",
     3: "Even the vermin out here bite wrong now. Something in the marsh isn't behaving the way marshes behave.",
     4: "The \"wildlife\" reports turn out to be cover — Highway Thief bands are raiding openly, using the panic as camouflage.",
@@ -3041,7 +3080,7 @@
   // spawnWave) regardless of squad size.
   // ---------------------------------------------------------------
   var ENCOUNTERS = {
-    campaign: { label: 'Campaign', teamIds: ['zephyr', 'fang', 'squall'], fixedChapters: CAMPAIGN_CHAPTERS, stageLabelFor: campaignStageLabel },
+    campaign: { label: 'Campaign', teamIds: ['zephyr', 'fang', 'squall', 'vex'], fixedChapters: CAMPAIGN_CHAPTERS, stageLabelFor: campaignStageLabel },
     tower: { label: 'Tower', teamIds: ['zephyr', 'fang', 'squall', 'bastian', 'vara'], waves: [BOSS_WAVE] },
     faction: { label: 'Faction Wars', teamIds: ['fang', 'squall', 'bastian', 'vara'], waves: [WAVE_1, WAVE_2, WAVE_3] },
     mainboss: { label: 'Main Boss', teamIds: ['zephyr', 'fang', 'squall'], waves: [GUILD_BOSS_WAVE], stageLabelFor: mainbossStageLabel },
@@ -3238,6 +3277,23 @@
   // ---------------------------------------------------------------
   var autoBattleOn = false;
   var autoBasicOnly = false; // global override: ignore actives entirely, always Basic (fast/cheap trash clears)
+
+  // Auto Battle now stays on/off PER MODE until explicitly toggled -
+  // once armed for a mode, it survives Retry/Next Stage (and resuming
+  // a saved battle in that mode) instead of silently resetting to off
+  // every fight, which used to force re-toggling it after every single
+  // battle. `autoModeByEncounter[encounterId]` is the one persisted
+  // source of truth; both the team-select toggle and the in-battle
+  // toggle write through to it immediately.
+  var AUTO_MODE_KEY = 'machineborn_auto_mode_v1';
+  function loadAutoMode() {
+    try { var raw = localStorage.getItem(AUTO_MODE_KEY); return raw ? JSON.parse(raw) : {}; } catch (e) { return {}; }
+  }
+  function saveAutoMode() {
+    try { localStorage.setItem(AUTO_MODE_KEY, JSON.stringify(autoModeByEncounter)); } catch (e) { /* private mode / quota */ }
+  }
+  var autoModeByEncounter = loadAutoMode(); // { encounterId: boolean }
+
   var AUTO_CONFIG_KEY = 'machineborn_auto_config_v1';
   function loadAutoConfig() {
     try { var raw = localStorage.getItem(AUTO_CONFIG_KEY); return raw ? JSON.parse(raw) : {}; } catch (e) { return {}; }
@@ -3334,7 +3390,10 @@
     pendingAction = null;
     extraTurnChain = 0;
     extraTurnPending = null;
-    autoBattleOn = !!startInAuto;
+    // startInAuto omitted (Retry/Next Stage don't pass it) falls back to
+    // whatever this mode was last set to, so Auto Battle stays armed
+    // across attempts instead of resetting every fight.
+    autoBattleOn = startInAuto !== undefined ? !!startInAuto : !!autoModeByEncounter[encounterId];
     autoBasicOnly = false;
     mainbossChestsClaimed = [false, false, false, false];
     clearLog();
@@ -3426,7 +3485,7 @@
       SCRAP_KEY, CHARM_DUST_KEY, GOLD_KEY, SHARDS_KEY, SUMMON_SHARD_KEY, ARENA_MEDAL_KEY, ASCENSION_CORE_KEY,
       SET_CATALYST_KEY, STAT_CATALYST_KEY, SUBSTAT_CATALYST_KEY,
       CHAMPION_PROGRESS_KEY, CHAMPION_ROSTER_KEY, LEVEL_CAP_KEY,
-      STAGE_PROGRESS_KEY, SAVE_KEY, AUTO_CONFIG_KEY, LAST_SQUAD_KEY
+      STAGE_PROGRESS_KEY, SAVE_KEY, AUTO_CONFIG_KEY, LAST_SQUAD_KEY, AUTO_MODE_KEY
     ];
   }
 
@@ -3478,7 +3537,7 @@
     battleOver = false;
     extraTurnChain = 0;
     extraTurnPending = null;
-    autoBattleOn = false;
+    autoBattleOn = !!autoModeByEncounter[saved.encounterId];
     autoBasicOnly = false;
     highlightedSlot = saved.highlightedSlot || 'basic';
     clearLog();
@@ -4006,6 +4065,11 @@
     autoEquipEl.style.display = autoEquipTarget ? 'block' : 'none';
     autoEquipBtn.textContent = 'AUTO-EQUIP';
     autoEquipBtn.disabled = false;
+    var autoLevelEl = document.getElementById('resultAutoLevel');
+    var autoLevelBtn = document.getElementById('autoLevelBtn');
+    autoLevelEl.style.display = anyAutoLevelAvailable() ? 'block' : 'none';
+    autoLevelBtn.textContent = 'AUTO-LEVEL SQUAD';
+    autoLevelBtn.disabled = false;
     var storyEl = document.getElementById('resultStory');
     var afterStory = (won && currentEncounterId === 'campaign') ? CAMPAIGN_STORY_AFTER[currentStage] : null;
     storyEl.textContent = afterStory || '';
@@ -4444,6 +4508,8 @@
 
   document.getElementById('autoToggleBtn').addEventListener('click', function () {
     autoBattleOn = !autoBattleOn;
+    autoModeByEncounter[currentEncounterId] = autoBattleOn;
+    saveAutoMode();
     updateAutoButtons();
     if (autoBattleOn && pendingAction) setTimeout(function () { runAutoTurn(pendingAction.actor); }, 300);
   });
@@ -4491,17 +4557,12 @@
   // ---------------------------------------------------------------
   var pendingEncounterId, pendingStage, selectedTeamIds, pendingAutoStart = false;
 
-  // Campaign's squad size varies by chapter: Chapter 1 (stages 1-12)
-  // stays 3v3 to match the exact 3-starter roster a new save opens
-  // with (see "New-game onboarding" in CLAUDE.md - the 4th roster slot,
-  // Bastian, isn't earned until Stage 6, so requiring 4 champions any
-  // earlier would brick onboarding). Chapters 2-11 (stage 13+) are 4v4,
-  // per the restructured arcs in buildChapterArc - by Stage 13 the
-  // roster already has 5 owned champions, so 4v4 is always fieldable.
+  // Campaign is 4v4 uniformly, every chapter including Chapter 1 - the
+  // 4-champion starter roster (2 Common + 2 Rare, see
+  // STARTER_CHAMPION_IDS) exists specifically so Chapter 1 can field a
+  // full 4v4 squad from the very first battle, same as Chapters 2+.
   function squadSizeFor(encounterId, stage) {
-    if (encounterId === 'campaign') {
-      return (stage || getSelectedStage('campaign')) <= CAMPAIGN_CH1_STAGE_COUNT ? 3 : 4;
-    }
+    if (encounterId === 'campaign') return 4;
     return ENCOUNTERS[encounterId].teamIds.length;
   }
 
@@ -4537,7 +4598,7 @@
   function openTeamSelect(encounterId) {
     pendingEncounterId = encounterId;
     pendingStage = getSelectedStage(encounterId);
-    pendingAutoStart = false;
+    pendingAutoStart = !!autoModeByEncounter[encounterId];
     selectedTeamIds = defaultSquadFor(encounterId, pendingStage);
     document.getElementById('startScreen').style.display = 'none';
     document.getElementById('teamSelectScreen').style.display = 'block';
@@ -4606,6 +4667,8 @@
 
   document.getElementById('teamSelectAutoBtn').addEventListener('click', function () {
     pendingAutoStart = !pendingAutoStart;
+    autoModeByEncounter[pendingEncounterId] = pendingAutoStart;
+    saveAutoMode();
     renderTeamSelect();
   });
 
@@ -4758,7 +4821,7 @@
   }
 
   function renderArmory() {
-    document.getElementById('armoryGrid').innerHTML = CHAMPIONS.map(armoryRowHtml).join('');
+    document.getElementById('armoryGrid').innerHTML = CHAMPIONS.filter(function (c) { return isChampionOwned(c.id); }).map(armoryRowHtml).join('');
     document.getElementById('scrapDisplay').textContent = 'Scrap: ' + scrap;
     document.getElementById('goldDisplay').textContent = 'Gold: ' + gold;
     document.getElementById('shardDisplay').textContent = 'Shards: ' + shards;
@@ -4779,9 +4842,6 @@
   // CHAMPION LEVELING PANEL
   // ---------------------------------------------------------------
   function championRowHtml(champ) {
-    if (!isChampionOwned(champ.id)) {
-      return '<div class="charmInvRow" style="color:#666;">' + champ.name + ' (' + champ.rarity + ') — Locked, summon to unlock</div>';
-    }
     var level = championLevel(champ.id);
     var xp = championXp(champ.id);
     var cap = effectiveLevelCap();
@@ -4804,7 +4864,7 @@
   }
 
   function renderChampions() {
-    document.getElementById('championList').innerHTML = CHAMPIONS.map(championRowHtml).join('');
+    document.getElementById('championList').innerHTML = CHAMPIONS.filter(function (c) { return isChampionOwned(c.id); }).map(championRowHtml).join('');
     document.getElementById('levelCapLabel').textContent = effectiveLevelCap();
     var capCost = levelCapShardCost(levelCapTier);
     var capBtn = document.getElementById('raiseLevelCapBtn');
@@ -5017,6 +5077,14 @@
       btn.disabled = true;
       lastGearDrop = null;
     }
+  });
+
+  document.getElementById('autoLevelBtn').addEventListener('click', function () {
+    var btn = document.getElementById('autoLevelBtn');
+    var didAnything = autoLevelSquad();
+    btn.textContent = didAnything ? 'SQUAD LEVELED UP' : 'NOTHING TO SPEND';
+    btn.disabled = true;
+    renderChampions();
   });
 
   document.getElementById('restartBtn').addEventListener('click', function () {

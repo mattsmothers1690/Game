@@ -92,6 +92,7 @@ dependencies, no server). Served via GitHub Pages at
 | `machineborn_champion_roster_v1` | Array of owned champion ids — only `STARTER_CHAMPION_IDS` start owned; everything since must be summoned | Persistent |
 | `machineborn_auto_config_v1` | `{ championId: { active1, active2, active2First } }` — per-champion Auto Battle skill priority/enable config | Persistent |
 | `machineborn_last_squad_v1` | `{ encounterId: [championId, ...] }` — the exact squad last fielded per mode, defaulted back on the next team-select for that mode | Persistent |
+| `machineborn_auto_mode_v1` | `{ encounterId: boolean }` — whether Auto Battle is armed for that mode; stays on until explicitly toggled off, survives Retry/Next Stage/resume | Persistent |
 
 Every inventory is a flat array of independent rolled instances keyed
 by a generated `instanceId`; equipping references an instance by ID.
@@ -113,11 +114,14 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
    Champion leveling below).
    - **Starters are deliberately weak, not the original six** — see
      "New-game onboarding" below. `STARTER_CHAMPION_IDS = ['zephyr',
-     'fang', 'squall']` (2 Common + 1 Rare). The original six Legendaries
-     now live entirely in the real Summon pool alongside Vex/Bastian/
-     Morwen/Talon/Raze; Bastian and Vara are additionally handed out as
-     guaranteed, deterministic Campaign Chapter 1 stage-clear rewards
-     (`CAMPAIGN_STAGE_CHAMPION_REWARDS`) rather than only via RNG.
+     'fang', 'squall', 'vex']` (2 Common + 2 Rare - Vex added as a 4th
+     starter specifically so Chapter 1 can field a full 4v4 squad from
+     the very first battle, once Campaign became 4v4 uniformly - see
+     "Campaign 4v4/3-wave restructure" below). The original six
+     Legendaries now live entirely in the real Summon pool alongside
+     Bastian/Morwen/Talon/Raze; Bastian and Vara are additionally handed
+     out as guaranteed, deterministic Campaign Chapter 1 stage-clear
+     rewards (`CAMPAIGN_STAGE_CHAMPION_REWARDS`) rather than only via RNG.
    - **Rarity** reuses the same Common/Rare/Epic/Legendary scale as
      gear/charms rather than a parallel one. **Kit complexity scales
      with rarity**, mirroring how `GEAR_SUBSTAT_COUNT` scales gear's
@@ -292,10 +296,10 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
 14. **New Game / reset** (`resetGame`, `allSaveKeys`): battle-in-
     progress save (`machineborn_save_v1`) already existed; this is the
     account-progress counterpart — every persistent key the game
-    writes (all 20: equipment/gear/charm inventories, every currency,
+    writes (all 21: equipment/gear/charm inventories, every currency,
     champion progress/roster, level cap, stage progress, the mid-battle
     save, the auto-battle skill-priority config, the last-fielded-squad
-    memory) in one list, referenced
+    memory, the per-mode Auto Battle on/off state) in one list, referenced
     by each key's own `_KEY` constant
     rather than retyped as a string literal so a future new economy
     can't silently be left out of a reset. `allSaveKeys` is a function
@@ -351,29 +355,35 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
       `aliveEnemies()` otherwise — the same "support the neediest
       ally / finish the squishiest foe" heuristic Grand Arena's Stall/
       Aggro archetypes already use, not a new targeting concept.
-    - **Deliberately NOT persisted**: `autoBattleOn`/`autoBasicOnly`
-      reset to off on every `newBattle`/`resumeBattle` by default — same
-      as Raid's own Auto toggle, so a forgotten toggle from a prior
-      fight can never silently burn a real one. Only the skill-priority/
-      enable config persists (account-wide, like equipped gear), and
-      it's included in `allSaveKeys()` for New Game reset.
+    - **Persisted PER MODE** (`autoModeByEncounter`,
+      `machineborn_auto_mode_v1`): originally `autoBattleOn` reset to
+      off on every `newBattle`/`resumeBattle` unconditionally, matching
+      Raid's own Auto toggle - the user later asked for the opposite
+      ("if auto abilities is toggled on it should be permanently on in
+      that game mode until turned off again"), since re-toggling after
+      every single Retry/Next Stage was pure friction. `autoModeByEncounter[encounterId]`
+      is now the one persisted source of truth per mode: the team-select
+      toggle (`#teamSelectAutoBtn`/`pendingAutoStart`) and the in-battle
+      toggle (`#autoToggleBtn`) both write through to it immediately on
+      click. `newBattle`'s `startInAuto` argument, when omitted (Retry/
+      Next Stage don't pass one), falls back to `autoModeByEncounter[encounterId]`
+      instead of forcing `false`; `resumeBattle` reads the same map for
+      its encounter id. `autoBasicOnly` stays session-only/always-off-
+      per-battle by design - it's a "just get through this specific wave"
+      override, not a standing mode preference. `AUTO_MODE_KEY` is
+      included in `allSaveKeys()` for New Game reset.
     - Manual skill/target clicks are ignored (`if (autoBattleOn)
       return;` guards on the `#skillRow`/`#enemyList`/`#teamList`
       click handlers) while Auto is on, rather than letting both
       inputs race — toggle Auto off to act manually again, matching
       Raid's own behavior.
-    - **Team-select AUTO toggle** (`#teamSelectAutoBtn`/
-      `pendingAutoStart`): the one deliberate exception to "reset to off
-      every battle" above — the user asked to be able to start a fight
-      already in Auto mode instead of always having to toggle it on
-      again after Begin Battle. `pendingAutoStart` is a team-select-only
-      flag (reset to `false` every time `openTeamSelect` runs, so it
-      never leaks from one encounter's setup screen into the next) that
+    - **Team-select AUTO toggle** (`#teamSelectAutoBtn`): lets a fight
+      start already in Auto mode instead of always having to toggle it
+      on after Begin Battle. Opening team-select initializes
+      `pendingAutoStart` from `autoModeByEncounter[encounterId]` (so it
+      reflects that mode's persisted state, not always `false`), and
       flows through `beginEncounter`/`newBattle` as a `startInAuto`
-      argument; `newBattle` sets `autoBattleOn = !!startInAuto` instead
-      of unconditionally `false`. `resumeBattle` is untouched (still
-      always starts non-auto) — this toggle is about *starting* a fresh
-      fight in Auto, not resuming one.
+      argument.
 16. **Team-select defaults: highest tier owned + remembers last squad**
     (`defaultSquadFor`, `machineborn_last_squad_v1`): the user asked for
     two related things — default to the best champions you actually
@@ -451,12 +461,47 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
     reload-mid-fight can never re-grant (or under-grant) a threshold.
     `isBoss: true` on `GUILD_BOSS_WAVE` reuses the existing devour-a-
     debuff-for-Fury mechanic (`hollowKingMechanic`) like every other
-    named boss in the game — no parallel mechanic invented. Numbers
-    (900 hp base, 40 atk/30 def) are a first pass sized so a fresh
-    starter squad takes many turns rather than either one-shotting or
-    being one-shot — not yet probed across many levels/gear tiers, same
-    "expect iteration" caveat as every other hand-tuned encounter in
-    this file.
+    named boss in the game — no parallel mechanic invented.
+    - **Retuned per explicit follow-up feedback**: the first pass
+      (900 hp/40 atk/30 def) was still clearable by a fresh Level-1
+      unlock squad in most attempts - too easy, missing the whole point
+      of "not defeating him in 1 shot." The user's explicit target: a
+      first unlock should only reach roughly the first quarter (Chest 1,
+      75% hp) before wiping, with real further progress (Chests 2-4, a
+      full clear) requiring actually leveling/gearing up through the
+      other modes first, not just repeated Main Boss attempts alone.
+      Retuned to `hp: 2600, atk: 80, def: 35` and probed via
+      `probe_guildboss.js` (scratchpad, 8 trials, fresh Level-1 4-
+      starter squad on Auto Battle): 0/8 full clears, average depletion
+      27.5% (range 16-36%) - lands right on target. A separately-probed
+      Level-25 squad (`probe_guildboss_leveled.js`) fully clears it,
+      confirming the progression curve actually works: weak at unlock,
+      beatable once genuinely grown through other modes. Still a first
+      pass past Level 1 - expect iteration at higher levels, same as
+      every other hand-tuned encounter in this file.
+19. **Auto-Level** (`autoLevelSquad`/`anyAutoLevelAvailable`, victory-
+    screen `#autoLevelBtn`): the user asked for a way to auto-spend
+    banked progression after a battle instead of clicking into the
+    Armory every time. Repeatedly calls the Armory's own
+    `levelUpChampion`/`ascendChampion` (never a parallel spend path) on
+    every owned member of `currentTeamIds` until nothing more is
+    affordable for any of them - reuses the exact same cost/cap checks
+    those functions already enforce. Shown whenever `anyAutoLevelAvailable()`
+    is true (a same-shaped, non-mutating check using the same
+    affordability logic) regardless of win/loss - unlike Auto-Equip,
+    this isn't tied to a drop or a victory, since leveling just spends
+    whatever's already banked.
+20. **Armory shows only owned champions**: both the gear/charm equip
+    list (`armoryGrid`/`renderArmory`) and the Champions leveling/
+    ascension list (`championList`/`renderChampions`) now filter
+    `CHAMPIONS` through `isChampionOwned` before rendering, rather than
+    showing every champion in the game with a disabled "Locked, summon
+    to unlock" placeholder row for the ones you don't have yet.
+    `championRowHtml`'s old locked-row branch was removed outright (dead
+    once the list is pre-filtered) rather than left as unreachable code.
+    Team-select's own champion grid is unaffected and still deliberately
+    shows locked cards (so you can see what summoning would add) - this
+    only applies to the two Armory panels.
 
 ## Content framework
 
@@ -478,7 +523,7 @@ stat axis or an economy shared with other modes.
 
 | Mode (`ENCOUNTERS` id) | Squad | Progression | Unlocks at (Campaign stage) | Rewards |
 |---|---|---|---|---|
-| **Campaign** (`campaign`) | 3v3 (Chapter 1 only) / 4v4 × 3 waves (Chapters 2-11) | 132 fixed hand-authored stages (`CAMPAIGN_CHAPTERS` = `CAMPAIGN_CH1_STAGES` (12) + 10 chapters × 12 stages each via the `buildChapterArc` generator — see "New-game onboarding" and "Campaign 4v4/3-wave restructure" below) — **not** the infinite ladder, no stat compounding, replaying an old stage is always the same fight | Always open | Scrap + Gold only (bootstrap) |
+| **Campaign** (`campaign`) | 4v4 × 3 waves, every chapter including Chapter 1 | 132 fixed hand-authored stages (`CAMPAIGN_CHAPTERS` = `CAMPAIGN_CH1_STAGES` (12) + 10 chapters × 12 stages each via the `buildChapterArc` generator — see "New-game onboarding" and "Campaign 4v4/3-wave restructure" below) — **not** the infinite ladder, no stat compounding, replaying an old stage is always the same fight | Always open | Scrap + Gold only (bootstrap) |
 | **Tower** (`tower`) | 5v5 | Infinite stage ladder | Stage 7 | Gear (guaranteed) + Gear Rework Catalysts (rare, rides gear drops) + Scrap |
 | **Faction Wars** (`faction`) | 4v4 × 3 waves | Infinite stage ladder | Stage 10 | Charms (rolled chance) + Charm Dust (guaranteed) |
 | **Main Boss** (`mainboss`) | 3v3 vs. 1 Guild Boss | "Levels" (reuses the infinite-ladder `stageProgress` mechanism — a level IS a stage) | Stage 4 | Gold + XP + Shards + Summon Shards, paid out via 4 chests unlocked at 75%/50%/25%/0% of the boss's health, ramping in value per chest and per level (see "Main Boss: Guild Boss redesign" below) |
@@ -546,6 +591,18 @@ chapter, earn two guaranteed champions along the way, then hit a real
 plateau that forces a detour into whichever other mode just unlocked —
 the core farm-and-push loop starting from the very first session
 instead of only after Campaign is fully cleared.
+
+**Superseded-details note**: this section documents Chapter 1 as it
+existed BEFORE the Campaign 4v4/3-wave restructure (see that section
+below, which now applies to Chapter 1 too, not just Chapters 2-11) -
+"3-champion starter roster," "3v3," and Stage 9 being a single 3-enemy
+fight all describe that earlier shape. The roster is now 4 starters
+(`STARTER_CHAMPION_IDS` includes Vex), every stage is 4v4/3-wave
+(single-wave only at Stage 12), and Stage 6 now has a real mini-boss
+(Cave Warden) rather than being a plain stage that happens to also
+grant Bastian. The stage-clear rewards, unlock sequencing, and overall
+narrative arc described below are all still accurate and still fire at
+the same stage numbers - only the battle format underneath changed.
 - `CAMPAIGN_CH1_STAGES` (`CAMPAIGN_C1S1`..`CAMPAIGN_C1S12`) are 12 flat
   `fixedChapters` entries prepended to the `CAMPAIGN_CHAPTERS` array
   (now 132 stages total, once Chapters 2-11 each became their own
@@ -727,14 +784,45 @@ not a replacement for it: the CAMPAIGN_CH*A/B/C arrays (30 chapters'
 worth of regular/mini-boss/boss templates) stay exactly as documented
 above and are now the *input* to a new generator rather than the final
 stage list themselves.
-- **Chapter 1 is deliberately excluded** and stays 3v3/single-wave,
-  unchanged. Requiring 4 champions before Chapter 1 Stage 6 (the exact
-  stage that grants Bastian, the roster's 4th member) would brick new-
-  game onboarding, since a fresh save owns only the 3 starters until
-  then. `squadSizeFor('campaign', stage)` special-cases this: 3 for
-  stage ≤ `CAMPAIGN_CH1_STAGE_COUNT` (12), 4 above it. By Chapter 2
-  (Stage 13) the roster already has 5 owned champions (3 starters +
-  Bastian + Vara), so 4v4 is always fieldable from there on.
+- **Chapter 1 was initially excluded, then included in a direct
+  follow-up.** The first pass kept Chapter 1 3v3/single-wave, unchanged,
+  reasoning that requiring 4 champions before Stage 6 (the stage that
+  used to grant the roster's 4th member, Bastian) would brick new-game
+  onboarding for a fresh 3-starter save. The user's next message
+  rejected that workaround directly: "simply give a 2nd rare champ at
+  the beginning to have the 4th champ." `STARTER_CHAMPION_IDS` gained
+  Vex (already an existing Rare champion, not a new one) as a 4th
+  starter, so Chapter 1 can field 4v4 from the very first battle like
+  every other chapter - `squadSizeFor('campaign', stage)` now simply
+  returns 4 unconditionally, no Chapter-1 special case. Chapter 1's own
+  12 stages were rewritten with `chapterOneWaveStage(idPrefix, regular,
+  special)` - the same "regular ramp / mini-boss at 6 / boss alone at
+  12" shape `buildChapterArc` uses for Chapters 2-11, but built directly
+  from Chapter 1's own already-existing per-stage enemies (there was no
+  separate A/B/C trio to feed a generator from, since Chapter 1 was
+  always 12 distinct hand-authored stages, not 3). Stage 6 gained a
+  genuinely new mini-boss, "Cave Warden" (never existed before this
+  pass), joining 3 Cave Lurkers in the finale wave - Bastian's grant on
+  clearing Stage 6 is unaffected (`CAMPAIGN_STAGE_CHAMPION_REWARDS`
+  fires on stage number, independent of enemy composition). Stage 9's
+  "wall" concept and Stage 12's capstone both carry over structurally,
+  just reformatted (Stage 12 gained a 4th Warcamp Guard to fill 4v4).
+  **Difficulty required a second pass**: converting each stage straight
+  into 3 full-strength waves of 4 (no HP refill between waves) roughly
+  quadrupled total attrition versus the original single 3-enemy fight,
+  turning even a boosted 6-champion roster into a reliable 0/8 at Stage
+  9-10 (probed and confirmed too hard, well past the intended
+  difficulty). Fixed by discounting `chapterOneWaveStage`'s two warm-up
+  waves to 55% of the stage's own stats, leaving the finale wave at full
+  strength - the same "the real fight is the last wave" shape the
+  mini-boss/boss stages already use. Re-probed via
+  `probe_ch1_wavestages.js`: Stage 10 recovered to 3/4 wins (a real but
+  passable relief step, matching its original design intent), Stage 9
+  stayed a deliberate 0/4 wall (matches its documented intent - a
+  6-champion-but-still-Level-1 roster isn't supposed to clear it; actual
+  leveling/gearing via Main Boss/Tower is the intended unlock). Not an
+  exhaustive per-stage sweep of all 12 stages - same "first pass, expect
+  iteration" caveat as everything else newly restructured in this file.
 - **`buildChapterArc(chId, regularArr, miniBossArr, bossArr)`** expands
   each old chapter's regular(A)/mini-boss(B)/boss(C) trio into a fresh
   12-stage arc, generated at script-init time rather than hand-authored
@@ -754,12 +842,13 @@ stage list themselves.
   the CAMPAIGN_CH*A/B/C arrays - only the ramp stages and the
   wave/squad-count reshaping are generated.
 - **`wavesForBattle` now supports multi-wave `fixedChapters` entries**:
-  a stage entry is either a flat template array (one wave, still true
-  for all of Chapter 1 and every chapter's Stage 12) or `{ waves: [...] }`
-  (Stages 1-11 of Chapters 2-11) - resolved generically, no per-mode
-  branching needed since the underlying wave-advance loop in
-  `checkBattleEnd` was already generic (the same mechanism Faction
-  Wars/Tower/Galactic War already use for their own multi-wave configs).
+  a stage entry is either a flat template array (one wave - now only
+  true for every chapter's Stage 12, boss-alone stages) or
+  `{ waves: [...] }` (Stages 1-11 of every chapter, Chapter 1 included)
+  - resolved generically, no per-mode branching needed since the
+  underlying wave-advance loop in `checkBattleEnd` was already generic
+  (the same mechanism Faction Wars/Tower/Galactic War already use for
+  their own multi-wave configs).
 - **`CAMPAIGN_CHAPTER_LENGTHS`** is now `[12, 12, 12, ..., 12]` (Chapter
   1's 12 plus 12 for each of the 10 chapters after it) instead of
   `[12, 3, 3, ..., 3]` - `campaignChapterInfo`/`campaignStageLabel`/
@@ -768,15 +857,19 @@ stage list themselves.
   length: 12 + 10×12 = **132 stages** (up from 42).
   `CAMPAIGN_CHAPTERS.length` still drives `CONTENT_UNLOCKS.dungeon/
   galactic/grandarena` automatically - they now unlock at Stage 132.
-- **Verified via `test_five_features.js`** (scratchpad, not committed):
-  confirms `CAMPAIGN_CHAPTER_LENGTHS`/total stage count, that Chapter 1
-  stays 3v3 while Chapter 2+ is 4v4, that a Chapter 2 regular stage is a
+- **Verified via `test_five_features.js`** (Chapters 2-11 shape, before
+  Chapter 1 was also converted) and `test_round2_features.js` (Chapter
+  1 specifically, both scratchpad, not committed): confirms
+  `CAMPAIGN_CHAPTER_LENGTHS`/total stage count, that Campaign is 4v4 at
+  every stage including Chapter 1, that a Chapter 2 regular stage is a
   3-wave/4-enemy fight, that Chapter 2's boss stage (global Stage 24) is
-  a single wave with Grunt Warchief present and `isBoss:true`, and that
+  a single wave with Grunt Warchief present and `isBoss:true`, that
   Chapter 2's mini-boss stage (global Stage 18) is 3 waves with Grunt
-  Brute in the finale wave without `isBoss`. Not an exhaustive sweep of
-  all 120 new stages, matching this file's established testing
-  philosophy for large generated content batches.
+  Brute in the finale wave without `isBoss`, and the equivalent checks
+  for Chapter 1's own Stage 1/Stage 6 (Cave Warden)/Stage 12 (4 enemies,
+  Chapter Warlord `isBoss:true`). Not an exhaustive sweep of every
+  stage, matching this file's established testing philosophy for large
+  generated/restructured content batches.
 
 Implementation notes:
 - **Fixed vs. infinite vs. cycling**: `ENCOUNTERS[id].fixedChapters`
@@ -1124,12 +1217,41 @@ user rather than assumed silently:
   *every* chapter (not just Chapter 1, and not just a battle-format
   swap on the existing 3-stage-per-chapter shape) — the larger of three
   offered scopes.
-- Chapter 1 itself was deliberately kept OUT of that restructure and
-  stays 3v3/single-wave — requiring 4 champions before Chapter 1 Stage
-  6 (the stage that grants Bastian, the roster's 4th member) would
-  brick new-game onboarding for a fresh save that only owns 3 starters.
-  This is a judgment call made during implementation, not something the
-  user was asked about directly — flagged here for visibility.
+- Chapter 1 itself was initially kept OUT of that restructure and left
+  3v3/single-wave — requiring 4 champions before Chapter 1 Stage 6
+  (the stage that granted Bastian, the roster's 4th member at the time)
+  would have bricked new-game onboarding for a fresh 3-starter save.
+  This was a judgment call made during implementation, not something
+  the user was asked about directly. The user's next message rejected
+  the workaround directly and asked for Chapter 1 included too, via the
+  simplest fix: a 2nd Rare starter (Vex) so the roster is 4 from the
+  very first battle - see the follow-up round below and Systems item 1
+  (`STARTER_CHAMPION_IDS`).
+
+**Second follow-up round — built.** Four more asks plus a correction to
+the item above, addressed in the same session:
+1. **Auto Battle should stay on per mode until manually turned off** -
+   previously reset to off every single battle. See Systems #15's
+   "Persisted PER MODE" bullet (`autoModeByEncounter`,
+   `machineborn_auto_mode_v1`).
+2. **Armory should only show owned champions** - previously showed
+   every champion with a disabled "Locked" row for unowned ones. See
+   Systems item 20.
+3. **The Guild Boss was still too easy** - a fresh Level-1 unlock could
+   often fully clear it, undermining the whole "chest per quarter,
+   real progress needs external growth" point. Retuned (900→2600 hp,
+   40→80 atk, 30→35 def) and reprobed at 0/8 full clears, ~27.5% average
+   depletion - see Systems item 18's retuning bullet.
+4. **An auto-leveling/promoting button after battle** - see Systems
+   item 19 (`autoLevelSquad`).
+5. **The Chapter 1 exclusion from item 5 above was reversed** - "simply
+   give a 2nd rare champ at the beginning to have the 4th champ." Vex
+   joined `STARTER_CHAMPION_IDS`, Chapter 1 was rewritten to 4v4/3-wave
+   with a new Stage 6 mini-boss (Cave Warden), and the resulting
+   difficulty spike from tripling wave count was corrected with a
+   warm-up-wave stat discount - see the Campaign 4v4/3-wave restructure
+   section's own follow-up bullet under "Content framework" above for
+   the full mechanism and probe numbers.
 
 Known gaps/tradeoffs from this pass, left for a future iteration:
 - `CAMPAIGN_STORY`/`CAMPAIGN_STORY_AFTER` and the Lore & Narrative
@@ -1141,17 +1263,27 @@ Known gaps/tradeoffs from this pass, left for a future iteration:
   chest messages instead, not surfaced in the final summary) — a
   deliberate but not fully polished consequence of moving that reward
   identity onto the chest mechanic.
-- `GUILD_BOSS_WAVE`'s stats (900 hp, 40 atk/30 def) and
-  `guildBossChestReward`'s payout curve are a first pass, probed only
-  at Level 1 — expect retuning once real play exercises higher levels
-  against leveled/geared squads.
+- `GUILD_BOSS_WAVE`'s stats (2600 hp, 80 atk/35 def, retuned once
+  already per explicit feedback) and `guildBossChestReward`'s payout
+  curve are still only probed at Level 1 vs. a Level-1/Level-25 squad —
+  expect retuning at the levels in between and at higher gear tiers
+  once real play exercises them.
 - Several pre-existing scratchpad Playwright tests (not committed —
   see "Testing methodology") hardcode the old 42-stage Campaign total
   for unlock-gating seeds (`galactic_war`, `grand_arena`,
   `roster_tier`, `dungeon_ascension`, `ch1_rework`,
   `campaign_expand_basic`) and are now stale, not failing due to a real
   regression — same "stale test, not a regression" convention as
-  always, just not all individually fixed in this pass.
+  always, just not all individually fixed in this pass. (Several other
+  scratchpad tests that manually built a 3-champion Campaign squad -
+  `test_factions.js`, `test_auto_priority.js`, `test_new_champions.js`,
+  `test_content_framework.js`, `test_galactic_war.js` - WERE fixed this
+  round, since Campaign's squad size itself changed to 4 everywhere.)
+- Chapter 1's difficulty curve past the warm-up-wave discount is a
+  first pass, same as every other newly-restructured chapter - only
+  Stages 9/10 were actually re-probed after the discount (Stage 9 stays
+  an intended 0/4 wall, Stage 10 recovered to 3/4); Stages 1-8/11 were
+  not individually re-verified post-discount.
 
 Longer-term, deferred until asked for:
 - A **Charm Upgrade** to pair with the new Charm Reforge — gear has
