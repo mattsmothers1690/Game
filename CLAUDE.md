@@ -99,33 +99,40 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
 
 ## Systems that exist today
 
-1. **Champions** (`CHAMPIONS`, 10 total): the original six —
-   Vara (Guardian), Mire (Plaguebearer), Kestrel (Controller), Rook
+1. **Champions** (`CHAMPIONS`, 14 total): the original six — Vara
+   (Guardian), Mire (Plaguebearer), Kestrel (Controller), Rook
    (Executioner), Nyx (Contagionist), Wren (Sentinel), all Legendary
    rarity with the full basic/active1/active2/passive/signature kit —
-   plus four new lower-rarity champions seeding the summon pool:
-   Zephyr (Common, Stormcallers), Squall (Rare, Stormcallers), Fang
-   (Common, Deathmark), Vex (Rare, Deathmark). No build choices on any
-   of them. Base stats are modified by equipped gear and by champion
-   level (see Champion leveling below).
+   plus eight added since to seed the summon pool: Common/Rare pairs
+   Zephyr/Squall (Stormcallers) and Fang/Vex (Deathmark), and one Epic
+   per faction — Bastian (Ironclad), Morwen (Blightkin), Talon
+   (Stormcallers), Raze (Deathmark). No build choices on any of them.
+   Base stats are modified by equipped gear and by champion level (see
+   Champion leveling below).
    - **Rarity** reuses the same Common/Rare/Epic/Legendary scale as
      gear/charms rather than a parallel one. **Kit complexity scales
      with rarity**, mirroring how `GEAR_SUBSTAT_COUNT` scales gear's
      substat count: Common ships with basic+active1 only, Rare adds
-     active2, Epic would add a passive, Legendary (the original six)
-     has the full basic/active1/active2/passive/signature kit. A
-     missing `active2`/`passive`/`signature` renders safely (the
-     button/info-tab for it is simply omitted) — `renderActions`,
+     active2, Epic adds a passive on top of that, Legendary (the
+     original six) has the full basic/active1/active2/passive/
+     signature kit — the rarity ladder is now fully populated at every
+     tier. A missing `active2`/`passive`/`signature` renders safely
+     (the button/info-tab for it is simply omitted) — `renderActions`,
      `slotInfo`, and `parsePassive` all check for presence first; this
-     was NOT true before this pass (`skillButtonHtml('active2',
+     was NOT true before Zephyr/Fang shipped (`skillButtonHtml('active2',
      actor.active2, ...)` used to assume every champion had one and
-     would throw otherwise) — a real fix, not speculative, since Zephyr
-     and Fang actually ship without it. Passives/signatures are still
-     NOT data-driven from the `passive`/`signature` string fields
-     (those are UI-only flavor text) — real behavior is hand-wired per
-     champion id inside `wireEventHooks()`, so a future Epic/Legendary
-     addition needs its own bespoke block there, same as the original
-     six; Zephyr/Squall/Fang/Vex have none, so nothing was added there.
+     would throw otherwise) — a real fix, not speculative. Passives/
+     signatures are still NOT data-driven from the `passive`/`signature`
+     string fields (those are UI-only flavor text) — real behavior is
+     hand-wired per champion id inside `wireEventHooks()`. All four Epic
+     champions have a real passive block there (Bastian: Shield on a
+     hurt ally via `damageTaken`; Morwen: Attack Up on a Poisoned kill
+     via `death`; Talon: Speed Up to a random ally via `activeUsed`;
+     Raze: an extra turn on finishing a debuffed enemy via
+     `attackResolved`, reusing the same `extraTurnPending` mechanic
+     Zealot's gear-set 2pc already uses) — each a single, simple hook,
+     appropriately smaller in scope than a Legendary's passive+signature
+     pair. Zephyr/Squall/Fang/Vex still have none.
    - **Factions** (`FACTIONS`/`FACTION_TIERS`) work like a
      team-composition mirror of gear sets: `factionBonusStatsFor(teamIds)`
      counts how many fielded champions share a faction and, at 2/3-member
@@ -133,11 +140,13 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
      just that faction's members) via `applyFactionBonusToUnit` — same
      generalized-tier pattern as `SET_TIERS`/`GEAR_SETS`, computed once
      per battle in `newBattle`/`resumeBattle` alongside gear/level/
-     ascension. Current factions: Ironclad (Vara, Wren), Blightkin
-     (Mire, Nyx), Stormcallers (Kestrel, Squall, Zephyr), Deathmark
-     (Rook, Vex, Fang) — every faction can now reach bonus2 (2 members);
-     bonus3 (3 members) is defined but not yet reachable by any faction,
-     which is expected to fill in as more champions are added, not a bug.
+     ascension. Every faction now has exactly 3 members — Ironclad
+     (Vara, Wren, Bastian), Blightkin (Mire, Nyx, Morwen), Stormcallers
+     (Kestrel, Squall, Zephyr, Talon — 4), Deathmark (Rook, Vex, Fang,
+     Raze — 4) — so bonus2 *and* bonus3 (verified: fielding 3 Deathmark
+     champions together raises Rook's critDamage by the bonus3 amount
+     on top of bonus2, since every squad size in the game is 3+) are
+     both reachable in every faction, no longer a dormant tier.
 2. **Buffs/debuffs**: full set including +/- Atk/Def/Spd/Res/Acc,
    Shield, Block Buffs, Block Debuffs, Stun, Poison, Bleed, Burn,
    Counter, Provoke, etc.
@@ -487,11 +496,17 @@ and the Champions bullet above for the full mechanism:
   rarity-keyed gate a no-op from turn one (see Systems item 13 for the
   full reasoning).
 
-Still open in this cycle: **Epic-tier champions** — needed to round out
-the rarity ladder (right now Epic/Legendary summons always refund as
-duplicates, since no Epic champion exists and every Legendary is a
-pre-owned starter) and to let Stormcallers/Deathmark reach faction
-bonus3. Not yet started.
+**Epic-tier champions — built**: Bastian/Morwen/Talon/Raze, one per
+faction (see Systems item 1). The rarity ladder is now fully populated
+(Common through Legendary at every rarity a summon can roll), every
+faction has 3+ members, and both faction bonus tiers are reachable
+everywhere. Legendary summons still always refund as a duplicate —
+every Legendary is a pre-owned starter — which is expected, not a bug;
+revisit only if a summonable Legendary is ever added on purpose. The
+champion-acquisition end cycle the user asked for is now fully built
+end to end: summon a champion → grow rarity/faction bonuses → raise
+Roster Tier → push further on every infinite ladder → better rewards →
+more Summon Shards → summon again.
 
 Note: "Rework node" turned out to mean gear substat/set/stat-value
 rerolls, not a champion build-choice system — champions still have

@@ -793,6 +793,108 @@
         desc: 'Single-target hit, dealing far more damage (1.8x instead of 0.9x coefficient) if the target is below 50% HP.',
         coeff: 0.9, executeCoeff: 1.8, aoe: false
       }
+    },
+    // --- Epic tier: one per faction, completing the rarity ladder for
+    // Stormcallers/Deathmark (now Common/Rare/Epic/Legendary each) and
+    // giving Ironclad/Blightkin their first non-Legendary members. Kit
+    // complexity keeps scaling with rarity - Epic adds a passive on top
+    // of Rare's basic+active1+active2, still no signature. Passives are
+    // hand-wired in wireEventHooks (the passive/signature string fields
+    // are UI-only flavor text, never data-driven - see the Champions
+    // bullet in CLAUDE.md), same as every existing passive.
+    {
+      id: 'bastian', name: 'Bastian', role: 'Bulwark', rarity: 'Epic', faction: 'ironclad',
+      hp: 165, atk: 56, def: 78, spd: 88, critChance: 10, critDamage: 150, acc: 12, res: 25,
+      passive: "Aegis Ward — whenever an ally drops below 30% HP, Bastian gains a Shield worth 10% of his max HP.",
+      basic: {
+        name: 'Shield Bash', desc: 'Single-target hit, chance to apply Defense Down.',
+        coeff: 0.75, aoe: false, targetType: 'enemy', applyDebuff: { type: 'Defense Down', chance: 35 }
+      },
+      active1: {
+        name: 'Iron Wall', cd: 3, targetType: 'ally',
+        desc: 'Shields the chosen ally and grants Defense Up for 2 turns.',
+        coeff: 0, aoe: false,
+        effect: function (self, target) {
+          applyBuff(target, 'Shield', 25, 2, {});
+          applyBuff(target, 'Defense Up', 30, 2, {});
+          logLine('logBuff', self.name + ' raises an Iron Wall around ' + target.name + '.');
+        }
+      },
+      active2: {
+        name: 'Provoking Strike', cd: 4, targetType: 'enemy',
+        desc: 'Single-target hit. Bastian gains Provoke for 2 turns afterward, drawing enemy attacks.',
+        coeff: 0.9, aoe: false,
+        onResolved: function (self) {
+          applyDebuff(self, 'Provoke', 0, 2, self);
+          logLine('logBuff', self.name + ' draws every eye — Provoke.');
+        }
+      }
+    },
+    {
+      id: 'morwen', name: 'Morwen', role: 'Plague Doctor', rarity: 'Epic', faction: 'blightkin',
+      hp: 128, atk: 62, def: 48, spd: 98, critChance: 15, critDamage: 150, acc: 20, res: 18,
+      passive: "Contagion — whenever an enemy dies afflicted with Poison, Morwen gains Attack Up for 2 turns.",
+      basic: {
+        name: 'Toxic Lash', desc: 'Single-target hit, chance to apply Poison.',
+        coeff: 0.75, aoe: false, targetType: 'enemy', applyDebuff: { type: 'Poison', chance: 55 }
+      },
+      active1: {
+        name: 'Blighted Ground', cd: 3, targetType: 'enemy',
+        desc: 'AoE hit, strong chance to apply Poison to every enemy.',
+        coeff: 0.4, aoe: true, applyDebuff: { type: 'Poison', chance: 65 }
+      },
+      active2: {
+        name: 'Rotting Curse', cd: 4, targetType: 'enemy',
+        desc: 'Single-target hit, chance to apply Defense Down, and always seeds an extra Poison stack.',
+        coeff: 0.6, aoe: false, applyDebuff: { type: 'Defense Down', chance: 45 },
+        onResolved: function (self, targets) {
+          targets.forEach(function (t) { if (t.alive) applyDebuff(t, 'Poison', 30, 2, self); });
+        }
+      }
+    },
+    {
+      id: 'talon', name: 'Talon', role: 'Skycaller', rarity: 'Epic', faction: 'stormcallers',
+      hp: 118, atk: 58, def: 50, spd: 116, critChance: 15, critDamage: 155, acc: 18, res: 20,
+      passive: "Tailwind Instinct — whenever Talon uses an Active, a random living ally gains Speed Up for 1 turn.",
+      basic: {
+        name: 'Storm Talon', desc: 'Single-target hit.',
+        coeff: 0.8, aoe: false, targetType: 'enemy'
+      },
+      active1: {
+        name: 'Cyclone Dive', cd: 3, targetType: 'enemy',
+        desc: 'AoE hit, chance to apply Speed Down to every enemy.',
+        coeff: 0.5, aoe: true, applyDebuff: { type: 'Speed Down', chance: 55 }
+      },
+      active2: {
+        name: 'Windward Call', cd: 4, targetType: 'ally',
+        desc: 'Grants the chosen ally Speed Up and Attack Up for 2 turns.',
+        coeff: 0, aoe: false,
+        effect: function (self, target) {
+          applyBuff(target, 'Speed Up', 30, 2, {});
+          applyBuff(target, 'Attack Up', 20, 2, {});
+          logLine('logBuff', self.name + ' calls the wind for ' + target.name + '.');
+        }
+      }
+    },
+    {
+      id: 'raze', name: 'Raze', role: 'Reaper', rarity: 'Epic', faction: 'deathmark',
+      hp: 115, atk: 70, def: 46, spd: 106, critChance: 22, critDamage: 165, acc: 15, res: 15,
+      passive: "Executioner's Mark — finishing off a debuffed enemy grants Raze an immediate extra turn.",
+      basic: {
+        name: 'Reap', desc: 'Single-target hit. Deals 20% more damage to targets above 80% HP.',
+        coeff: 0.85, aoe: false, targetType: 'enemy',
+        conditionalMult: function (target) { return (target.hp / target.maxHp) > 0.8 ? 1.2 : 1; }
+      },
+      active1: {
+        name: 'Culling Strike', cd: 3, targetType: 'enemy',
+        desc: 'Heavy single-target hit.',
+        coeff: 1.15, aoe: false
+      },
+      active2: {
+        name: 'Death Mark', cd: 4, targetType: 'enemy',
+        desc: 'Single-target hit, dealing far more damage (1.7x instead of 0.8x coefficient) if the target is below 50% HP.',
+        coeff: 0.8, executeCoeff: 1.7, aoe: false
+      }
     }
   ];
 
@@ -800,12 +902,9 @@
   // CHAMPION RARITY & FACTIONS
   // Champion `rarity` reuses the same Common/Rare/Epic/Legendary scale
   // gear and charms already use (`RARITY_ORDER`, defined below) rather
-  // than inventing a parallel one - the existing six are all Legendary
-  // (their kits are already the full basic/active1/active2/passive/
-  // signature shape). Lower-rarity champions to seed the summon pool
-  // are a separate, future addition (see CLAUDE.md "Next up") - this
-  // pass only lays the data model (rarity + faction fields) and the
-  // faction-bonus mechanic itself.
+  // than inventing a parallel one. Kit complexity scales with rarity:
+  // Common (basic+active1) < Rare (+active2) < Epic (+passive) <
+  // Legendary (+signature, the original six).
   //
   // `faction` groups champions the same way `set` groups gear pieces -
   // fielding enough champions of one faction in your squad grants a
@@ -813,14 +912,17 @@
   // as GEAR_SETS/SET_TIERS (`FACTION_TIERS`/`FACTIONS`) rather than a
   // parallel structure. Unlike gear sets (an independent random roll
   // per piece), faction membership is fixed per champion - the "roll"
-  // here is which champions you've unlocked at all.
+  // here is which champions you've unlocked at all. Every faction now
+  // has 3+ members, so bonus3 (field 3 of the same faction at once -
+  // every squad size in the game is 3+) is reachable everywhere, not
+  // just a dormant tier waiting on a roster that doesn't exist yet.
   // ---------------------------------------------------------------
   var FACTION_TIERS = [['bonus2', 2], ['bonus3', 3]];
   var FACTIONS = {
-    ironclad: { name: 'Ironclad', bonus2: { stats: { def: 15 } } },
-    blightkin: { name: 'Blightkin', bonus2: { stats: { acc: 8 } } },
-    stormcallers: { name: 'Stormcallers', bonus2: { stats: { spd: 6 } } },
-    deathmark: { name: 'Deathmark', bonus2: { stats: { critChance: 8 } } }
+    ironclad: { name: 'Ironclad', bonus2: { stats: { def: 15 } }, bonus3: { stats: { hp: 50 } } },
+    blightkin: { name: 'Blightkin', bonus2: { stats: { acc: 8 } }, bonus3: { stats: { res: 10 } } },
+    stormcallers: { name: 'Stormcallers', bonus2: { stats: { spd: 6 } }, bonus3: { stats: { critChance: 8 } } },
+    deathmark: { name: 'Deathmark', bonus2: { stats: { critChance: 8 } }, bonus3: { stats: { critDamage: 15 } } }
   };
 
   function teamFactionCounts(teamIds) {
@@ -2587,6 +2689,43 @@
         applyBuff(wren, 'Shield', 10, 2, {});
         logLine('logBuff', "Wren (Passive): " + p.unit.name + "'s counter-stance triggers a Shield.");
       }
+    });
+
+    // Bastian — Aegis Ward: an ally drops below 30% HP, Bastian gains a Shield.
+    on('damageTaken', function (p) {
+      var bastian = findChampion('bastian');
+      if (!bastian || p.unit.isEnemy || p.unit === bastian) return;
+      if ((p.unit.hp / p.unit.maxHp) < 0.3) {
+        applyBuff(bastian, 'Shield', 10, 2, {});
+        logLine('logBuff', 'Bastian (Passive): ' + p.unit.name + ' is in danger — Shield.');
+      }
+    });
+
+    // Morwen — Contagion: an enemy dies afflicted with Poison, Morwen gains Attack Up.
+    on('death', function (p) {
+      var morwen = findChampion('morwen');
+      if (!morwen || !p.unit.isEnemy) return;
+      if (p.unit.debuffs.some(function (d) { return d.type === 'Poison'; })) {
+        applyBuff(morwen, 'Attack Up', 30, 2, {});
+        logLine('logBuff', 'Morwen (Passive): the plague claims ' + p.unit.name + ' — Attack Up.');
+      }
+    });
+
+    // Talon — Tailwind Instinct: whenever Talon uses an Active, a random living ally gains Speed Up.
+    on('activeUsed', function (p) {
+      if (p.unit.id !== 'talon') return;
+      var allies = aliveTeam().filter(function (u) { return u !== p.unit; });
+      if (!allies.length) return;
+      var ally = allies[Math.floor(Math.random() * allies.length)];
+      applyBuff(ally, 'Speed Up', 20, 1, {});
+      logLine('logBuff', 'Talon (Passive): ' + ally.name + ' catches the tailwind — Speed Up.');
+    });
+
+    // Raze — Executioner's Mark: finishing off a debuffed enemy grants an immediate extra turn.
+    on('attackResolved', function (p) {
+      if (p.attacker.id !== 'raze' || p.target.alive || !p.target.debuffs.length) return;
+      extraTurnPending = p.attacker;
+      logLine('logBuff', "Raze (Passive): finishes a marked foe — extra turn!");
     });
   }
 
