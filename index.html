@@ -430,7 +430,11 @@
 <div class="overlay" id="resultOverlay">
   <h2 id="resultText"></h2>
   <div id="resultReward" style="text-align:center;color:#fbbf24;font-size:0.9rem;"></div>
-  <button class="overlayBtn" id="restartBtn" style="align-self:center;">RESTART</button>
+  <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+    <button class="overlayBtn" id="restartBtn" style="margin:0;">RETRY</button>
+    <button class="overlayBtn" id="nextStageBtn" style="margin:0;">NEXT STAGE</button>
+    <button class="overlayBtn" id="homeBtn" style="margin:0;">HOME</button>
+  </div>
 </div>
 
 <script>
@@ -2218,6 +2222,7 @@
     logLine('logSys', won ? 'VICTORY.' : 'DEFEAT.');
     document.getElementById('resultText').textContent = won ? 'VICTORY' : 'DEFEAT';
     var rewardEl = document.getElementById('resultReward');
+    var nextStageAvailable = false;
     if (won) {
       var reward = Math.round((ENCOUNTER_SCRAP_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
       var rewardLines = [];
@@ -2316,9 +2321,12 @@
       renderStageLabels();
 
       rewardEl.innerHTML = rewardLines.map(function (l) { return '<div>' + l + '</div>'; }).join('');
+      nextStageAvailable = currentStage < maxChapter;
     } else {
       rewardEl.textContent = '';
     }
+    var nextBtn = document.getElementById('nextStageBtn');
+    nextBtn.style.display = nextStageAvailable ? '' : 'none';
     document.getElementById('resultOverlay').classList.add('show');
   }
 
@@ -3099,6 +3107,19 @@
     document.getElementById('resultOverlay').classList.remove('show');
     newBattle(currentEncounterId, currentTeamIds, currentStage);
     runUntilPlayerInput();
+  });
+
+  document.getElementById('nextStageBtn').addEventListener('click', function () {
+    document.getElementById('resultOverlay').classList.remove('show');
+    beginEncounter(currentEncounterId, currentTeamIds, currentStage + 1);
+  });
+
+  document.getElementById('homeBtn').addEventListener('click', function () {
+    document.getElementById('resultOverlay').classList.remove('show');
+    document.getElementById('battle').classList.remove('active');
+    document.body.classList.remove('battleActive');
+    document.getElementById('resumeBtn').style.display = 'none';
+    document.getElementById('startScreen').style.display = '';
   });
 
   // On load, offer to resume a battle left in progress (backgrounded tab, reload, closed browser).
