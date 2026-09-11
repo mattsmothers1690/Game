@@ -118,8 +118,9 @@
     padding: 3px 8px; border-radius: 6px; font-size: 0.62rem;
   }
   .invActionBtn:disabled { opacity: 0.4; }
-  #scrapDisplay, #goldDisplay, #shardDisplay, #catalystDisplay { color: #fbbf24; font-size: 0.85rem; margin: 4px 0 0; }
+  #scrapDisplay, #goldDisplay, #shardDisplay, #charmDustDisplay, #catalystDisplay { color: #fbbf24; font-size: 0.85rem; margin: 4px 0 0; }
   #shardDisplay { color: #a78bfa; }
+  #charmDustDisplay { color: #86efac; }
   #catalystDisplay { color: #7dd3fc; font-size: 0.7rem; }
   .xpFill { background: linear-gradient(90deg,#a78bfa,#7c3aed); }
 
@@ -308,27 +309,35 @@
   <div style="color:#999;">Collect tools. Understand rules. Build machines. Break encounters.</div>
   <button id="resumeBtn" style="display:none;">RESUME BATTLE</button>
   <div class="nodeRow">
-    <button id="startBossBtn" data-encounter="boss">BOSS ENCOUNTER (5v5)</button>
+    <button id="startCampaignBtn" data-encounter="campaign">CAMPAIGN</button>
     <div class="stageStepper">
-      <button id="bossStageDownBtn" class="stageStepBtn">−</button>
-      <span id="bossStageLabel" class="stageLabel"></span>
-      <button id="bossStageUpBtn" class="stageStepBtn">+</button>
+      <button id="campaignStageDownBtn" class="stageStepBtn">−</button>
+      <span id="campaignStageLabel" class="stageLabel"></span>
+      <button id="campaignStageUpBtn" class="stageStepBtn">+</button>
     </div>
   </div>
   <div class="nodeRow">
-    <button id="startWaveBtn" data-encounter="wave">WAVE ENCOUNTER (4v4 x3)</button>
+    <button id="startTowerBtn" data-encounter="tower">TOWER (5v5)</button>
     <div class="stageStepper">
-      <button id="waveStageDownBtn" class="stageStepBtn">−</button>
-      <span id="waveStageLabel" class="stageLabel"></span>
-      <button id="waveStageUpBtn" class="stageStepBtn">+</button>
+      <button id="towerStageDownBtn" class="stageStepBtn">−</button>
+      <span id="towerStageLabel" class="stageLabel"></span>
+      <button id="towerStageUpBtn" class="stageStepBtn">+</button>
     </div>
   </div>
   <div class="nodeRow">
-    <button id="startChampionBtn" data-encounter="champion">CHAMPION TRIAL (3v3)</button>
+    <button id="startFactionBtn" data-encounter="faction">FACTION WARS (4v4 x3)</button>
     <div class="stageStepper">
-      <button id="championStageDownBtn" class="stageStepBtn">−</button>
-      <span id="championStageLabel" class="stageLabel"></span>
-      <button id="championStageUpBtn" class="stageStepBtn">+</button>
+      <button id="factionStageDownBtn" class="stageStepBtn">−</button>
+      <span id="factionStageLabel" class="stageLabel"></span>
+      <button id="factionStageUpBtn" class="stageStepBtn">+</button>
+    </div>
+  </div>
+  <div class="nodeRow">
+    <button id="startWorldbossBtn" data-encounter="worldboss">WORLD BOSS (3v3)</button>
+    <div class="stageStepper">
+      <button id="worldbossStageDownBtn" class="stageStepBtn">−</button>
+      <span id="worldbossStageLabel" class="stageLabel"></span>
+      <button id="worldbossStageUpBtn" class="stageStepBtn">+</button>
     </div>
   </div>
   <button id="armoryBtn">ARMORY</button>
@@ -340,6 +349,7 @@
   <div id="scrapDisplay"></div>
   <div id="goldDisplay"></div>
   <div id="shardDisplay"></div>
+  <div id="charmDustDisplay"></div>
   <div id="catalystDisplay"></div>
   <div id="armoryGrid"></div>
 
@@ -854,6 +864,18 @@
   }
   var scrap = loadScrap();
 
+  // Charm Dust is Scrap's charm-domain counterpart - keeps the two
+  // acquisition economies fully separate (Tower/gear spends Scrap,
+  // Faction Wars/charms spends Charm Dust) rather than sharing one pool.
+  var CHARM_DUST_KEY = 'machineborn_charmdust_v1';
+  function loadCharmDust() {
+    try { var raw = localStorage.getItem(CHARM_DUST_KEY); return raw ? (parseInt(raw, 10) || 0) : 0; } catch (e) { return 0; }
+  }
+  function saveCharmDust() {
+    try { localStorage.setItem(CHARM_DUST_KEY, String(charmDust)); } catch (e) { /* private mode / quota */ }
+  }
+  var charmDust = loadCharmDust();
+
   // ---------------------------------------------------------------
   // CHAMPION LEVELING: Gold (distinct from Scrap - gear-only) and
   // banked XP drive a deterministic per-level stat curve, mirroring
@@ -971,9 +993,9 @@
     if (findCharmOwner(instanceId)) return false;
     var idx = charmInventory.findIndex(function (c) { return c.instanceId === instanceId; });
     if (idx === -1) return false;
-    scrap += CHARM_SALVAGE_VALUE[charmInventory[idx].rarity] || 0;
+    charmDust += CHARM_SALVAGE_VALUE[charmInventory[idx].rarity] || 0;
     charmInventory.splice(idx, 1);
-    saveCharmInventory(); saveScrap();
+    saveCharmInventory(); saveCharmDust();
     return true;
   }
 
@@ -1283,6 +1305,23 @@
     return instance;
   }
 
+  // Charm Reforge mirrors gear's Reforge - a paid, no-guarantee reroll -
+  // but a charm only has ONE rolled dimension (its proc `chance`), so
+  // Reforge rerolls that within the same rarity's range. Spends Charm
+  // Dust, the charm-domain counterpart to Scrap.
+  function charmReforgeCost(rarity) { return Math.round(GEAR_RARITY_MULT[rarity] * 20); }
+  function reforgeCharm(instanceId) {
+    var inst = charmInventory.find(function (c) { return c.instanceId === instanceId; });
+    if (!inst) return false;
+    var cost = charmReforgeCost(inst.rarity);
+    if (charmDust < cost) return false;
+    charmDust -= cost;
+    var range = CHARM_RARITY_RANGE[inst.rarity];
+    inst.chance = range[0] + Math.round(Math.random() * (range[1] - range[0]));
+    saveCharmInventory(); saveCharmDust();
+    return true;
+  }
+
   function findCharmOwner(instanceId) {
     for (var i = 0; i < CHAMPIONS.length; i++) {
       var eq = equipment[CHAMPIONS[i].id];
@@ -1376,11 +1415,13 @@
       basic: { name: 'Rend', coeff: 0.9, aoe: false, applyDebuff: { type: 'Bleed', chance: 50 } } }
   ];
 
-  // 3v3, single wave - the Champion Trial's own arena squad. `isBoss:
-  // true` on the Warlord reuses the existing devour-a-debuff-for-Fury
-  // mechanic (hollowKingMechanic isn't actually Hollow-King-specific,
-  // it triggers off `actor.isBoss` generically) rather than inventing a
-  // parallel one - punishes leaning on debuff-stacking to clear this node.
+  // 3v3, single wave - World Boss's own arena squad (variable name kept
+  // as CHAMPION_TRIAL - it predates the mode's rename, no functional
+  // meaning either way). `isBoss: true` on the Warlord reuses the
+  // existing devour-a-debuff-for-Fury mechanic (hollowKingMechanic isn't
+  // actually Hollow-King-specific, it triggers off `actor.isBoss`
+  // generically) rather than inventing a parallel one - punishes
+  // leaning on debuff-stacking to clear this node.
   var CHAMPION_TRIAL = [
     { id: 'sentinel1', name: 'Arena Sentinel', hp: 150, atk: 55, def: 60, spd: 92, critChance: 10, critDamage: 150, acc: 10, res: 20,
       basic: { name: 'Guard Strike', coeff: 0.85, aoe: false, applyDebuff: { type: 'Defense Down', chance: 40 } } },
@@ -1392,39 +1433,127 @@
   ];
 
   // ---------------------------------------------------------------
+  // CAMPAIGN CHAPTERS - fixed-difficulty content, deliberately NOT the
+  // infinite 1.12^(stage-1) ladder the other modes use (see spawnWave's
+  // `fixedChapters` check). Each chapter's numbers ARE its difficulty,
+  // hand-tuned to climb gently across a level-1 roster; replaying an
+  // old chapter is always the same fight, never harder. Campaign is
+  // the account-wide gate (CONTENT_UNLOCKS below) other modes check -
+  // it has no farmable specialty of its own beyond a small Scrap/Gold
+  // trickle, on purpose, so every other mode still earns its own visit.
+  // ---------------------------------------------------------------
+  var CAMPAIGN_CH1 = [
+    { id: 'camp1_a', name: 'Rustling Grunt', hp: 60, atk: 28, def: 15, spd: 80, critChance: 5, critDamage: 150, acc: 0, res: 5,
+      basic: { name: 'Jab', coeff: 0.8, aoe: false } },
+    { id: 'camp1_b', name: 'Rustling Grunt', hp: 60, atk: 28, def: 15, spd: 78, critChance: 5, critDamage: 150, acc: 0, res: 5,
+      basic: { name: 'Jab', coeff: 0.8, aoe: false } },
+    { id: 'camp1_c', name: 'Rustling Grunt', hp: 60, atk: 28, def: 15, spd: 76, critChance: 5, critDamage: 150, acc: 0, res: 5,
+      basic: { name: 'Jab', coeff: 0.8, aoe: false } }
+  ];
+  var CAMPAIGN_CH2 = [
+    { id: 'camp2_a', name: 'Bramble Scout', hp: 72, atk: 32, def: 18, spd: 88, critChance: 8, critDamage: 150, acc: 5, res: 5,
+      basic: { name: 'Thorn Fling', coeff: 0.85, aoe: false } },
+    { id: 'camp2_b', name: 'Bramble Scout', hp: 72, atk: 32, def: 18, spd: 86, critChance: 8, critDamage: 150, acc: 5, res: 5,
+      basic: { name: 'Thorn Fling', coeff: 0.85, aoe: false } },
+    { id: 'camp2_c', name: 'Bramble Brute', hp: 90, atk: 30, def: 30, spd: 70, critChance: 5, critDamage: 150, acc: 0, res: 10,
+      basic: { name: 'Bramble Slam', coeff: 0.75, aoe: false, applyDebuff: { type: 'Defense Down', chance: 30 } } }
+  ];
+  var CAMPAIGN_CH3 = [
+    { id: 'camp3_a', name: 'Fen Stalker', hp: 85, atk: 38, def: 22, spd: 95, critChance: 10, critDamage: 150, acc: 10, res: 10,
+      basic: { name: 'Fen Bite', coeff: 0.8, aoe: false, applyDebuff: { type: 'Poison', chance: 40 } } },
+    { id: 'camp3_b', name: 'Fen Stalker', hp: 85, atk: 38, def: 22, spd: 93, critChance: 10, critDamage: 150, acc: 10, res: 10,
+      basic: { name: 'Fen Bite', coeff: 0.8, aoe: false, applyDebuff: { type: 'Poison', chance: 40 } } },
+    { id: 'camp3_c', name: 'Fen Warden', hp: 105, atk: 34, def: 34, spd: 78, critChance: 5, critDamage: 150, acc: 5, res: 15,
+      basic: { name: 'Bog Slam', coeff: 0.75, aoe: false } }
+  ];
+  var CAMPAIGN_CH4 = [
+    { id: 'camp4_a', name: 'Iron Footman', hp: 105, atk: 42, def: 35, spd: 82, critChance: 8, critDamage: 150, acc: 5, res: 15,
+      basic: { name: 'Shield Punch', coeff: 0.8, aoe: false } },
+    { id: 'camp4_b', name: 'Iron Footman', hp: 105, atk: 42, def: 35, spd: 80, critChance: 8, critDamage: 150, acc: 5, res: 15,
+      basic: { name: 'Shield Punch', coeff: 0.8, aoe: false } },
+    { id: 'camp4_c', name: 'Iron Archer', hp: 85, atk: 48, def: 22, spd: 100, critChance: 15, critDamage: 160, acc: 15, res: 10,
+      basic: { name: 'Piercing Shot', coeff: 0.9, aoe: false } }
+  ];
+  var CAMPAIGN_CH5 = [
+    { id: 'camp5_a', name: 'Ashen Cultist', hp: 100, atk: 50, def: 30, spd: 96, critChance: 12, critDamage: 155, acc: 12, res: 15,
+      basic: { name: 'Ember Lash', coeff: 0.85, aoe: false, applyDebuff: { type: 'Attack Down', chance: 35 } } },
+    { id: 'camp5_b', name: 'Ashen Cultist', hp: 100, atk: 50, def: 30, spd: 94, critChance: 12, critDamage: 155, acc: 12, res: 15,
+      basic: { name: 'Ember Lash', coeff: 0.85, aoe: false, applyDebuff: { type: 'Attack Down', chance: 35 } } },
+    { id: 'camp5_c', name: 'Ashen Zealot', hp: 130, atk: 46, def: 42, spd: 84, critChance: 8, critDamage: 150, acc: 8, res: 20,
+      basic: { name: 'Cinder Slam', coeff: 0.75, aoe: false } }
+  ];
+  var CAMPAIGN_CH6 = [
+    { id: 'camp6_a', name: 'Steel Vanguard', hp: 120, atk: 54, def: 45, spd: 88, critChance: 10, critDamage: 150, acc: 10, res: 20,
+      basic: { name: 'Vanguard Strike', coeff: 0.85, aoe: false } },
+    { id: 'camp6_b', name: 'Steel Vanguard', hp: 120, atk: 54, def: 45, spd: 86, critChance: 10, critDamage: 150, acc: 10, res: 20,
+      basic: { name: 'Vanguard Strike', coeff: 0.85, aoe: false } },
+    { id: 'camp6_c', name: 'Steel Marksman', hp: 100, atk: 60, def: 28, spd: 102, critChance: 20, critDamage: 165, acc: 18, res: 12,
+      basic: { name: 'Trueshot', coeff: 0.95, aoe: false } }
+  ];
+  var CAMPAIGN_CH7 = [
+    { id: 'camp7_a', name: 'Dusk Marauder', hp: 140, atk: 60, def: 40, spd: 92, critChance: 12, critDamage: 155, acc: 14, res: 18,
+      basic: { name: 'Dusk Rend', coeff: 0.9, aoe: false, applyDebuff: { type: 'Bleed', chance: 45 } } },
+    { id: 'camp7_b', name: 'Dusk Marauder', hp: 140, atk: 60, def: 40, spd: 90, critChance: 12, critDamage: 155, acc: 14, res: 18,
+      basic: { name: 'Dusk Rend', coeff: 0.9, aoe: false, applyDebuff: { type: 'Bleed', chance: 45 } } },
+    { id: 'camp7_c', name: 'Dusk Overseer', hp: 160, atk: 56, def: 50, spd: 80, critChance: 10, critDamage: 150, acc: 12, res: 25,
+      basic: { name: 'Chilling Gaze', coeff: 0.7, aoe: false, applyDebuff: { type: 'Speed Down', chance: 50 } } }
+  ];
+  // Capstone: the Warlord reuses the same generic isBoss devour-a-debuff
+  // mechanic as World Boss's Trial Warlord (see hollowKingMechanic) -
+  // pushed to a chapter finale rather than a new one-off mechanic.
+  var CAMPAIGN_CH8 = [
+    { id: 'camp8_a', name: 'Elite Guard', hp: 150, atk: 58, def: 50, spd: 90, critChance: 12, critDamage: 155, acc: 12, res: 22,
+      basic: { name: 'Guard Cleave', coeff: 0.9, aoe: false } },
+    { id: 'camp8_b', name: 'Elite Guard', hp: 150, atk: 58, def: 50, spd: 88, critChance: 12, critDamage: 155, acc: 12, res: 22,
+      basic: { name: 'Guard Cleave', coeff: 0.9, aoe: false } },
+    { id: 'camp8_c', name: 'Campaign Warlord', hp: 300, atk: 68, def: 60, spd: 92, critChance: 15, critDamage: 165, acc: 18, res: 28,
+      isBoss: true,
+      basic: { name: "Warlord's Judgment", coeff: 1.05, aoe: false } }
+  ];
+  var CAMPAIGN_CHAPTERS = [CAMPAIGN_CH1, CAMPAIGN_CH2, CAMPAIGN_CH3, CAMPAIGN_CH4, CAMPAIGN_CH5, CAMPAIGN_CH6, CAMPAIGN_CH7, CAMPAIGN_CH8];
+
+  // ---------------------------------------------------------------
   // ENCOUNTERS
-  // Squad size follows content type: 5v5 for boss content, 4v4 for
-  // general wave content, 3v3 for the Champion Trial (per design
-  // direction - not a change to the combat engine's default, just a
-  // per-encounter squad size).
+  // Squad size follows content type: 3v3 for Campaign and World Boss,
+  // 5v5 for Tower, 4v4 for Faction Wars (per design direction - not a
+  // change to the combat engine's default, just a per-encounter squad
+  // size). `fixedChapters` marks Campaign as non-scaling (see spawnWave).
   // ---------------------------------------------------------------
   var ENCOUNTERS = {
-    boss: { label: 'Boss Encounter', teamIds: ['vara', 'mire', 'kestrel', 'rook', 'nyx'], waves: [BOSS_WAVE] },
-    wave: { label: 'Wave Encounter', teamIds: ['mire', 'kestrel', 'rook', 'nyx'], waves: [WAVE_1, WAVE_2, WAVE_3] },
-    champion: { label: 'Champion Trial', teamIds: ['wren', 'vara', 'rook'], waves: [CHAMPION_TRIAL] }
+    campaign: { label: 'Campaign', teamIds: ['vara', 'kestrel', 'nyx'], fixedChapters: CAMPAIGN_CHAPTERS },
+    tower: { label: 'Tower', teamIds: ['vara', 'mire', 'kestrel', 'rook', 'nyx'], waves: [BOSS_WAVE] },
+    faction: { label: 'Faction Wars', teamIds: ['mire', 'kestrel', 'rook', 'nyx'], waves: [WAVE_1, WAVE_2, WAVE_3] },
+    worldboss: { label: 'World Boss', teamIds: ['wren', 'vara', 'rook'], waves: [CHAMPION_TRIAL] }
   };
-  // Champion Trial is the dedicated Shard node (see ENCOUNTER_SHARD_REWARD
-  // below) - it deliberately doesn't pay Scrap or drop gear/charms
-  // (ENCOUNTER_DROPS has no 'champion' entry), keeping it a distinct
-  // farm target from Boss (gear) / Wave (scrap+charms) rather than a
-  // strictly-better version of either.
-  var ENCOUNTER_GOLD_REWARD = { boss: 30, wave: 45, champion: 50 };
-  var ENCOUNTER_XP_REWARD = { boss: 20, wave: 30, champion: 40 };
-  var ENCOUNTER_SHARD_REWARD = { champion: 3 };
-  var ENCOUNTER_SCRAP_REWARD = { boss: 40, wave: 60 };
 
-  // Gear/charm drops on victory: each encounter rolls independent chances
-  // for a gear piece and a charm, both landing on the same weighted-rarity
-  // table the farm buttons use for manual testing. Boss (harder, single
-  // wave) guarantees gear and favors a charm too; Wave (easier, but three
-  // fights) drops less reliably per victory.
-  var ENCOUNTER_DROPS = { boss: { gearChance: 1, charmChance: 0.5 }, wave: { gearChance: 0.6, charmChance: 0.3 } };
+  // Content framework: each mode owns exactly ONE material identity -
+  // Tower=gear (+its Rework Catalysts), Faction Wars=charms (+Charm
+  // Dust), World Boss=champion leveling (Gold/XP/Shards). Campaign is
+  // the only cross-cutting one (small Scrap+Gold trickle) since it's
+  // the gate, not a farm target. Clearing Campaign chapters is what
+  // unlocks the other three - CONTENT_UNLOCKS below.
+  var CONTENT_UNLOCKS = { tower: 3, faction: 5, worldboss: 8 };
+  function isContentUnlocked(encounterId) {
+    var required = CONTENT_UNLOCKS[encounterId];
+    return !required || (stageProgress.campaign || 0) >= required;
+  }
+
+  var ENCOUNTER_SCRAP_REWARD = { campaign: 10, tower: 40 };
+  var ENCOUNTER_GOLD_REWARD = { campaign: 10, worldboss: 50 };
+  var ENCOUNTER_XP_REWARD = { worldboss: 40 };
+  var ENCOUNTER_SHARD_REWARD = { worldboss: 3 };
+  var ENCOUNTER_CHARMDUST_REWARD = { faction: 60 };
+
+  // Gear/charm drops on victory: Tower guarantees gear (its specialty)
+  // and never drops charms; Faction Wars drops charms at a solid chance
+  // and never drops gear - each mode stays strictly single-identity.
+  var ENCOUNTER_DROPS = { tower: { gearChance: 1, charmChance: 0 }, faction: { gearChance: 0, charmChance: 0.5 } };
   var DROP_RARITY_WEIGHTS = { Common: 50, Rare: 30, Epic: 15, Legendary: 5 };
 
   // Rework Catalysts are a rare bonus riding on an actual gear drop (not
-  // an independent roll) - they're gear-adjacent materials, so they only
-  // ever show up alongside gear, never on their own.
-  var GEAR_REWORK_CATALYST_CHANCE = { boss: 0.12, wave: 0.06 };
+  // an independent roll) - gear-adjacent materials that only ever show
+  // up alongside gear, so only Tower (the gear mode) grants them.
+  var GEAR_REWORK_CATALYST_CHANCE = { tower: 0.12 };
   var CATALYST_KEYS = [SET_CATALYST_KEY, STAT_CATALYST_KEY, SUBSTAT_CATALYST_KEY];
   var CATALYST_LABELS = { machineborn_set_catalyst_v1: 'Set Catalyst', machineborn_stat_catalyst_v1: 'Stat Catalyst', machineborn_substat_catalyst_v1: 'Substat Catalyst' };
 
@@ -1448,11 +1577,17 @@
 
   var selectedStage = {}; // in-memory only - always opens back on the current frontier on reload
   function getSelectedStage(encounterId) {
-    if (!selectedStage[encounterId]) selectedStage[encounterId] = (stageProgress[encounterId] || 0) + 1;
+    if (!selectedStage[encounterId]) {
+      var config = ENCOUNTERS[encounterId];
+      var frontier = (stageProgress[encounterId] || 0) + 1;
+      selectedStage[encounterId] = config.fixedChapters ? Math.min(frontier, config.fixedChapters.length) : frontier;
+    }
     return selectedStage[encounterId];
   }
   function setSelectedStage(encounterId, stage) {
+    var config = ENCOUNTERS[encounterId];
     var max = (stageProgress[encounterId] || 0) + 1;
+    if (config.fixedChapters) max = Math.min(max, config.fixedChapters.length);
     selectedStage[encounterId] = Math.max(1, Math.min(stage, max));
   }
 
@@ -1505,16 +1640,19 @@
   var currentEncounterId, currentWaves, currentTeamIds, waveIndex, currentStage;
 
   function spawnWave(templates, stage) {
-    enemies = templates.map(function (e) { return makeUnit(scaledEnemyTemplate(e, stage), true); });
+    // Campaign chapters are fixed difficulty, not the infinite ladder -
+    // their own numbers ARE the difficulty, so scaling is a no-op (stage 1).
+    var scaleStage = ENCOUNTERS[currentEncounterId].fixedChapters ? 1 : stage;
+    enemies = templates.map(function (e) { return makeUnit(scaledEnemyTemplate(e, scaleStage), true); });
     enemies.forEach(function (e) { if (e.isBoss) { e.bossTurnCount = 0; e.fury = 0; } });
   }
 
   function newBattle(encounterId, teamIds, stage) {
     var config = ENCOUNTERS[encounterId];
     currentEncounterId = encounterId;
-    currentWaves = config.waves;
-    currentTeamIds = teamIds || config.teamIds;
     currentStage = stage || 1;
+    currentWaves = config.fixedChapters ? [config.fixedChapters[currentStage - 1]] : config.waves;
+    currentTeamIds = teamIds || config.teamIds;
     waveIndex = 0;
     team = currentTeamIds.map(function (id) {
       var unit = makeUnit(CHAMPIONS.find(function (c) { return c.id === id; }), false);
@@ -1612,9 +1750,9 @@
     var config = ENCOUNTERS[saved.encounterId];
     if (!config) { clearSave(); return; } // save from an encounter that no longer exists
     currentEncounterId = saved.encounterId;
-    currentWaves = config.waves;
-    currentTeamIds = saved.teamIds || config.teamIds;
     currentStage = saved.stage || 1;
+    currentWaves = config.fixedChapters ? [config.fixedChapters[currentStage - 1]] : config.waves;
+    currentTeamIds = saved.teamIds || config.teamIds;
     waveIndex = saved.waveIndex || 0;
     team = currentTeamIds.map(function (id) {
       var unit = makeUnit(CHAMPIONS.find(function (c) { return c.id === id; }), false);
@@ -1991,20 +2129,24 @@
       }
 
       var goldReward = Math.round((ENCOUNTER_GOLD_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
-      gold += goldReward;
-      saveGold();
-      logLine('logSys', 'Earned ' + goldReward + ' Gold.');
-      rewardLines.push('+' + goldReward + ' Gold');
+      if (goldReward > 0) {
+        gold += goldReward;
+        saveGold();
+        logLine('logSys', 'Earned ' + goldReward + ' Gold.');
+        rewardLines.push('+' + goldReward + ' Gold');
+      }
 
       var xpReward = Math.round((ENCOUNTER_XP_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
-      currentTeamIds.forEach(function (id) {
-        var prog = championProgress[id] || { level: 1, xp: 0 };
-        prog.xp += xpReward;
-        championProgress[id] = prog;
-      });
-      saveChampionProgress();
-      logLine('logSys', 'Squad gained ' + xpReward + ' XP.');
-      rewardLines.push('+' + xpReward + ' XP to your squad');
+      if (xpReward > 0) {
+        currentTeamIds.forEach(function (id) {
+          var prog = championProgress[id] || { level: 1, xp: 0 };
+          prog.xp += xpReward;
+          championProgress[id] = prog;
+        });
+        saveChampionProgress();
+        logLine('logSys', 'Squad gained ' + xpReward + ' XP.');
+        rewardLines.push('+' + xpReward + ' XP to your squad');
+      }
 
       var shardReward = Math.round((ENCOUNTER_SHARD_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
       if (shardReward > 0) {
@@ -2012,6 +2154,14 @@
         saveShards();
         logLine('logSys', 'Earned ' + shardReward + ' Shard' + (shardReward === 1 ? '' : 's') + '.');
         rewardLines.push('+' + shardReward + ' Shard' + (shardReward === 1 ? '' : 's'));
+      }
+
+      var charmDustReward = Math.round((ENCOUNTER_CHARMDUST_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
+      if (charmDustReward > 0) {
+        charmDust += charmDustReward;
+        saveCharmDust();
+        logLine('logSys', 'Earned ' + charmDustReward + ' Charm Dust.');
+        rewardLines.push('+' + charmDustReward + ' Charm Dust');
       }
 
       var dropCfg = ENCOUNTER_DROPS[currentEncounterId];
@@ -2038,12 +2188,22 @@
         }
       }
 
+      var thisConfig = ENCOUNTERS[currentEncounterId];
+      var stageNoun = thisConfig.fixedChapters ? 'Chapter' : 'Stage';
+      var maxChapter = thisConfig.fixedChapters ? thisConfig.fixedChapters.length : Infinity;
       var prevCleared = stageProgress[currentEncounterId] || 0;
       stageProgress[currentEncounterId] = Math.max(prevCleared, currentStage);
       saveStageProgress();
       if (currentStage > prevCleared) {
-        rewardLines.push('Stage ' + currentStage + ' cleared — Stage ' + (currentStage + 1) + ' unlocked!');
-        if (selectedStage[currentEncounterId] === currentStage) selectedStage[currentEncounterId] = currentStage + 1;
+        rewardLines.push(currentStage < maxChapter
+          ? stageNoun + ' ' + currentStage + ' cleared — ' + stageNoun + ' ' + (currentStage + 1) + ' unlocked!'
+          : stageNoun + ' ' + currentStage + ' cleared — Campaign complete!');
+        if (selectedStage[currentEncounterId] === currentStage && currentStage < maxChapter) selectedStage[currentEncounterId] = currentStage + 1;
+        if (currentEncounterId === 'campaign') {
+          Object.keys(CONTENT_UNLOCKS).forEach(function (id) {
+            if (CONTENT_UNLOCKS[id] === currentStage) rewardLines.push(ENCOUNTERS[id].label + ' unlocked!');
+          });
+        }
       }
       renderStageLabels();
 
@@ -2507,27 +2667,44 @@
     beginEncounter(pendingEncounterId, selectedTeamIds.slice(), pendingStage);
   });
 
-  document.getElementById('startBossBtn').addEventListener('click', function () { openTeamSelect('boss'); });
-  document.getElementById('startWaveBtn').addEventListener('click', function () { openTeamSelect('wave'); });
-  document.getElementById('startChampionBtn').addEventListener('click', function () { openTeamSelect('champion'); });
+  function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+  document.getElementById('startCampaignBtn').addEventListener('click', function () { openTeamSelect('campaign'); });
+  document.getElementById('startTowerBtn').addEventListener('click', function () { if (isContentUnlocked('tower')) openTeamSelect('tower'); });
+  document.getElementById('startFactionBtn').addEventListener('click', function () { if (isContentUnlocked('faction')) openTeamSelect('faction'); });
+  document.getElementById('startWorldbossBtn').addEventListener('click', function () { if (isContentUnlocked('worldboss')) openTeamSelect('worldboss'); });
 
   function renderStageLabels() {
-    ['boss', 'wave', 'champion'].forEach(function (id) {
+    ['campaign', 'tower', 'faction', 'worldboss'].forEach(function (id) {
+      var config = ENCOUNTERS[id];
+      var locked = !isContentUnlocked(id);
+      var startBtn = document.getElementById('start' + capitalize(id) + 'Btn');
+      startBtn.disabled = locked;
+      if (locked) {
+        document.getElementById(id + 'StageLabel').textContent = 'Locked — Campaign Ch. ' + CONTENT_UNLOCKS[id];
+        document.getElementById(id + 'StageDownBtn').disabled = true;
+        document.getElementById(id + 'StageUpBtn').disabled = true;
+        return;
+      }
       var stage = getSelectedStage(id);
       var cleared = stageProgress[id] || 0;
-      document.getElementById(id + 'StageLabel').textContent = 'Stage ' + stage + (stage > cleared ? ' (new)' : '');
+      var maxChapter = config.fixedChapters ? config.fixedChapters.length : Infinity;
+      var stageNoun = config.fixedChapters ? 'Chapter' : 'Stage';
+      document.getElementById(id + 'StageLabel').textContent = stageNoun + ' ' + stage + (stage > cleared ? ' (new)' : '');
       document.getElementById(id + 'StageDownBtn').disabled = stage <= 1;
-      document.getElementById(id + 'StageUpBtn').disabled = stage >= cleared + 1;
+      document.getElementById(id + 'StageUpBtn').disabled = stage >= Math.min(cleared + 1, maxChapter);
     });
   }
   renderStageLabels();
 
-  document.getElementById('bossStageDownBtn').addEventListener('click', function () { setSelectedStage('boss', getSelectedStage('boss') - 1); renderStageLabels(); });
-  document.getElementById('bossStageUpBtn').addEventListener('click', function () { setSelectedStage('boss', getSelectedStage('boss') + 1); renderStageLabels(); });
-  document.getElementById('waveStageDownBtn').addEventListener('click', function () { setSelectedStage('wave', getSelectedStage('wave') - 1); renderStageLabels(); });
-  document.getElementById('waveStageUpBtn').addEventListener('click', function () { setSelectedStage('wave', getSelectedStage('wave') + 1); renderStageLabels(); });
-  document.getElementById('championStageDownBtn').addEventListener('click', function () { setSelectedStage('champion', getSelectedStage('champion') - 1); renderStageLabels(); });
-  document.getElementById('championStageUpBtn').addEventListener('click', function () { setSelectedStage('champion', getSelectedStage('champion') + 1); renderStageLabels(); });
+  document.getElementById('campaignStageDownBtn').addEventListener('click', function () { setSelectedStage('campaign', getSelectedStage('campaign') - 1); renderStageLabels(); });
+  document.getElementById('campaignStageUpBtn').addEventListener('click', function () { setSelectedStage('campaign', getSelectedStage('campaign') + 1); renderStageLabels(); });
+  document.getElementById('towerStageDownBtn').addEventListener('click', function () { setSelectedStage('tower', getSelectedStage('tower') - 1); renderStageLabels(); });
+  document.getElementById('towerStageUpBtn').addEventListener('click', function () { setSelectedStage('tower', getSelectedStage('tower') + 1); renderStageLabels(); });
+  document.getElementById('factionStageDownBtn').addEventListener('click', function () { setSelectedStage('faction', getSelectedStage('faction') - 1); renderStageLabels(); });
+  document.getElementById('factionStageUpBtn').addEventListener('click', function () { setSelectedStage('faction', getSelectedStage('faction') + 1); renderStageLabels(); });
+  document.getElementById('worldbossStageDownBtn').addEventListener('click', function () { setSelectedStage('worldboss', getSelectedStage('worldboss') - 1); renderStageLabels(); });
+  document.getElementById('worldbossStageUpBtn').addEventListener('click', function () { setSelectedStage('worldboss', getSelectedStage('worldboss') + 1); renderStageLabels(); });
 
   // ---------------------------------------------------------------
   // ARMORY
@@ -2614,6 +2791,7 @@
     document.getElementById('scrapDisplay').textContent = 'Scrap: ' + scrap;
     document.getElementById('goldDisplay').textContent = 'Gold: ' + gold;
     document.getElementById('shardDisplay').textContent = 'Shards: ' + shards;
+    document.getElementById('charmDustDisplay').textContent = 'Charm Dust: ' + charmDust;
     document.getElementById('catalystDisplay').textContent =
       'Set Catalyst: ' + setCatalyst + ' · Stat Catalyst: ' + statCatalyst + ' · Substat Catalyst: ' + substatCatalyst;
     renderChampions();
@@ -2747,8 +2925,10 @@
       ? charmInventory.map(function (inst) {
           var owner = findCharmOwner(inst.instanceId);
           var salvageValue = CHARM_SALVAGE_VALUE[inst.rarity];
+          var reforgeCost = charmReforgeCost(inst.rarity);
           return '<div class="charmInvRow" style="color:' + RARITY_COLOR[inst.rarity] + '">' + charmInstanceLabel(inst) + (owner ? ' — equipped: ' + owner : '') +
             '<div class="invActions">' +
+              '<button class="invActionBtn" data-action="reforge-charm" data-id="' + inst.instanceId + '"' + (charmDust < reforgeCost ? ' disabled' : '') + '>Reforge (' + reforgeCost + ')</button>' +
               '<button class="invActionBtn" data-action="salvage-charm" data-id="' + inst.instanceId + '"' + (owner ? ' disabled' : '') + '>Salvage (+' + salvageValue + ')</button>' +
             '</div></div>';
         }).join('')
@@ -2758,7 +2938,9 @@
   document.getElementById('charmInventoryList').addEventListener('click', function (e) {
     var btn = e.target.closest('.invActionBtn');
     if (!btn || btn.disabled) return;
-    if (btn.getAttribute('data-action') === 'salvage-charm') salvageCharm(btn.getAttribute('data-id'));
+    var charmAction = btn.getAttribute('data-action');
+    if (charmAction === 'salvage-charm') salvageCharm(btn.getAttribute('data-id'));
+    else if (charmAction === 'reforge-charm') reforgeCharm(btn.getAttribute('data-id'));
     renderArmory();
   });
 

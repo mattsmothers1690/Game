@@ -31,8 +31,10 @@ dependencies, no server). Served via GitHub Pages at
   > to player progress. When stuck on one node, there's always another
   > node worth farming to unblock it. Not "new extreme content behind
   > the newest p2w material" — a natural farm-and-push cycle.
-  Gear/Charm content and Champion leveling (Gold/XP/Shards) both exist
-  today (see below).
+  This is now a literal content framework, not just a narrative: every
+  battle mode owns exactly ONE material identity, and Campaign is the
+  account-wide gate that unlocks each mode as you push it. See "Content
+  framework" below.
 
 ## Architecture
 
@@ -74,15 +76,16 @@ dependencies, no server). Served via GitHub Pages at
 | `machineborn_equipment_v1` | Per-champion equipped gear/charm instance IDs | Persistent |
 | `machineborn_charms_v1` | Charm instance inventory | Persistent |
 | `machineborn_gear_v1` | Gear instance inventory | Persistent |
-| `machineborn_scrap_v1` | Scrap currency (a number) | Persistent |
-| `machineborn_stage_progress_v1` | `{ encounterId: highestStageCleared }` | Persistent |
-| `machineborn_gold_v1` | Gold currency (a number) — champion-leveling only | Persistent |
-| `machineborn_shards_v1` | Shard currency (a number) — level-cap only | Persistent |
+| `machineborn_scrap_v1` | Scrap currency (a number) — Tower's gear economy | Persistent |
+| `machineborn_stage_progress_v1` | `{ encounterId: highestStageCleared }` — `campaign` key doubles as the account-wide content-unlock gate | Persistent |
+| `machineborn_gold_v1` | Gold currency (a number) — World Boss / champion-leveling only | Persistent |
+| `machineborn_shards_v1` | Shard currency (a number) — World Boss / level-cap only | Persistent |
 | `machineborn_champion_progress_v1` | `{ championId: { level, xp } }` | Persistent |
 | `machineborn_levelcap_v1` | Account-wide level-cap tier (a number) | Persistent |
-| `machineborn_set_catalyst_v1` | Set Catalyst currency (a number) — Rework: Set only | Persistent |
-| `machineborn_stat_catalyst_v1` | Stat Catalyst currency (a number) — Rework: main stat value only | Persistent |
-| `machineborn_substat_catalyst_v1` | Substat Catalyst currency (a number) — Rework: substats only | Persistent |
+| `machineborn_set_catalyst_v1` | Set Catalyst currency (a number) — Tower/Rework: Set only | Persistent |
+| `machineborn_stat_catalyst_v1` | Stat Catalyst currency (a number) — Tower/Rework: main stat value only | Persistent |
+| `machineborn_substat_catalyst_v1` | Substat Catalyst currency (a number) — Tower/Rework: substats only | Persistent |
+| `machineborn_charmdust_v1` | Charm Dust currency (a number) — Faction Wars' charm economy (Scrap's counterpart) | Persistent |
 
 Every inventory is a flat array of independent rolled instances keyed
 by a generated `instanceId`; equipping references an instance by ID.
@@ -95,8 +98,9 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
 1. **Champions** (`CHAMPIONS`, 6 total): Vara (Guardian), Mire
    (Plaguebearer), Kestrel (Controller), Rook (Executioner), Nyx
    (Contagionist), Wren (Sentinel). Each has basic/active1/active2/
-   passive/signature. No leveling — stats are fixed base values,
-   modified only by equipped gear.
+   passive/signature — fixed kits, no build choices. Base stats are
+   modified by equipped gear and by champion level (see Champion
+   leveling below).
 2. **Buffs/debuffs**: full set including +/- Atk/Def/Spd/Res/Acc,
    Shield, Block Buffs, Block Debuffs, Stun, Poison, Bleed, Burn,
    Counter, Provoke, etc.
@@ -116,33 +120,40 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
    6pc capstone); the other 4 flip the pattern — a small-%-chance
    mechanical effect (Stun/Poison/extra-turn/cooldown-reduction) at
    2pc, a stat held back for 4pc.
-6. **Scrap economy**: salvage an unequipped gear/charm instance for
-   Scrap (rarity-scaled payout, `GEAR_SALVAGE_VALUE` /
-   `CHARM_SALVAGE_VALUE`). Spend Scrap on gear-only **Upgrade** (levels
-   0–12, `gearLevelMultiplier` = `1 + level*0.08` applied to main stat
-   + all substats, cost scales with rarity × level) and **Reforge**
-   (flat rarity-scaled cost, rerolls one random substat to a new
-   stat+value — no guarantee, same farming philosophy as a paid
-   retry).
-7. **Battle rewards**: victory grants Scrap + independent gear/charm
-   drop chances (`ENCOUNTER_DROPS`), both rolled from the same
-   weighted-rarity table drops and manual farming share
-   (`DROP_RARITY_WEIGHTS`).
-8. **Infinite stage progression**: Boss, Wave, and Champion Trial are
-   each an unbounded stage ladder, not a fixed fight. Enemy hp/atk/def
-   compound `1.12^(stage-1)` (spd/crit/acc/res untouched, to keep turn
-   economy and hit/crit math sane). Rewards scale `1 + (stage-1)*0.25`.
-   Drop-rarity weights shift toward Epic/Legendary as stage rises
-   (capped bump). Clearing a stage unlocks the next and permanently
-   stays farmable — the "push then come back to farm" loop in
-   miniature. Stage is threaded through save/resume so a reload
-   mid-fight restores the exact same difficulty instance.
-
-9. **Champion leveling**: a new **Gold** currency (`machineborn_gold_v1`,
-   distinct from Scrap — Scrap stays gear-only) plus per-champion banked
-   XP (`machineborn_champion_progress_v1`, `{ championId: { level, xp } }`).
-   Battle victories grant Gold + XP to the whole squad (`ENCOUNTER_
-   GOLD_REWARD` / `ENCOUNTER_XP_REWARD`, both stage-scaled like Scrap).
+6. **Scrap economy** (Tower's currency, gear-only): salvage an
+   unequipped gear instance for Scrap (rarity-scaled payout,
+   `GEAR_SALVAGE_VALUE`). Spend Scrap on **Upgrade** (levels 0–12,
+   `gearLevelMultiplier` = `1 + level*0.08` applied to main stat + all
+   substats, cost scales with rarity × level) and **Reforge** (flat
+   rarity-scaled cost, rerolls one random substat to a new stat+value —
+   no guarantee, same farming philosophy as a paid retry).
+7. **Charm Dust economy** (Faction Wars' currency, charm-only, Scrap's
+   counterpart — `machineborn_charmdust_v1`): salvage an unequipped
+   charm instance for Charm Dust (`CHARM_SALVAGE_VALUE`). Spend it on
+   **Reforge** (`charmReforgeCost`, rarity-scaled) — a charm has only
+   one rolled dimension (its proc `chance`), so Reforge rerolls that
+   within the same rarity's range. No Upgrade equivalent for charms
+   yet (see "Next up").
+8. **Gear Rework** (Tower-exclusive, on top of Upgrade/Reforge): three
+   targeted rerolls that each touch exactly ONE of a gear piece's
+   three independent rolls (main stat *value* only — the stat identity
+   is slot-locked; whole set; whole substat block) while leaving the
+   other two untouched — for "great roll, wrong set" or "right set,
+   dead substats" pieces Reforge alone can't fix (Reforge only rerolls
+   one substat at a time, and never touches set or main stat). Spends
+   its own scarce **Catalyst** currency instead of Scrap — Set
+   Catalyst / Stat Catalyst / Substat Catalyst
+   (`machineborn_set_catalyst_v1` / `_stat_catalyst_v1` /
+   `_substat_catalyst_v1`, `GEAR_REWORK_COST` = `{set:1, mainStat:1,
+   substats:2}`). Catalysts are a rare bonus (`GEAR_REWORK_CATALYST_
+   CHANCE`) riding on an actual Tower gear drop — gear-adjacent
+   materials that only ever show up alongside gear, never as an
+   independent roll. `reworkGearSet` / `reworkGearMainStat` /
+   `reworkGearSubstats` live in the Armory's gear inventory list
+   alongside Upgrade/Reforge/Salvage.
+9. **Champion leveling** (World Boss's currency — Gold/XP/Shards, see
+   Content framework below): per-champion banked XP
+   (`machineborn_champion_progress_v1`, `{ championId: { level, xp } }`).
    Leveling up is a manual, deterministic, paid action
    (`levelUpChampion`, in the Armory's Champions panel) — spends banked
    XP (`xpToNextLevel`) + Gold (`levelUpCost`), no RNG, matching the
@@ -150,38 +161,53 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
    atk/def compound with level (`levelStatMultiplier`, +5%/level); spd/
    crit/acc/res stay fixed, same convention as enemy stage-scaling.
    The level cap (`effectiveLevelCap`, base 40) is account-wide and
-   rises in Shard-gated +5 steps (`levelCapShardCost`) — the deliberate
-   "push another node to unblock this one" hinge.
-10. **Champion Trial** (`champion` encounter, `ENCOUNTER_SHARD_REWARD`,
-    `machineborn_shards_v1`): the dedicated **Shard** node referenced
-    above. 3v3, single wave (`CHAMPION_TRIAL`, squad `wren`/`vara`/
-    `rook` — Wren's first appearance in any squad), same infinite
-    stage ladder as Boss/Wave. Pays Gold + XP + a deterministic Shard
-    amount, but deliberately no Scrap and no gear/charm drops
-    (`ENCOUNTER_DROPS` has no `champion` entry) — keeps it a distinct
-    farm target rather than a strictly-better Boss/Wave. Its Warlord
-    enemy sets `isBoss: true` to reuse the existing devour-a-debuff-
-    for-Fury mechanic generically (that mechanic triggers off
-    `actor.isBoss`, it isn't actually Hollow-King-specific) instead of
-    a parallel one.
-11. **Gear Rework**: three targeted rerolls that each touch exactly
-    ONE of a gear piece's three independent rolls (main stat *value*
-    only — the stat identity is slot-locked; whole set; whole substat
-    block) while leaving the other two untouched — for "great roll,
-    wrong set" or "right set, dead substats" pieces Reforge alone
-    can't fix (Reforge only rerolls one substat at a time, and never
-    touches set or main stat). Distinct from Reforge/Upgrade: spends
-    its own scarce **Catalyst** currency instead of Scrap — Set
-    Catalyst / Stat Catalyst / Substat Catalyst
-    (`machineborn_set_catalyst_v1` / `_stat_catalyst_v1` /
-    `_substat_catalyst_v1`, `GEAR_REWORK_COST` = `{set:1, mainStat:1,
-    substats:2}`). Catalysts are a rare bonus (`GEAR_REWORK_CATALYST_
-    CHANCE`) riding on an actual gear drop on Boss/Wave victories —
-    gear-adjacent materials that only ever show up alongside gear,
-    never as an independent roll; Champion Trial doesn't grant them
-    (it doesn't drop gear at all). `reworkGearSet` / `reworkGearMainStat`
-    / `reworkGearSubstats` live in the Armory's gear inventory list
-    alongside Upgrade/Reforge/Salvage.
+   rises in Shard-gated +5 steps (`levelCapShardCost`).
+
+## Content framework
+
+Every battle mode owns exactly ONE material identity — the point is
+that maxing one mode's specialty naturally pushes you to farm a
+*different* mode next, not the same one forever. **Campaign** is the
+odd one out: it has no farmable specialty of its own (a small
+Scrap+Gold trickle only) because its job is being the account-wide
+**gate** — `CONTENT_UNLOCKS` in `index.html` — that unlocks the other
+three as you clear its chapters. Nothing else is gated by anything;
+once Campaign clears the threshold, that mode is open forever.
+
+| Mode (`ENCOUNTERS` id) | Squad | Progression | Unlocks at | Rewards |
+|---|---|---|---|---|
+| **Campaign** (`campaign`) | 3v3 | 8 fixed hand-authored chapters (`CAMPAIGN_CHAPTERS`) — **not** the infinite ladder, no stat compounding, replaying an old chapter is always the same fight | Always open | Scrap + Gold only (bootstrap) |
+| **Tower** (`tower`) | 5v5 | Infinite stage ladder | Campaign Ch.3 | Gear (guaranteed) + Gear Rework Catalysts (rare, rides gear drops) + Scrap |
+| **Faction Wars** (`faction`) | 4v4 × 3 waves | Infinite stage ladder | Campaign Ch.5 | Charms (rolled chance) + Charm Dust (guaranteed) |
+| **World Boss** (`worldboss`) | 3v3 | Infinite stage ladder | Campaign Ch.8 | Gold + XP (champion leveling) + Shards (level cap) |
+
+Implementation notes:
+- **Fixed vs. infinite**: `ENCOUNTERS[id].fixedChapters` (an array of
+  chapter template arrays) marks Campaign as non-scaling — `spawnWave`
+  passes stage `1` to `scaledEnemyTemplate` for such encounters instead
+  of the real stage, so a chapter's authored numbers ARE its
+  difficulty, forever. `getSelectedStage`/`setSelectedStage` both cap
+  at `fixedChapters.length` so there's no "Chapter 9" once the 8
+  chapters are cleared — Tower/Faction Wars/World Boss have no such
+  cap (`Infinity`), matching their infinite-ladder nature.
+- **Unlock UI**: a locked node's start button is `disabled` and its
+  stage label reads "Locked — Campaign Ch. N" (`isContentUnlocked`,
+  wired into `renderStageLabels`) rather than being hidden — the gate
+  is visible, not mysterious. Clearing the exact Campaign chapter that
+  unlocks a mode surfaces it on the victory screen ("Tower unlocked!").
+- **Reward purity**: every `ENCOUNTER_*_REWARD` / `ENCOUNTER_DROPS` /
+  `GEAR_REWORK_CATALYST_CHANCE` table only has entries for the mode(s)
+  that actually own that material — e.g. `ENCOUNTER_GOLD_REWARD` has
+  only `campaign` and `worldboss` keys. `endBattle` guards every reward
+  block with `if (reward > 0)` so a mode that doesn't grant something
+  never shows a useless "+0 X" line.
+- Champion leveling itself (Gold/XP spend, level curve, Shard-gated
+  cap) is unchanged from when it was Boss/Wave/Champion-Trial-agnostic
+  — see the leveling bullet above; only World Boss feeds it now.
+- The Warlord-tier enemy in both World Boss and Campaign's Chapter 8
+  capstone sets `isBoss: true`, reusing the generic devour-a-debuff-
+  for-Fury mechanic (`hollowKingMechanic` — not actually Hollow-King-
+  specific, it triggers off `actor.isBoss`) rather than a parallel one.
 
 Manual "Farm Gear" / "Farm Charms" buttons in the Armory remain as a
 testing/manual shortcut alongside real battle drops — not the only
@@ -214,14 +240,15 @@ acquisition path anymore.
   isolate the wiring from RNG variance. Never leave such a hook in the
   committed file.
 - **Regression habit**: after any change, re-run the standing set of
-  scratchpad test scripts covering resume-from-save, boss/wave
-  full-clear, custom squad selection, charm procs, gear substats/
-  rolls, gear sets (2pc/4pc), and the Scrap economy — all should
-  finish with an empty `ERRORS: []`. A test script's own *hardcoded
-  numeric expectations* can go stale as new features change baseline
-  behavior (e.g. a gear-count assertion written before battle drops
-  existed) — that's a stale test, not a regression, as long as the
-  actual error list stays empty.
+  scratchpad test scripts covering resume-from-save, full-clears on
+  each content mode, custom squad selection, charm procs, gear
+  substats/rolls, gear sets (2pc/4pc), Campaign chapter/unlock gating,
+  and the Scrap/Charm Dust/Catalyst economies — all should finish with
+  an empty `ERRORS: []`. A test script's own *hardcoded IDs and numeric
+  expectations* can go stale as new features change baseline behavior
+  (e.g. a button-id or gear-count assertion written before a node was
+  renamed or battle drops existed) — that's a stale test, not a
+  regression, as long as the actual error list stays empty once fixed.
 
 ## Git workflow
 
@@ -231,19 +258,22 @@ acquisition path anymore.
 
 ## Next up (not yet built)
 
-Champion leveling (Gold, XP/Level, Shard-gated level cap), the
-Champion Trial node (the dedicated Shard source), and Gear Rework
-(Set / Stat / Substat, Catalyst-gated) are all built — see "Systems
-that exist today" above. Note: "Rework node" turned out to mean gear
+The full content framework is built: Campaign (the gate, 8 fixed
+chapters), Tower/Faction Wars/World Boss (each single-material
+specialists, unlocked by Campaign progress), Champion leveling,
+and Gear Rework — see "Systems that exist today" and "Content
+framework" above. Note: "Rework node" turned out to mean gear
 substat/set/stat-value rerolls, not a champion build-choice system —
 champions still have zero build choices, so a champion-facing Rework
 is not on the table until one exists.
 
 Longer-term, deferred until asked for:
-- Possibly renaming/re-theming Boss/Wave into the "Gear Trial" /
-  "Charm Vault" node identity discussed in design chat (Champion Trial
-  already carries its real name) — not done yet, current code still
-  calls them `boss`/`wave`.
-- Upgrading/reforging/salvaging exists for gear; charms have salvage
-  only (no upgrade/reforge) — revisit if charm power creep becomes an
-  issue.
+- A **Charm Upgrade** to pair with the new Charm Reforge — gear has
+  both Upgrade (level a piece's rolled values) and Reforge; charms
+  only have Reforge + Salvage so far. Revisit if charm power creep
+  becomes an issue.
+- Campaign currently stops at 8 chapters; extending it (more chapters,
+  possibly new unlock gates for further-out content) once the 4-mode
+  framework proves out.
+- A champion build-choice system (talent variants, stat-path choices,
+  etc.) — see the Rework note above; nothing like this exists yet.
