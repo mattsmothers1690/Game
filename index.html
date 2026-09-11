@@ -38,6 +38,11 @@
     margin: 14px auto 0;
   }
   #startScreen button:active, .overlayBtn:active { background: #5b21b6; }
+  #newGameBtn {
+    background: transparent; color: #7f1d1d; border: 1px solid #7f1d1d;
+    font-size: 0.75rem; padding: 8px 20px; margin-top: 28px; opacity: 0.7;
+  }
+  #newGameBtn:active { background: #7f1d1d; color: white; }
   .nodeRow { max-width: 320px; margin: 0 auto; }
   .nodeRow button { margin-bottom: 0; }
   .stageStepper { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 6px auto 0; }
@@ -368,6 +373,7 @@
     </div>
   </div>
   <button id="armoryBtn">ARMORY</button>
+  <button id="newGameBtn">NEW GAME (reset all progress)</button>
 </div>
 
 <div id="armoryScreen">
@@ -2515,6 +2521,33 @@
     try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ }
   }
 
+  // ---------------------------------------------------------------
+  // NEW GAME / RESET: every persistent key the game writes, in one
+  // place, so "reset" can never silently miss one as new economies get
+  // added - each is referenced by its own `_KEY` constant rather than
+  // retyped as a string literal, so a future rename can't drift out of
+  // sync with this list. Deliberately wipes the mid-battle SAVE_KEY
+  // too ("not only save a battle but also save progress" cuts both
+  // ways on reset - a New Game abandons an in-progress fight as well
+  // as every currency/roster/gear/stage record).
+  // ---------------------------------------------------------------
+  function allSaveKeys() {
+    return [
+      EQUIPMENT_KEY, GEAR_INVENTORY_KEY, CHARM_INVENTORY_KEY,
+      SCRAP_KEY, CHARM_DUST_KEY, GOLD_KEY, SHARDS_KEY, SUMMON_SHARD_KEY, ARENA_MEDAL_KEY, ASCENSION_CORE_KEY,
+      SET_CATALYST_KEY, STAT_CATALYST_KEY, SUBSTAT_CATALYST_KEY,
+      CHAMPION_PROGRESS_KEY, CHAMPION_ROSTER_KEY, LEVEL_CAP_KEY,
+      STAGE_PROGRESS_KEY, SAVE_KEY
+    ];
+  }
+
+  function resetGame() {
+    allSaveKeys().forEach(function (key) {
+      try { localStorage.removeItem(key); } catch (e) { /* private mode / quota */ }
+    });
+    location.reload();
+  }
+
   function applySavedUnitState(units, savedList) {
     savedList.forEach(function (saved) {
       var unit = units.find(function (u) { return u.id === saved.id; });
@@ -3921,6 +3954,11 @@
   document.getElementById('armoryBackBtn').addEventListener('click', function () {
     document.getElementById('armoryScreen').style.display = 'none';
     document.getElementById('startScreen').style.display = '';
+  });
+
+  document.getElementById('newGameBtn').addEventListener('click', function () {
+    if (!confirm('Reset ALL progress (champions, gear, currencies, stage progress) and start a new game? This cannot be undone.')) return;
+    resetGame();
   });
 
   document.getElementById('resumeBtn').addEventListener('click', function () {

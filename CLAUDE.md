@@ -280,6 +280,28 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
     "(new)" tag, and the Armory's Summon panel shows the current tier/
     cap directly (`rosterTierDisplay`) — same "the gate is visible, not
     mysterious" convention as `isContentUnlocked`.
+14. **New Game / reset** (`resetGame`, `allSaveKeys`): battle-in-
+    progress save (`machineborn_save_v1`) already existed; this is the
+    account-progress counterpart — every persistent key the game
+    writes (all 18: equipment/gear/charm inventories, every currency,
+    champion progress/roster, level cap, stage progress, the mid-battle
+    save) in one list, referenced by each key's own `_KEY` constant
+    rather than retyped as a string literal so a future new economy
+    can't silently be left out of a reset. `allSaveKeys` is a function
+    (not a top-level array) purely so it can be declared anywhere in
+    the file regardless of where each `_KEY` constant is assigned —
+    it only reads their values when actually called, well after the
+    whole script has initialized. A "NEW GAME (reset all progress)"
+    button on the start screen (deliberately small/muted/separated
+    from the node buttons, `#newGameBtn`) confirms via the native
+    `confirm()` dialog before calling `resetGame`, which removes every
+    key and reloads — reload is what actually re-triggers every
+    module-level `loadXxx()` fallback-to-default (`loadChampionRoster()`
+    → `STARTER_CHAMPION_IDS`, `loadScrap()` → `0`, etc.), the same
+    fresh-save behavior already exercised by every test in this repo's
+    testing methodology (`localStorage.clear()` + reload). No new
+    persistence mechanism was needed - resetting is just "remove
+    everything, let the existing defaults do their job."
 
 ## Content framework
 
