@@ -118,9 +118,10 @@
     padding: 3px 8px; border-radius: 6px; font-size: 0.62rem;
   }
   .invActionBtn:disabled { opacity: 0.4; }
-  #scrapDisplay, #goldDisplay, #shardDisplay, #charmDustDisplay, #catalystDisplay { color: #fbbf24; font-size: 0.85rem; margin: 4px 0 0; }
+  #scrapDisplay, #goldDisplay, #shardDisplay, #charmDustDisplay, #ascensionDisplay, #catalystDisplay { color: #fbbf24; font-size: 0.85rem; margin: 4px 0 0; }
   #shardDisplay { color: #a78bfa; }
   #charmDustDisplay { color: #86efac; }
+  #ascensionDisplay { color: #f472b6; }
   #catalystDisplay { color: #7dd3fc; font-size: 0.7rem; }
   .xpFill { background: linear-gradient(90deg,#a78bfa,#7c3aed); }
 
@@ -333,11 +334,19 @@
     </div>
   </div>
   <div class="nodeRow">
-    <button id="startWorldbossBtn" data-encounter="worldboss">WORLD BOSS (3v3)</button>
+    <button id="startMainbossBtn" data-encounter="mainboss">MAIN BOSS (3v3)</button>
     <div class="stageStepper">
-      <button id="worldbossStageDownBtn" class="stageStepBtn">−</button>
-      <span id="worldbossStageLabel" class="stageLabel"></span>
-      <button id="worldbossStageUpBtn" class="stageStepBtn">+</button>
+      <button id="mainbossStageDownBtn" class="stageStepBtn">−</button>
+      <span id="mainbossStageLabel" class="stageLabel"></span>
+      <button id="mainbossStageUpBtn" class="stageStepBtn">+</button>
+    </div>
+  </div>
+  <div class="nodeRow">
+    <button id="startDungeonBtn" data-encounter="dungeon">DUNGEON (4v4)</button>
+    <div class="stageStepper">
+      <button id="dungeonStageDownBtn" class="stageStepBtn">−</button>
+      <span id="dungeonStageLabel" class="stageLabel"></span>
+      <button id="dungeonStageUpBtn" class="stageStepBtn">+</button>
     </div>
   </div>
   <button id="armoryBtn">ARMORY</button>
@@ -350,6 +359,7 @@
   <div id="goldDisplay"></div>
   <div id="shardDisplay"></div>
   <div id="charmDustDisplay"></div>
+  <div id="ascensionDisplay"></div>
   <div id="catalystDisplay"></div>
   <div id="armoryGrid"></div>
 
@@ -970,6 +980,50 @@
     unit.def = Math.round(unit.def * mult);
   }
 
+  // ---------------------------------------------------------------
+  // ASCENSION: Dungeon's material (Ascension Core) spent on a second,
+  // much slower champion-power axis alongside level - a flat, capped
+  // hp/atk/def bonus (same only-hp/atk/def convention as level and
+  // enemy stage-scaling) rather than a new ability slot, so it reuses
+  // the existing multiplier-stacking pattern instead of inventing a
+  // parallel one. Deterministic and paid, no RNG, matching Level Up.
+  // ---------------------------------------------------------------
+  var ASCENSION_CORE_KEY = 'machineborn_ascension_core_v1';
+  function loadAscensionCore() {
+    try { var raw = localStorage.getItem(ASCENSION_CORE_KEY); return raw ? (parseInt(raw, 10) || 0) : 0; } catch (e) { return 0; }
+  }
+  function saveAscensionCore() {
+    try { localStorage.setItem(ASCENSION_CORE_KEY, String(ascensionCore)); } catch (e) { /* private mode / quota */ }
+  }
+  var ascensionCore = loadAscensionCore();
+
+  var ASCENSION_RANK_MAX = 5;
+  var ASCENSION_STAT_GROWTH = 0.08;
+  function championAscension(championId) { return (championProgress[championId] && championProgress[championId].ascension) || 0; }
+  function ascensionCost(rank) { return Math.round(10 * Math.pow(1.6, rank)); }
+  function ascensionMultiplier(rank) { return 1 + rank * ASCENSION_STAT_GROWTH; }
+
+  function ascendChampion(championId) {
+    var prog = championProgress[championId] || { level: 1, xp: 0 };
+    var rank = prog.ascension || 0;
+    if (rank >= ASCENSION_RANK_MAX) return false;
+    var cost = ascensionCost(rank);
+    if (ascensionCore < cost) return false;
+    ascensionCore -= cost;
+    prog.ascension = rank + 1;
+    championProgress[championId] = prog;
+    saveChampionProgress(); saveAscensionCore();
+    return true;
+  }
+
+  function applyAscensionToUnit(unit) {
+    var mult = ascensionMultiplier(championAscension(unit.id));
+    unit.maxHp = Math.round(unit.maxHp * mult);
+    unit.hp = unit.maxHp;
+    unit.atk = Math.round(unit.atk * mult);
+    unit.def = Math.round(unit.def * mult);
+  }
+
   var GEAR_SALVAGE_VALUE = { Common: 15, Rare: 35, Epic: 80, Legendary: 200 };
   var CHARM_SALVAGE_VALUE = { Common: 10, Rare: 25, Epic: 55, Legendary: 120 };
   var GEAR_LEVEL_MAX = 12;
@@ -1415,7 +1469,7 @@
       basic: { name: 'Rend', coeff: 0.9, aoe: false, applyDebuff: { type: 'Bleed', chance: 50 } } }
   ];
 
-  // 3v3, single wave - World Boss's own arena squad (variable name kept
+  // 3v3, single wave - Main Boss's own arena squad (variable name kept
   // as CHAMPION_TRIAL - it predates the mode's rename, no functional
   // meaning either way). `isBoss: true` on the Warlord reuses the
   // existing devour-a-debuff-for-Fury mechanic (hollowKingMechanic isn't
@@ -1499,7 +1553,7 @@
       basic: { name: 'Chilling Gaze', coeff: 0.7, aoe: false, applyDebuff: { type: 'Speed Down', chance: 50 } } }
   ];
   // Capstone: the Warlord reuses the same generic isBoss devour-a-debuff
-  // mechanic as World Boss's Trial Warlord (see hollowKingMechanic) -
+  // mechanic as Main Boss's Trial Warlord (see hollowKingMechanic) -
   // pushed to a chapter finale rather than a new one-off mechanic.
   var CAMPAIGN_CH8 = [
     { id: 'camp8_a', name: 'Elite Guard', hp: 150, atk: 58, def: 50, spd: 90, critChance: 12, critDamage: 155, acc: 12, res: 22,
@@ -1510,39 +1564,83 @@
       isBoss: true,
       basic: { name: "Warlord's Judgment", coeff: 1.05, aoe: false } }
   ];
-  var CAMPAIGN_CHAPTERS = [CAMPAIGN_CH1, CAMPAIGN_CH2, CAMPAIGN_CH3, CAMPAIGN_CH4, CAMPAIGN_CH5, CAMPAIGN_CH6, CAMPAIGN_CH7, CAMPAIGN_CH8];
+  var CAMPAIGN_CH9 = [
+    { id: 'camp9_a', name: 'Void Marauder', hp: 180, atk: 72, def: 60, spd: 96, critChance: 15, critDamage: 160, acc: 16, res: 24,
+      basic: { name: 'Void Rend', coeff: 0.95, aoe: false, applyDebuff: { type: 'Bleed', chance: 40 } } },
+    { id: 'camp9_b', name: 'Void Marauder', hp: 180, atk: 72, def: 60, spd: 94, critChance: 15, critDamage: 160, acc: 16, res: 24,
+      basic: { name: 'Void Rend', coeff: 0.95, aoe: false, applyDebuff: { type: 'Bleed', chance: 40 } } },
+    { id: 'camp9_c', name: 'Void Harbinger', hp: 220, atk: 66, def: 70, spd: 86, critChance: 12, critDamage: 155, acc: 14, res: 30,
+      basic: { name: 'Dread Pulse', coeff: 0.8, aoe: false, applyDebuff: { type: 'Resistance Down', chance: 40 } } }
+  ];
+  // Ch.10 is Campaign's true finale - gates Dungeon (the 5th mode) rather
+  // than one of the original three, so it's a step up from Ch.8's capstone.
+  var CAMPAIGN_CH10 = [
+    { id: 'camp10_a', name: 'Herald Guard', hp: 165, atk: 65, def: 52, spd: 94, critChance: 15, critDamage: 160, acc: 16, res: 26,
+      basic: { name: 'Herald Strike', coeff: 0.92, aoe: false } },
+    { id: 'camp10_b', name: 'Herald Guard', hp: 165, atk: 65, def: 52, spd: 92, critChance: 15, critDamage: 160, acc: 16, res: 26,
+      basic: { name: 'Herald Strike', coeff: 0.92, aoe: false } },
+    { id: 'camp10_c', name: 'The Herald', hp: 295, atk: 68, def: 63, spd: 93, critChance: 15, critDamage: 162, acc: 17, res: 29,
+      isBoss: true,
+      basic: { name: "Herald's Reckoning", coeff: 0.97, aoe: false } }
+  ];
+  var CAMPAIGN_CHAPTERS = [CAMPAIGN_CH1, CAMPAIGN_CH2, CAMPAIGN_CH3, CAMPAIGN_CH4, CAMPAIGN_CH5, CAMPAIGN_CH6, CAMPAIGN_CH7, CAMPAIGN_CH8, CAMPAIGN_CH9, CAMPAIGN_CH10];
+
+  // Dungeon: 4v4, single wave - the strategy-over-stats mode. Every
+  // enemy here leads with a debuff instead of raw damage (Stun/Poison/
+  // Defense Down+Attack Down/Stun+Speed Down), so a team built for
+  // Resistance or cleansing (Vara's self-cleanse, high base RES) clears
+  // this far more reliably than a team with the same total power but no
+  // debuff mitigation - the actual point, not just a harder stat check.
+  var DUNGEON_WAVE_1 = [
+    { id: 'dun_a', name: 'Stunning Wraith', hp: 140, atk: 50, def: 35, spd: 100, critChance: 10, critDamage: 150, acc: 30, res: 15,
+      basic: { name: 'Paralyze', coeff: 0.6, aoe: false, applyDebuff: { type: 'Stun', chance: 35 } } },
+    { id: 'dun_b', name: 'Toxic Ooze', hp: 160, atk: 45, def: 40, spd: 80, critChance: 5, critDamage: 150, acc: 20, res: 10,
+      basic: { name: 'Corrosive Spit', coeff: 0.6, aoe: false, applyDebuff: { type: 'Poison', chance: 55 } } },
+    { id: 'dun_c', name: 'Withering Specter', hp: 130, atk: 48, def: 30, spd: 90, critChance: 10, critDamage: 150, acc: 25, res: 20,
+      basic: { name: 'Wither Touch', coeff: 0.55, aoe: false, applyDebuff: { type: 'Defense Down', chance: 45 }, applyDebuff2: { type: 'Attack Down', chance: 35 } } },
+    { id: 'dun_d', name: 'Dungeon Warden', hp: 220, atk: 58, def: 55, spd: 88, critChance: 12, critDamage: 155, acc: 28, res: 25,
+      isBoss: true,
+      basic: { name: 'Binding Chains', coeff: 0.7, aoe: false, applyDebuff: { type: 'Stun', chance: 25 }, applyDebuff2: { type: 'Speed Down', chance: 40 } } }
+  ];
 
   // ---------------------------------------------------------------
   // ENCOUNTERS
-  // Squad size follows content type: 3v3 for Campaign and World Boss,
-  // 5v5 for Tower, 4v4 for Faction Wars (per design direction - not a
-  // change to the combat engine's default, just a per-encounter squad
-  // size). `fixedChapters` marks Campaign as non-scaling (see spawnWave).
+  // Squad size follows content type: 3v3 for Campaign and Main Boss,
+  // 5v5 for Tower, 4v4 for Faction Wars and Dungeon (per design
+  // direction - not a change to the combat engine's default, just a
+  // per-encounter squad size). `fixedChapters` marks Campaign as
+  // non-scaling (see spawnWave).
   // ---------------------------------------------------------------
   var ENCOUNTERS = {
     campaign: { label: 'Campaign', teamIds: ['vara', 'kestrel', 'nyx'], fixedChapters: CAMPAIGN_CHAPTERS },
     tower: { label: 'Tower', teamIds: ['vara', 'mire', 'kestrel', 'rook', 'nyx'], waves: [BOSS_WAVE] },
     faction: { label: 'Faction Wars', teamIds: ['mire', 'kestrel', 'rook', 'nyx'], waves: [WAVE_1, WAVE_2, WAVE_3] },
-    worldboss: { label: 'World Boss', teamIds: ['wren', 'vara', 'rook'], waves: [CHAMPION_TRIAL] }
+    mainboss: { label: 'Main Boss', teamIds: ['wren', 'vara', 'rook'], waves: [CHAMPION_TRIAL] },
+    dungeon: { label: 'Dungeon', teamIds: ['vara', 'wren', 'mire', 'nyx'], waves: [DUNGEON_WAVE_1] }
   };
 
   // Content framework: each mode owns exactly ONE material identity -
   // Tower=gear (+its Rework Catalysts), Faction Wars=charms (+Charm
-  // Dust), World Boss=champion leveling (Gold/XP/Shards). Campaign is
-  // the only cross-cutting one (small Scrap+Gold trickle) since it's
-  // the gate, not a farm target. Clearing Campaign chapters is what
-  // unlocks the other three - CONTENT_UNLOCKS below.
-  var CONTENT_UNLOCKS = { tower: 3, faction: 5, worldboss: 8 };
+  // Dust), Main Boss=champion leveling (Gold/XP/Shards), Dungeon=
+  // Ascension Cores (a new champion-power axis beyond level/gear/
+  // charms - see ascendChampion). Campaign is the only cross-cutting
+  // one (small Scrap+Gold trickle) since it's the gate, not a farm
+  // target. Clearing Campaign chapters is what unlocks the rest -
+  // CONTENT_UNLOCKS below. Dungeon gates behind Ch.10 (Campaign's true
+  // finale) rather than Ch.8, since it's meant to come after the other
+  // three are already open.
+  var CONTENT_UNLOCKS = { tower: 3, faction: 5, mainboss: 8, dungeon: 10 };
   function isContentUnlocked(encounterId) {
     var required = CONTENT_UNLOCKS[encounterId];
     return !required || (stageProgress.campaign || 0) >= required;
   }
 
   var ENCOUNTER_SCRAP_REWARD = { campaign: 10, tower: 40 };
-  var ENCOUNTER_GOLD_REWARD = { campaign: 10, worldboss: 50 };
-  var ENCOUNTER_XP_REWARD = { worldboss: 40 };
-  var ENCOUNTER_SHARD_REWARD = { worldboss: 3 };
+  var ENCOUNTER_GOLD_REWARD = { campaign: 10, mainboss: 50 };
+  var ENCOUNTER_XP_REWARD = { mainboss: 40 };
+  var ENCOUNTER_SHARD_REWARD = { mainboss: 3 };
   var ENCOUNTER_CHARMDUST_REWARD = { faction: 60 };
+  var ENCOUNTER_ASCENSION_REWARD = { dungeon: 2 };
 
   // Gear/charm drops on victory: Tower guarantees gear (its specialty)
   // and never drops charms; Faction Wars drops charms at a solid chance
@@ -1657,6 +1755,7 @@
     team = currentTeamIds.map(function (id) {
       var unit = makeUnit(CHAMPIONS.find(function (c) { return c.id === id; }), false);
       applyLevelToUnit(unit);
+      applyAscensionToUnit(unit);
       applyGearToUnit(unit);
       return unit;
     });
@@ -1757,6 +1856,7 @@
     team = currentTeamIds.map(function (id) {
       var unit = makeUnit(CHAMPIONS.find(function (c) { return c.id === id; }), false);
       applyLevelToUnit(unit);
+      applyAscensionToUnit(unit);
       applyGearToUnit(unit);
       return unit;
     });
@@ -2162,6 +2262,14 @@
         saveCharmDust();
         logLine('logSys', 'Earned ' + charmDustReward + ' Charm Dust.');
         rewardLines.push('+' + charmDustReward + ' Charm Dust');
+      }
+
+      var ascensionReward = Math.round((ENCOUNTER_ASCENSION_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
+      if (ascensionReward > 0) {
+        ascensionCore += ascensionReward;
+        saveAscensionCore();
+        logLine('logSys', 'Earned ' + ascensionReward + ' Ascension Core' + (ascensionReward === 1 ? '' : 's') + '.');
+        rewardLines.push('+' + ascensionReward + ' Ascension Core' + (ascensionReward === 1 ? '' : 's'));
       }
 
       var dropCfg = ENCOUNTER_DROPS[currentEncounterId];
@@ -2672,10 +2780,11 @@
   document.getElementById('startCampaignBtn').addEventListener('click', function () { openTeamSelect('campaign'); });
   document.getElementById('startTowerBtn').addEventListener('click', function () { if (isContentUnlocked('tower')) openTeamSelect('tower'); });
   document.getElementById('startFactionBtn').addEventListener('click', function () { if (isContentUnlocked('faction')) openTeamSelect('faction'); });
-  document.getElementById('startWorldbossBtn').addEventListener('click', function () { if (isContentUnlocked('worldboss')) openTeamSelect('worldboss'); });
+  document.getElementById('startMainbossBtn').addEventListener('click', function () { if (isContentUnlocked('mainboss')) openTeamSelect('mainboss'); });
+  document.getElementById('startDungeonBtn').addEventListener('click', function () { if (isContentUnlocked('dungeon')) openTeamSelect('dungeon'); });
 
   function renderStageLabels() {
-    ['campaign', 'tower', 'faction', 'worldboss'].forEach(function (id) {
+    ['campaign', 'tower', 'faction', 'mainboss', 'dungeon'].forEach(function (id) {
       var config = ENCOUNTERS[id];
       var locked = !isContentUnlocked(id);
       var startBtn = document.getElementById('start' + capitalize(id) + 'Btn');
@@ -2703,8 +2812,10 @@
   document.getElementById('towerStageUpBtn').addEventListener('click', function () { setSelectedStage('tower', getSelectedStage('tower') + 1); renderStageLabels(); });
   document.getElementById('factionStageDownBtn').addEventListener('click', function () { setSelectedStage('faction', getSelectedStage('faction') - 1); renderStageLabels(); });
   document.getElementById('factionStageUpBtn').addEventListener('click', function () { setSelectedStage('faction', getSelectedStage('faction') + 1); renderStageLabels(); });
-  document.getElementById('worldbossStageDownBtn').addEventListener('click', function () { setSelectedStage('worldboss', getSelectedStage('worldboss') - 1); renderStageLabels(); });
-  document.getElementById('worldbossStageUpBtn').addEventListener('click', function () { setSelectedStage('worldboss', getSelectedStage('worldboss') + 1); renderStageLabels(); });
+  document.getElementById('mainbossStageDownBtn').addEventListener('click', function () { setSelectedStage('mainboss', getSelectedStage('mainboss') - 1); renderStageLabels(); });
+  document.getElementById('mainbossStageUpBtn').addEventListener('click', function () { setSelectedStage('mainboss', getSelectedStage('mainboss') + 1); renderStageLabels(); });
+  document.getElementById('dungeonStageDownBtn').addEventListener('click', function () { setSelectedStage('dungeon', getSelectedStage('dungeon') - 1); renderStageLabels(); });
+  document.getElementById('dungeonStageUpBtn').addEventListener('click', function () { setSelectedStage('dungeon', getSelectedStage('dungeon') + 1); renderStageLabels(); });
 
   // ---------------------------------------------------------------
   // ARMORY
@@ -2792,6 +2903,7 @@
     document.getElementById('goldDisplay').textContent = 'Gold: ' + gold;
     document.getElementById('shardDisplay').textContent = 'Shards: ' + shards;
     document.getElementById('charmDustDisplay').textContent = 'Charm Dust: ' + charmDust;
+    document.getElementById('ascensionDisplay').textContent = 'Ascension Cores: ' + ascensionCore;
     document.getElementById('catalystDisplay').textContent =
       'Set Catalyst: ' + setCatalyst + ' · Stat Catalyst: ' + statCatalyst + ' · Substat Catalyst: ' + substatCatalyst;
     renderChampions();
@@ -2811,11 +2923,16 @@
     var cost = levelUpCost(level);
     var canLevel = !atCap && xp >= xpNeed && gold >= cost;
     var xpPct = atCap ? 100 : Math.min(100, Math.round((xp / xpNeed) * 100));
-    return '<div class="charmInvRow">' + champ.name + ' — Lv.' + level + (atCap ? ' (cap)' : '') +
+    var rank = championAscension(champ.id);
+    var rankMaxed = rank >= ASCENSION_RANK_MAX;
+    var ascendCost = ascensionCost(rank);
+    var canAscend = !rankMaxed && ascensionCore >= ascendCost;
+    return '<div class="charmInvRow">' + champ.name + ' — Lv.' + level + (atCap ? ' (cap)' : '') + ' · Ascension ' + rank + '/' + ASCENSION_RANK_MAX +
       '<div class="bar" style="margin:3px 0;"><div class="xpFill" style="width:' + xpPct + '%"></div></div>' +
       '<div style="font-size:0.65rem;color:#999;">' + (atCap ? 'At level cap' : xp + ' / ' + xpNeed + ' XP') + '</div>' +
       '<div class="invActions">' +
         '<button class="invActionBtn" data-action="level-up" data-id="' + champ.id + '"' + (canLevel ? '' : ' disabled') + '>' + (atCap ? 'MAX' : 'Level Up (' + cost + ' Gold)') + '</button>' +
+        '<button class="invActionBtn" data-action="ascend" data-id="' + champ.id + '"' + (canAscend ? '' : ' disabled') + '>' + (rankMaxed ? 'MAX' : 'Ascend (' + ascendCost + ' Cores)') + '</button>' +
       '</div></div>';
   }
 
@@ -2831,7 +2948,9 @@
   document.getElementById('championList').addEventListener('click', function (e) {
     var btn = e.target.closest('.invActionBtn');
     if (!btn || btn.disabled) return;
-    if (btn.getAttribute('data-action') === 'level-up') levelUpChampion(btn.getAttribute('data-id'));
+    var champAction = btn.getAttribute('data-action');
+    if (champAction === 'level-up') levelUpChampion(btn.getAttribute('data-id'));
+    else if (champAction === 'ascend') ascendChampion(btn.getAttribute('data-id'));
     renderArmory();
   });
 

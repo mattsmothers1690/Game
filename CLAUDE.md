@@ -78,9 +78,10 @@ dependencies, no server). Served via GitHub Pages at
 | `machineborn_gear_v1` | Gear instance inventory | Persistent |
 | `machineborn_scrap_v1` | Scrap currency (a number) — Tower's gear economy | Persistent |
 | `machineborn_stage_progress_v1` | `{ encounterId: highestStageCleared }` — `campaign` key doubles as the account-wide content-unlock gate | Persistent |
-| `machineborn_gold_v1` | Gold currency (a number) — World Boss / champion-leveling only | Persistent |
-| `machineborn_shards_v1` | Shard currency (a number) — World Boss / level-cap only | Persistent |
-| `machineborn_champion_progress_v1` | `{ championId: { level, xp } }` | Persistent |
+| `machineborn_gold_v1` | Gold currency (a number) — Main Boss / champion-leveling only | Persistent |
+| `machineborn_shards_v1` | Shard currency (a number) — Main Boss / level-cap only | Persistent |
+| `machineborn_champion_progress_v1` | `{ championId: { level, xp, ascension } }` | Persistent |
+| `machineborn_ascension_core_v1` | Ascension Core currency (a number) — Dungeon's champion-power economy | Persistent |
 | `machineborn_levelcap_v1` | Account-wide level-cap tier (a number) | Persistent |
 | `machineborn_set_catalyst_v1` | Set Catalyst currency (a number) — Tower/Rework: Set only | Persistent |
 | `machineborn_stat_catalyst_v1` | Stat Catalyst currency (a number) — Tower/Rework: main stat value only | Persistent |
@@ -151,10 +152,10 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
    independent roll. `reworkGearSet` / `reworkGearMainStat` /
    `reworkGearSubstats` live in the Armory's gear inventory list
    alongside Upgrade/Reforge/Salvage.
-9. **Champion leveling** (World Boss's currency — Gold/XP/Shards, see
+9. **Champion leveling** (Main Boss's currency — Gold/XP/Shards, see
    Content framework below): per-champion banked XP
-   (`machineborn_champion_progress_v1`, `{ championId: { level, xp } }`).
-   Leveling up is a manual, deterministic, paid action
+   (`machineborn_champion_progress_v1`, `{ championId: { level, xp,
+   ascension } }`). Leveling up is a manual, deterministic, paid action
    (`levelUpChampion`, in the Armory's Champions panel) — spends banked
    XP (`xpToNextLevel`) + Gold (`levelUpCost`), no RNG, matching the
    Scrap-Upgrade pattern rather than the rolled-instance one. Only hp/
@@ -162,6 +163,18 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
    crit/acc/res stay fixed, same convention as enemy stage-scaling.
    The level cap (`effectiveLevelCap`, base 40) is account-wide and
    rises in Shard-gated +5 steps (`levelCapShardCost`).
+10. **Ascension** (Dungeon's currency — Ascension Cores, see Content
+    framework below): a second, much slower per-champion power axis
+    stored in the same `championProgress` record as level/xp. Ranks
+    0–5 (`ASCENSION_RANK_MAX`), each a flat +8% hp/atk/def
+    (`ascensionMultiplier`, `ASCENSION_STAT_GROWTH`) stacking
+    multiplicatively on top of the level multiplier
+    (`applyAscensionToUnit` runs right after `applyLevelToUnit`) — same
+    only-hp/atk/def convention as level and enemy stage-scaling, reused
+    rather than inventing a parallel stat-growth shape. `ascendChampion`
+    is manual/deterministic/paid (Ascension Cores only, no Gold/XP
+    needed), rising cost per rank (`ascensionCost`). Lives in the same
+    Champions panel row as Level Up.
 
 ## Content framework
 
@@ -171,15 +184,28 @@ that maxing one mode's specialty naturally pushes you to farm a
 odd one out: it has no farmable specialty of its own (a small
 Scrap+Gold trickle only) because its job is being the account-wide
 **gate** — `CONTENT_UNLOCKS` in `index.html` — that unlocks the other
-three as you clear its chapters. Nothing else is gated by anything;
+four as you clear its chapters. Nothing else is gated by anything;
 once Campaign clears the threshold, that mode is open forever.
 
 | Mode (`ENCOUNTERS` id) | Squad | Progression | Unlocks at | Rewards |
 |---|---|---|---|---|
-| **Campaign** (`campaign`) | 3v3 | 8 fixed hand-authored chapters (`CAMPAIGN_CHAPTERS`) — **not** the infinite ladder, no stat compounding, replaying an old chapter is always the same fight | Always open | Scrap + Gold only (bootstrap) |
+| **Campaign** (`campaign`) | 3v3 | 10 fixed hand-authored chapters (`CAMPAIGN_CHAPTERS`) — **not** the infinite ladder, no stat compounding, replaying an old chapter is always the same fight | Always open | Scrap + Gold only (bootstrap) |
 | **Tower** (`tower`) | 5v5 | Infinite stage ladder | Campaign Ch.3 | Gear (guaranteed) + Gear Rework Catalysts (rare, rides gear drops) + Scrap |
 | **Faction Wars** (`faction`) | 4v4 × 3 waves | Infinite stage ladder | Campaign Ch.5 | Charms (rolled chance) + Charm Dust (guaranteed) |
-| **World Boss** (`worldboss`) | 3v3 | Infinite stage ladder | Campaign Ch.8 | Gold + XP (champion leveling) + Shards (level cap) |
+| **Main Boss** (`mainboss`) | 3v3 | Infinite stage ladder | Campaign Ch.8 | Gold + XP (champion leveling) + Shards (level cap) |
+| **Dungeon** (`dungeon`) | 4v4 | Infinite stage ladder | Campaign Ch.10 | Ascension Cores only |
+
+Dungeon is deliberately different in *kind*, not just reward: every
+enemy in `DUNGEON_WAVE_1` leads with a debuff instead of raw damage
+(Stun / Poison / Defense+Attack Down / Stun+Speed Down) rather than
+scaling up plain stat numbers like the other three. A team with
+Resistance or self-cleanse (Vara's Bulwark Slam) clears it far more
+reliably than a same-power team without that — the "strategy pushes
+you further than raw stats" hook the user asked for when this mode was
+designed. Keep that principle for any future mode: a new mode earns
+its place by testing something *different* (turn economy, debuff
+mitigation, burst vs. sustain, counter-picking), not by being Tower
+with bigger numbers.
 
 Implementation notes:
 - **Fixed vs. infinite**: `ENCOUNTERS[id].fixedChapters` (an array of
@@ -187,9 +213,9 @@ Implementation notes:
   passes stage `1` to `scaledEnemyTemplate` for such encounters instead
   of the real stage, so a chapter's authored numbers ARE its
   difficulty, forever. `getSelectedStage`/`setSelectedStage` both cap
-  at `fixedChapters.length` so there's no "Chapter 9" once the 8
-  chapters are cleared — Tower/Faction Wars/World Boss have no such
-  cap (`Infinity`), matching their infinite-ladder nature.
+  at `fixedChapters.length` so there's no "Chapter 11" once all 10
+  chapters are cleared — Tower/Faction Wars/Main Boss/Dungeon have no
+  such cap (`Infinity`), matching their infinite-ladder nature.
 - **Unlock UI**: a locked node's start button is `disabled` and its
   stage label reads "Locked — Campaign Ch. N" (`isContentUnlocked`,
   wired into `renderStageLabels`) rather than being hidden — the gate
@@ -198,16 +224,24 @@ Implementation notes:
 - **Reward purity**: every `ENCOUNTER_*_REWARD` / `ENCOUNTER_DROPS` /
   `GEAR_REWORK_CATALYST_CHANCE` table only has entries for the mode(s)
   that actually own that material — e.g. `ENCOUNTER_GOLD_REWARD` has
-  only `campaign` and `worldboss` keys. `endBattle` guards every reward
+  only `campaign` and `mainboss` keys. `endBattle` guards every reward
   block with `if (reward > 0)` so a mode that doesn't grant something
   never shows a useless "+0 X" line.
 - Champion leveling itself (Gold/XP spend, level curve, Shard-gated
   cap) is unchanged from when it was Boss/Wave/Champion-Trial-agnostic
-  — see the leveling bullet above; only World Boss feeds it now.
-- The Warlord-tier enemy in both World Boss and Campaign's Chapter 8
-  capstone sets `isBoss: true`, reusing the generic devour-a-debuff-
-  for-Fury mechanic (`hollowKingMechanic` — not actually Hollow-King-
-  specific, it triggers off `actor.isBoss`) rather than a parallel one.
+  — see the leveling bullet above; only Main Boss feeds it now.
+- The Warlord-tier enemy in Main Boss, Dungeon's Warden, and Campaign's
+  Chapter 8/10 capstones all set `isBoss: true`, reusing the generic
+  devour-a-debuff-for-Fury mechanic (`hollowKingMechanic` — not
+  actually Hollow-King-specific, it triggers off `actor.isBoss`) rather
+  than a parallel one.
+- Naming history: this framework replaced the original `boss`/`wave`/
+  `champion` encounters — Tower *is* the old Boss content (same
+  `BOSS_WAVE` squad), Faction Wars *is* the old Wave content
+  (`WAVE_1/2/3`), Main Boss *is* the old Champion Trial
+  (`CHAMPION_TRIAL`, variable name kept as-is). Renaming an
+  `ENCOUNTERS` id resets that mode's `stageProgress` (a fresh key) —
+  fine pre-launch, would need a migration if done post-launch.
 
 Manual "Farm Gear" / "Farm Charms" buttons in the Armory remain as a
 testing/manual shortcut alongside real battle drops — not the only
@@ -258,22 +292,41 @@ acquisition path anymore.
 
 ## Next up (not yet built)
 
-The full content framework is built: Campaign (the gate, 8 fixed
-chapters), Tower/Faction Wars/World Boss (each single-material
-specialists, unlocked by Campaign progress), Champion leveling,
-and Gear Rework — see "Systems that exist today" and "Content
-framework" above. Note: "Rework node" turned out to mean gear
-substat/set/stat-value rerolls, not a champion build-choice system —
-champions still have zero build choices, so a champion-facing Rework
-is not on the table until one exists.
+The content framework's first five modes are built: Campaign (the
+gate, 10 fixed chapters), Tower/Faction Wars/Main Boss/Dungeon (each
+single-material specialists unlocked by Campaign progress), Champion
+leveling, Ascension, and Gear Rework — see "Systems that exist today"
+and "Content framework" above.
+
+The user's full target roster is **Main Boss, Faction Wars, Tower,
+Dungeon, Galactic Challenge/War, Grand Arena** — the first four exist;
+**Galactic Challenge/War** and **Grand Arena** are the two still to
+build, one at a time per the user's explicit preference (build, test,
+ship one before starting the next):
+- **Galactic Challenge/War**: proposed design (confirmed with the
+  user, not yet built) — one continuous multi-wave siege, no retreat,
+  enemies gain a stacking buff each wave (punishes slow/grindy clears,
+  rewards burst/AoE). No new specialist material — pays a bulk
+  Scrap+Gold+XP payout instead, the "big generic farm" node. Since
+  there's no server/multiplayer, this can't be real PvP - it's a
+  single-player siege gauntlet, not a war against anything.
+- **Grand Arena**: proposed design (confirmed with the user, not yet
+  built) — PvE vs. pre-built AI archetype squads (Aggro/Control/
+  Stall/Burst) that actually use their full kit intelligently (unlike
+  the simple AI other content uses), so it tests counter-picking, not
+  just stat totals. Reward: a new Arena Medal currency for an
+  Arena-exclusive gear/accessory pool not available anywhere else.
+
+Note: "Rework node" turned out to mean gear substat/set/stat-value
+rerolls, not a champion build-choice system — champions still have
+zero build choices, so a champion-facing Rework is not on the table
+until one exists (see the champion build-choice bullet below).
 
 Longer-term, deferred until asked for:
 - A **Charm Upgrade** to pair with the new Charm Reforge — gear has
   both Upgrade (level a piece's rolled values) and Reforge; charms
   only have Reforge + Salvage so far. Revisit if charm power creep
   becomes an issue.
-- Campaign currently stops at 8 chapters; extending it (more chapters,
-  possibly new unlock gates for further-out content) once the 4-mode
-  framework proves out.
 - A champion build-choice system (talent variants, stat-path choices,
-  etc.) — see the Rework note above; nothing like this exists yet.
+  etc.) — nothing like this exists yet; a champion-facing Rework mode
+  would need it first.
