@@ -221,6 +221,22 @@
     border-top: 1px solid #2a2a3a;
   }
   #actionsWrap.waiting { align-items: center; padding-top: 10px; padding-bottom: 10px; }
+  #autoRow { display: flex; flex-direction: row; gap: 4px; }
+  .autoBtn {
+    flex: 1 1 0;
+    min-width: 0;
+    background: #23233a;
+    border: 1px solid #4c1d95;
+    color: #ddd;
+    padding: 4px 3px;
+    border-radius: 7px;
+    font-size: 0.56rem;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .autoBtn.active { background: #4c1d95; border-color: #a78bfa; color: #fff; }
   #skillRow { display: flex; flex-direction: row; gap: 4px; }
   .skillBtn {
     flex: 1 1 0;
@@ -293,6 +309,19 @@
     font-size: 0.85rem;
   }
   #logOverlay #logFull div { margin-bottom: 4px; font-size: 0.8rem; }
+  .autoPriorityRow {
+    background: #1a1a26;
+    border: 1px solid #2f2f45;
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+  }
+  .autoPriorityName { font-weight: 600; color: #a78bfa; margin-bottom: 4px; }
+  .autoPriorityRow label { display: block; font-size: 0.78rem; color: #ddd; margin-bottom: 4px; }
+  .autoPrioritySwapBtn {
+    background: #23233a; border: 1px solid #4c1d95; color: #ddd;
+    padding: 4px 10px; border-radius: 7px; font-size: 0.72rem; margin-top: 2px;
+  }
   .logSys { color: #7dd3fc; }
   .logDmg { color: #fca5a5; }
   .logHeal { color: #86efac; }
@@ -459,6 +488,11 @@
   <div class="unitZone" id="teamList"></div>
 
   <div id="actionsWrap">
+    <div id="autoRow">
+      <button id="autoToggleBtn" class="autoBtn">AUTO: OFF</button>
+      <button id="autoBasicToggleBtn" class="autoBtn">BASIC ONLY: OFF</button>
+      <button id="autoPriorityBtn" class="autoBtn">⚙ PRIORITY</button>
+    </div>
     <div id="skillRow"></div>
     <div id="detailRow">
       <div id="skillDetail"></div>
@@ -470,6 +504,12 @@
 <div class="overlay" id="logOverlay">
   <button class="overlayClose" data-close="logOverlay">Close</button>
   <div id="logFull"></div>
+</div>
+
+<div class="overlay" id="autoPriorityOverlay">
+  <button class="overlayClose" data-close="autoPriorityOverlay">Close</button>
+  <h2 style="text-align:center;font-size:1rem;margin:0 0 10px;">AUTO SKILL PRIORITY</h2>
+  <div id="autoPriorityList"></div>
 </div>
 
 <div class="overlay" id="resultOverlay">
@@ -2644,6 +2684,67 @@
   var highlightedSlot = 'basic'; // which of basic/active1/active2/passive/signature is previewed in the detail panel
   var currentEncounterId, currentWaves, currentTeamIds, waveIndex, currentStage;
 
+  // ---------------------------------------------------------------
+  // AUTO BATTLE (player side): a toggleable auto-play mode that reuses
+  // the exact same playerChooseAbility/playerChooseTarget pipeline
+  // manual clicks go through, so mechanics (cooldowns, Silence, extra
+  // turns) stay identical - only the decision of "which skill, which
+  // target" is automated. `autoBattleOn`/`autoBasicOnly` are pure
+  // runtime state, deliberately NOT persisted or carried into a
+  // resumed battle - like Raid's own Auto toggle, every battle starts
+  // manual and the player opts back in, so a forgotten toggle can't
+  // silently burn a real fight. Only the per-champion skill-priority/
+  // enable config persists (`AUTO_CONFIG_KEY`), same durability class
+  // as equipped gear - it's a loadout preference, not battle state.
+  // ---------------------------------------------------------------
+  var autoBattleOn = false;
+  var autoBasicOnly = false; // global override: ignore actives entirely, always Basic (fast/cheap trash clears)
+  var AUTO_CONFIG_KEY = 'machineborn_auto_config_v1';
+  function loadAutoConfig() {
+    try { var raw = localStorage.getItem(AUTO_CONFIG_KEY); return raw ? JSON.parse(raw) : {}; } catch (e) { return {}; }
+  }
+  function saveAutoConfig() {
+    try { localStorage.setItem(AUTO_CONFIG_KEY, JSON.stringify(autoConfig)); } catch (e) { /* private mode / quota */ }
+  }
+  var autoConfig = loadAutoConfig(); // { [championId]: { active1: true, active2: true, active2First: true } }
+  function autoConfigFor(id) {
+    return autoConfig[id] || { active1: true, active2: true, active2First: true };
+  }
+  function setAutoConfigFor(id, patch) {
+    autoConfig[id] = Object.assign({}, autoConfigFor(id), patch);
+    saveAutoConfig();
+  }
+
+  // Standard priority is highest-slot-first (Active2 > Active1 > Basic,
+  // same convention the user asked for), but per-champion `active2First`
+  // can flip that, and either active can be disabled entirely (kept in
+  // reserve rather than auto-spent) via autoConfig - Raid's own
+  // skill-priority/toggle pattern, just scoped to this game's
+  // basic/active1/active2 kit (no third active here).
+  function autoChooseKindAndTarget(actor) {
+    var kind = 'basic';
+    if (!autoBasicOnly) {
+      var cfg = autoConfigFor(actor.id);
+      var order = cfg.active2First === false ? ['active1', 'active2'] : ['active2', 'active1'];
+      var usable = availableActiveKinds(actor).filter(function (k) { return cfg[k] !== false; });
+      var picked = order.filter(function (k) { return usable.indexOf(k) !== -1; })[0];
+      if (picked) kind = picked;
+    }
+    var ability = actor[kind];
+    var pool = (ability.targetType === 'ally') ? aliveTeam() : aliveEnemies();
+    var target = lowestHpAlly(pool);
+    if (!target) return null;
+    return { kind: kind, target: target };
+  }
+
+  function runAutoTurn(actor) {
+    if (!autoBattleOn || !pendingAction || pendingAction.actor !== actor || battleOver) return;
+    var decision = autoChooseKindAndTarget(actor);
+    if (!decision) return;
+    playerChooseAbility(decision.kind);
+    playerChooseTarget(decision.target);
+  }
+
   function spawnWave(templates, stage) {
     // Campaign chapters are fixed difficulty, not the infinite ladder -
     // their own numbers ARE the difficulty, so scaling is a no-op (stage 1).
@@ -2688,6 +2789,8 @@
     pendingAction = null;
     extraTurnChain = 0;
     extraTurnPending = null;
+    autoBattleOn = false;
+    autoBasicOnly = false;
     clearLog();
     logLine('logSys', 'A new encounter begins. (Stage ' + currentStage + ')');
     wireEventHooks();
@@ -2777,7 +2880,7 @@
       SCRAP_KEY, CHARM_DUST_KEY, GOLD_KEY, SHARDS_KEY, SUMMON_SHARD_KEY, ARENA_MEDAL_KEY, ASCENSION_CORE_KEY,
       SET_CATALYST_KEY, STAT_CATALYST_KEY, SUBSTAT_CATALYST_KEY,
       CHAMPION_PROGRESS_KEY, CHAMPION_ROSTER_KEY, LEVEL_CAP_KEY,
-      STAGE_PROGRESS_KEY, SAVE_KEY
+      STAGE_PROGRESS_KEY, SAVE_KEY, AUTO_CONFIG_KEY
     ];
   }
 
@@ -2819,6 +2922,8 @@
     battleOver = false;
     extraTurnChain = 0;
     extraTurnPending = null;
+    autoBattleOn = false;
+    autoBasicOnly = false;
     highlightedSlot = saved.highlightedSlot || 'basic';
     clearLog();
     (saved.log || []).forEach(function (entry) { logLine(entry.cls, entry.text); });
@@ -3384,6 +3489,7 @@
       pendingAction = { actor: actor, chosen: 'basic' };
       highlightedSlot = 'basic';
       render();
+      if (autoBattleOn) setTimeout(function () { runAutoTurn(actor); }, 450);
     }
   }
 
@@ -3705,6 +3811,7 @@
   // EVENT WIRING (UI)
   // ---------------------------------------------------------------
   document.getElementById('skillRow').addEventListener('click', function (e) {
+    if (autoBattleOn) return; // auto drives skill/target choice itself - manual input is disabled while it's on, same as toggling Auto in Raid
     var btn = e.target.closest('.skillBtn');
     if (!btn) return;
     var slot = btn.getAttribute('data-slot');
@@ -3713,6 +3820,7 @@
   });
 
   document.getElementById('enemyList').addEventListener('click', function (e) {
+    if (autoBattleOn) return;
     var card = e.target.closest('.unitCard.targetable');
     if (!card) return;
     var uid = card.getAttribute('data-uid');
@@ -3721,6 +3829,7 @@
   });
 
   document.getElementById('teamList').addEventListener('click', function (e) {
+    if (autoBattleOn) return;
     var card = e.target.closest('.unitCard.targetable');
     if (!card) return;
     var uid = card.getAttribute('data-uid');
@@ -3736,6 +3845,62 @@
     btn.addEventListener('click', function () {
       document.getElementById(btn.getAttribute('data-close')).classList.remove('show');
     });
+  });
+
+  function updateAutoButtons() {
+    var autoBtn = document.getElementById('autoToggleBtn');
+    autoBtn.textContent = 'AUTO: ' + (autoBattleOn ? 'ON' : 'OFF');
+    autoBtn.classList.toggle('active', autoBattleOn);
+    var basicBtn = document.getElementById('autoBasicToggleBtn');
+    basicBtn.textContent = 'BASIC ONLY: ' + (autoBasicOnly ? 'ON' : 'OFF');
+    basicBtn.classList.toggle('active', autoBasicOnly);
+  }
+
+  function renderAutoPriorityList() {
+    document.getElementById('autoPriorityList').innerHTML = team.map(function (u) {
+      var cfg = autoConfigFor(u.id);
+      var html = '<div class="autoPriorityRow"><div class="autoPriorityName">' + u.name + '</div>' +
+        '<label><input type="checkbox" data-id="' + u.id + '" data-kind="active1"' + (cfg.active1 !== false ? ' checked' : '') + '> ' + u.active1.name + '</label>';
+      if (u.active2) {
+        html += '<label><input type="checkbox" data-id="' + u.id + '" data-kind="active2"' + (cfg.active2 !== false ? ' checked' : '') + '> ' + u.active2.name + '</label>' +
+          '<button class="autoPrioritySwapBtn" data-id="' + u.id + '">Priority: ' +
+          (cfg.active2First === false ? (u.active1.name + ' &gt; ' + u.active2.name) : (u.active2.name + ' &gt; ' + u.active1.name)) +
+          '</button>';
+      }
+      return html + '</div>';
+    }).join('');
+  }
+
+  document.getElementById('autoToggleBtn').addEventListener('click', function () {
+    autoBattleOn = !autoBattleOn;
+    updateAutoButtons();
+    if (autoBattleOn && pendingAction) setTimeout(function () { runAutoTurn(pendingAction.actor); }, 300);
+  });
+
+  document.getElementById('autoBasicToggleBtn').addEventListener('click', function () {
+    autoBasicOnly = !autoBasicOnly;
+    updateAutoButtons();
+  });
+
+  document.getElementById('autoPriorityBtn').addEventListener('click', function () {
+    renderAutoPriorityList();
+    document.getElementById('autoPriorityOverlay').classList.add('show');
+  });
+
+  document.getElementById('autoPriorityList').addEventListener('change', function (e) {
+    var input = e.target.closest('input[type="checkbox"]');
+    if (!input) return;
+    var patch = {};
+    patch[input.getAttribute('data-kind')] = input.checked;
+    setAutoConfigFor(input.getAttribute('data-id'), patch);
+  });
+
+  document.getElementById('autoPriorityList').addEventListener('click', function (e) {
+    var btn = e.target.closest('.autoPrioritySwapBtn');
+    if (!btn) return;
+    var id = btn.getAttribute('data-id');
+    setAutoConfigFor(id, { active2First: autoConfigFor(id).active2First === false });
+    renderAutoPriorityList();
   });
 
   function beginEncounter(encounterId, teamIds, stage) {

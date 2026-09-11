@@ -90,6 +90,7 @@ dependencies, no server). Served via GitHub Pages at
 | `machineborn_arena_medal_v1` | Arena Medal currency (a number) — Grand Arena's economy, spent on Arena Pulls (guaranteed Vanguard-set gear, otherwise unobtainable) | Persistent |
 | `machineborn_summon_shard_v1` | Summon Shard currency (a number) — Main Boss's second reward, spent on champion Summon pulls | Persistent |
 | `machineborn_champion_roster_v1` | Array of owned champion ids — only `STARTER_CHAMPION_IDS` start owned; everything since must be summoned | Persistent |
+| `machineborn_auto_config_v1` | `{ championId: { active1, active2, active2First } }` — per-champion Auto Battle skill priority/enable config | Persistent |
 
 Every inventory is a flat array of independent rolled instances keyed
 by a generated `instanceId`; equipping references an instance by ID.
@@ -290,9 +291,10 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
 14. **New Game / reset** (`resetGame`, `allSaveKeys`): battle-in-
     progress save (`machineborn_save_v1`) already existed; this is the
     account-progress counterpart — every persistent key the game
-    writes (all 18: equipment/gear/charm inventories, every currency,
+    writes (all 19: equipment/gear/charm inventories, every currency,
     champion progress/roster, level cap, stage progress, the mid-battle
-    save) in one list, referenced by each key's own `_KEY` constant
+    save, the auto-battle skill-priority config) in one list, referenced
+    by each key's own `_KEY` constant
     rather than retyped as a string literal so a future new economy
     can't silently be left out of a reset. `allSaveKeys` is a function
     (not a top-level array) purely so it can be declared anywhere in
@@ -309,6 +311,55 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
     testing methodology (`localStorage.clear()` + reload). No new
     persistence mechanism was needed - resetting is just "remove
     everything, let the existing defaults do their job."
+15. **Auto Battle** (`autoBattleOn`/`autoChooseKindAndTarget`/
+    `runAutoTurn`): a Raid-style auto-play toggle scoped to this game's
+    basic/active1/active2 kit (there's no third active here, so
+    "priority" only ever orders two actives against each other, not
+    three). Deliberately reuses the exact same
+    `playerChooseAbility`/`playerChooseTarget` pipeline manual clicks
+    go through — auto only decides *which* skill and *which* target,
+    every mechanic downstream (cooldowns, Silence, extra turns) is
+    identical to manual play, nothing was reimplemented in parallel.
+    - **Standard priority is highest-slot-first** (Active2 > Active1 >
+      Basic, the convention the user asked for): `autoChooseKindAndTarget`
+      walks `availableActiveKinds(actor)` (the same off-cooldown/
+      not-Silenced filter Grand Arena's AI already used) in priority
+      order and falls back to Basic if nothing usable is enabled.
+    - **Per-champion config** (`AUTO_CONFIG_KEY`,
+      `machineborn_auto_config_v1`, `{ [championId]: { active1,
+      active2, active2First } }`) lets either active be disabled
+      entirely (kept in reserve, never auto-spent) or the priority
+      order flipped to Active1-first — same "toggle off / reorder"
+      controls Raid's own skill-priority screen offers, via the
+      in-battle ⚙ PRIORITY panel (`renderAutoPriorityList`,
+      `#autoPriorityOverlay`). Config keys are read with `!== false`/
+      `=== false` checks rather than requiring all three keys present,
+      so a partial stored object (only one key ever touched) still
+      falls back to the documented defaults for the rest.
+    - **BASIC ONLY** (`autoBasicOnly`) is a separate global override
+      button, not a per-champion setting — the user's own framing was
+      "just get through the wave and save abilities," a blunt
+      fight-level choice, not a loadout preference — so it skips the
+      whole priority branch and always picks Basic, regardless of any
+      champion's individual config.
+    - **Targeting** reuses `lowestHpAlly` (already generic — despite
+      the name, it just finds lowest-HP%-of-list, used elsewhere for
+      both ally and foe lists) against `aliveTeam()` for
+      `targetType: 'ally'` actives (heals/buffs/shields) or
+      `aliveEnemies()` otherwise — the same "support the neediest
+      ally / finish the squishiest foe" heuristic Grand Arena's Stall/
+      Aggro archetypes already use, not a new targeting concept.
+    - **Deliberately NOT persisted**: `autoBattleOn`/`autoBasicOnly`
+      reset to off on every `newBattle`/`resumeBattle` — same as
+      Raid's own Auto toggle, so a forgotten toggle from a prior fight
+      can never silently burn a real one. Only the skill-priority/
+      enable config persists (account-wide, like equipped gear), and
+      it's included in `allSaveKeys()` for New Game reset.
+    - Manual skill/target clicks are ignored (`if (autoBattleOn)
+      return;` guards on the `#skillRow`/`#enemyList`/`#teamList`
+      click handlers) while Auto is on, rather than letting both
+      inputs race — toggle Auto off to act manually again, matching
+      Raid's own behavior.
 
 ## Content framework
 
