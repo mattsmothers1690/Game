@@ -2135,25 +2135,44 @@
   ];
   var CAMPAIGN_CH1_STAGE_COUNT = CAMPAIGN_CH1_STAGES.length;
 
-  // Chapter N (N>=2) -> "Chapter N-1" display before this rework, now
-  // just "Chapter N" - Chapter 1's 12 stages sit in front of these
-  // unchanged fights, shifting them all up by one chapter number.
+  // Generalizes "which chapter, which stage within it" for ANY flat
+  // Campaign stage index, given each chapter's length in
+  // CAMPAIGN_CHAPTER_LENGTHS (Chapter 1 = 12, every chapter after it =
+  // 3: regular/mini-boss/boss). Declared as a function (not computed
+  // once) so it can be called safely before CAMPAIGN_CHAPTER_LENGTHS is
+  // assigned further down the file - by the time anything actually
+  // calls this, script init has long finished.
+  function campaignChapterInfo(stage) {
+    var remaining = stage;
+    for (var i = 0; i < CAMPAIGN_CHAPTER_LENGTHS.length; i++) {
+      var len = CAMPAIGN_CHAPTER_LENGTHS[i];
+      if (remaining <= len) return { chapter: i + 1, subStage: remaining, subStageTotal: len };
+      remaining -= len;
+    }
+    var lastIdx = CAMPAIGN_CHAPTER_LENGTHS.length - 1;
+    return { chapter: CAMPAIGN_CHAPTER_LENGTHS.length, subStage: CAMPAIGN_CHAPTER_LENGTHS[lastIdx], subStageTotal: CAMPAIGN_CHAPTER_LENGTHS[lastIdx] };
+  }
+
+  // "Chapter N - Stage M/T" for every chapter now, Chapter 1 included -
+  // once every chapter after it also got its own mini-boss/boss
+  // sub-stages, there was no reason for Chapter 1 to be the only one
+  // showing a sub-stage count.
   function campaignStageLabel(stage) {
-    if (stage <= CAMPAIGN_CH1_STAGE_COUNT) return 'Chapter 1 - Stage ' + stage + '/' + CAMPAIGN_CH1_STAGE_COUNT;
-    return 'Chapter ' + (stage - CAMPAIGN_CH1_STAGE_COUNT + 1);
+    var info = campaignChapterInfo(stage);
+    return 'Chapter ' + info.chapter + ' - Stage ' + info.subStage + '/' + info.subStageTotal;
   }
 
   // Victory-screen "X cleared - Y unlocked!" text for Campaign
-  // specifically, since it's no longer one flat "Chapter N" per stage -
-  // Chapter 1's internal stages say "Stage N", the Chapter 1 -> 2
-  // transition (and every chapter boundary after it) says "Chapter N".
+  // specifically. Within any chapter: "Stage M cleared - Stage M+1
+  // unlocked!" (M relative to that chapter, e.g. "Stage 2/3", never the
+  // flat global index). At a chapter's last stage: "Chapter N cleared -
+  // Chapter N+1 unlocked!", or "...Campaign complete!" at the very end.
   function campaignClearMessage(stage, maxStage) {
-    if (stage < CAMPAIGN_CH1_STAGE_COUNT) return 'Stage ' + stage + ' cleared — Stage ' + (stage + 1) + ' unlocked!';
-    if (stage === CAMPAIGN_CH1_STAGE_COUNT) return 'Chapter 1 cleared — Chapter 2 unlocked!';
-    var chapterNow = stage - CAMPAIGN_CH1_STAGE_COUNT + 1;
+    var info = campaignChapterInfo(stage);
+    if (info.subStage < info.subStageTotal) return 'Stage ' + info.subStage + ' cleared — Stage ' + (info.subStage + 1) + ' unlocked!';
     return stage < maxStage
-      ? 'Chapter ' + chapterNow + ' cleared — Chapter ' + (chapterNow + 1) + ' unlocked!'
-      : 'Chapter ' + chapterNow + ' cleared — Campaign complete!';
+      ? 'Chapter ' + info.chapter + ' cleared — Chapter ' + (info.chapter + 1) + ' unlocked!'
+      : 'Chapter ' + info.chapter + ' cleared — Campaign complete!';
   }
 
   // Guaranteed, deterministic champion unlocks baked into Chapter 1's
@@ -2185,22 +2204,47 @@
     10: "The same \"wrong warband\" pattern is being reported on three other borders that were never Ashenwall's problem.",
     11: 'The warband regroups under its hardest veterans — coordinated in a way raiders like this have no business being.',
     12: "The Chapter Warlord. The warband's chieftain — and the first named enemy who is clearly no longer deciding his own next move.",
+    // Chapters 2-11 (Stages 13-42): each chapter is now 3 stages of its
+    // own - a regular fight, a mini-boss at the chapter's halfway
+    // point, and a boss at the end - same shape Chapter 1 already uses
+    // one tier further out. Every named mini-boss/boss below matches
+    // the actual enemy in CAMPAIGN_CH*A/B/C.
     13: 'A border far from Ashenwall reports the same wrongness. This was never just a local problem.',
-    14: 'Deeper into contested ground, the pattern holds everywhere it\'s checked: corrupted wildlife, then corrupted will.',
-    15: 'For the first time in living memory, the four banners quietly pool scouts and veterans instead of defending four borders alone.',
-    16: 'It stops looking like wildlife and banditry. Something is organizing out here — and being worshipped for it.',
-    17: 'The Ashen Cult recruits openly now, drawing in the desperate and the already-touched alike.',
-    18: 'Hardened raiders who were once just mercenaries now fight for the cult\'s banner without hesitation.',
-    19: "The cult's ranks swell past anything a warband should sustain. Someone is holding it all together.",
-    20: 'The Campaign Warlord unites every scattered warband — including the remnants of the very first one — under a single banner.',
-    21: "The cultists stop looking like people wearing the hunger's favor. They start looking like thin places where it pours straight through.",
-    22: 'The Herald. Not the Hollow King itself — the first shape it has bothered wearing into the world directly.'
+    14: "One raider doesn't break like the rest — bigger, slower to anger, and the last one standing.",
+    15: 'Whatever answers to "Warchief" out here commands the whole warband, and commands it too well for a bandit.',
+    16: "Deeper into contested ground, the pattern holds everywhere it's checked: corrupted wildlife, then corrupted will.",
+    17: 'A Bramble Brute holds the thicket alone against three, and very nearly wins.',
+    18: 'The thicket itself answers to something rooted here long before any bramble grew.',
+    19: 'For the first time in living memory, the four banners quietly pool scouts and veterans instead of defending four borders alone.',
+    20: "The Fen Warden doesn't flee into the bog like the stalkers do. It waits there, like it's guarding something.",
+    21: "The Fen Matriarch rises from water that shouldn't be deep enough to hide her.",
+    22: 'It stops looking like wildlife and banditry. Something is organizing out here — and being worshipped for it.',
+    23: 'An Iron Archer holds the ridge alone, patient and far too accurate for a deserter.',
+    24: 'The Centurion still wears an Ironclad rank insignia. Nobody wants to ask what that means yet.',
+    25: 'The Ashen Cult recruits openly now, drawing in the desperate and the already-touched alike.',
+    26: 'A Steel Marksman picks off stragglers from a range no honest soldier should be able to hit.',
+    27: "The High Priest doesn't fight like a soldier. He fights like someone who's already died once and resents the interruption.",
+    28: "Hardened raiders who were once just mercenaries fight for the cult's banner now without hesitation.",
+    29: 'The Overseer doesn\'t attack so much as slow everything around it to a crawl.',
+    30: 'The Warmaster commands like he trained for exactly this, on the losing side of a war nobody else remembers.',
+    31: 'The cult\'s ranks swell past anything a warband should sustain. Someone is holding it all together.',
+    32: "The Ashen Enforcer doesn't preach like the cultists. It just breaks whatever's put in front of it.",
+    33: 'The Reaver moves like dusk itself — the last clear look anyone gets before the real dark starts.',
+    34: 'Elite Guards hold this line with real discipline — professionals, not fanatics, which is somehow worse.',
+    35: "A second Enforcer, worse than the last. Whatever it's being fed to fight this hard, it isn't food.",
+    36: 'The Campaign Warlord unites every scattered warband — including the remnants of the very first one — under a single banner.',
+    37: 'The same "wrong warband" pattern, but colder now — less rage, more purpose.',
+    38: "The Void Harbinger doesn't bleed like the others. It leaks, and the ground where it stood stays wrong.",
+    39: "The cultists stop looking like people wearing the hunger's favor. The Devourer looks like the hunger wearing a person.",
+    40: 'Herald Guards hold the approach without fear, without hesitation, without anything that reads as a person underneath.',
+    41: 'The Hollow Acolyte speaks before it falls — not words, just the sense of being closely, patiently listened to.',
+    42: 'The Herald. Not the Hollow King itself — the first shape it has bothered wearing into the world directly.'
   };
 
   // The payoff half of CAMPAIGN_STORY - one line per stage, shown on
   // the victory screen only (a loss doesn't earn the consequence of a
-  // win), same flat 1-22 indexing. Written as a direct continuation of
-  // the matching CAMPAIGN_STORY entry, not a restatement of it.
+  // win), same flat indexing. Written as a direct continuation of the
+  // matching CAMPAIGN_STORY entry, not a restatement of it.
   var CAMPAIGN_STORY_AFTER = {
     1: "The rats scatter. Whatever's making them this bold hasn't shown itself yet.",
     2: 'The boar drops. Its hide is thicker than it should be for something this young.',
@@ -2215,114 +2259,276 @@
     11: 'The veterans fall in disciplined order, to the last. Discipline like that does not come from panic.',
     12: 'The Chapter Warlord falls, and something in him seems almost relieved to stop moving.',
     13: 'Another border, another warband broken. The reports keep arriving faster than the victories.',
-    14: 'The pattern holds. So does the patrol — for now.',
-    15: 'Ironclad, Blightkin, Stormcaller, and Deathmark banners share a camp tonight without incident. A first.',
-    16: "The cultists don't flee like bandits do. They kneel, and keep chanting, until the end.",
-    17: 'New robes on old raiders. The Ashen Cult recruits faster than it can be thinned.',
-    18: "Even the mercenaries fight like true believers now. That's the part that worries the captains.",
-    19: 'Whoever is holding this army together is close. Every captured banner points the same direction.',
-    20: "The Campaign Warlord falls. The remaining warbands don't scatter — they wait, like they're expecting someone else.",
-    21: 'Where the Harbinger stood, the air stays wrong long after the fighting stops.',
-    22: 'The Herald shatters like something hollow finally given a reason to break. The Hollow King is still out there.'
+    14: "The Brute goes down alone. Whatever discipline held the others together doesn't reach this far down the chain.",
+    15: "The Warchief falls. What's left of the warband doesn't celebrate — it just waits for the next one.",
+    16: 'The pattern holds. So does the patrol — for now.',
+    17: 'The Brute breaks, buried under its own thorns. Something planted those thorns on purpose.',
+    18: "The Ancient falls, and the whole thicket goes quiet at once — the kind of quiet that isn't relief.",
+    19: 'Ironclad, Blightkin, Stormcaller, and Deathmark banners share a camp tonight without incident. A first.',
+    20: 'The Warden falls face-first into water too still to be natural. Nobody looks too closely at what\'s underneath.',
+    21: 'The Matriarch sinks back into the fen the moment she falls, like the water was only ever waiting to reclaim her.',
+    22: 'New robes on old raiders. The Ashen Cult recruits faster than it can be thinned.',
+    23: "The Archer's last shot goes wide — the first mistake it's made all fight, and the only one it gets.",
+    24: 'The Centurion falls with the insignia still pinned to his coat. Someone will have to write that report eventually.',
+    25: "Even the desperate keep coming. Belief, it turns out, doesn't need much to take root.",
+    26: "The Marksman's aim finally fails it, half a second too late to matter to anyone it already hit.",
+    27: 'The High Priest falls still speaking. Whatever he was praying to wasn\'t listening any more than it usually does.',
+    28: 'Even the mercenaries fought like true believers. That\'s the part that will worry the captains later.',
+    29: "The Overseer's grip breaks. Everything it slowed lurches back to full speed at once, all together, too fast.",
+    30: 'The Warmaster falls remembering, out loud, a war none of his killers have ever heard of.',
+    31: 'Whoever is holding this army together is close. Every captured banner points the same direction.',
+    32: 'The Enforcer stops breaking things only once there\'s nothing left standing to break.',
+    33: 'The Reaver shatters like dusk giving way to something that was always going to arrive anyway.',
+    34: "The guards hold their discipline to the very end. It doesn't save them, but it says something that they tried.",
+    35: "The second Enforcer falls harder than the first. Whatever's feeding these things is getting less careful.",
+    36: "The Campaign Warlord falls. The remaining warbands don't scatter — they wait, like they're expecting someone else.",
+    37: 'The pattern is colder here than anywhere else it\'s shown up. Fewer mistakes. No hesitation at all.',
+    38: 'Where the Harbinger stood, the air stays wrong long after the fighting stops.',
+    39: 'The Devourer shatters, and for one moment the ground underneath sounds almost relieved.',
+    40: 'The Herald Guards fall in perfect order, to the last, exactly the way they were always going to.',
+    41: "The Acolyte's silence, after, is worse than anything it said while it was still standing.",
+    42: 'The Herald shatters like something hollow finally given a reason to break. The Hollow King is still out there.'
   };
 
   // ---------------------------------------------------------------
-  // CAMPAIGN CHAPTERS 2-11 - the original Chapters 1-10, now shifted up
-  // one chapter number by Chapter 1's new stages above. Still
-  // fixed-difficulty content, deliberately NOT the infinite
+  // CAMPAIGN CHAPTERS 2-11 - the original Chapters 1-10, shifted up one
+  // chapter number by Chapter 1's own stages above, and now EACH split
+  // into 3 stages of its own (regular -> mini-boss at the chapter's
+  // halfway point -> boss at the end), mirroring the mini-boss(Stage 9)
+  // / boss(Stage 12) shape Chapter 1 already uses, one tier further
+  // out. Still fixed-difficulty content, deliberately NOT the infinite
   // 1.12^(stage-1) ladder the other modes use (see spawnWave's
-  // `fixedChapters` check). Each chapter's numbers ARE its difficulty;
-  // replaying an old chapter is always the same fight, never harder.
-  // Campaign is the account-wide gate (CONTENT_UNLOCKS below) other
-  // modes check - it has no farmable specialty of its own beyond a
-  // small Scrap/Gold trickle, on purpose, so every other mode still
+  // `fixedChapters` check) - every stage's numbers ARE its difficulty,
+  // forever. Campaign is the account-wide gate (CONTENT_UNLOCKS below)
+  // other modes check - it has no farmable specialty of its own beyond
+  // a small Scrap/Gold trickle, on purpose, so every other mode still
   // earns its own visit.
   //
-  // RETUNED (numbers below are the second pass, not the original): the
-  // original numbers were hand-tuned to climb gently across a level-1,
-  // all-Legendary 3-champion squad (~200 total atk). Once Chapter 1
-  // flipped the starters to a weak Common/Rare trio, the squad actually
-  // arriving here is whichever 3 of the 5 post-Chapter-1 champions
-  // (3 starters + Bastian + Vara) the player picks - best case something
-  // like Vara+Bastian+Squall, ~163 total atk, meaningfully less burst
-  // than the original all-Legendary baseline despite similar HP/DEF.
-  // Verified via probe (`probe_ch2_11.js`, 8 trials/stage, that exact
-  // squad, no gear/levels - the same pessimistic-floor methodology
-  // Chapter 1 used): the original numbers came back 8/8 for Chapters
-  // 2-8 (no climb at all) then fell off a cliff to 3/8 at Chapter 9's
-  // boss and 1/8 at both Chapter 10 (a plain chapter, not even a
-  // capstone) and Chapter 11's finale - backwards pacing where the
-  // non-boss chapter was harder than the boss before it. Retuned so
-  // the curve actually climbs 2-8, spikes at Chapter 9's boss, eases at
-  // Chapter 10, and peaks at Chapter 11's finale - same wall/relief/
-  // wall/capstone shape as Chapter 1's own plateau. Expect further
-  // iteration once Tower gear and Main Boss levels are actually in the
-  // loop when a player reaches this point, same as every other chapter
-  // in this file.
+  // Each old chapter's original single-fight squad is preserved
+  // EXACTLY as its new boss stage (the "C" array below) - that fight
+  // was already probed/tuned (see the retune history in CLAUDE.md), so
+  // reusing it untouched keeps every previously-validated difficulty
+  // point (the Chapter 9/11-displayed walls especially) intact. The
+  // two new stages per chapter (A = regular warm-up, B = mini-boss)
+  // are derived DOWN from that same boss's own numbers - a top-down
+  // target curve across all 10 new bosses (roughly climbing Chapter 2
+  // through 8, dipping at Chapter 10's relief, peaking at Chapter 9's
+  // wall and Chapter 11's finale - the original two untouched bosses),
+  // not derived from each old chapter's own regular/special unit in
+  // isolation. An earlier bottom-up attempt (each new boss scaled from
+  // its own chapter's pre-existing units) produced a non-monotonic
+  // curve that briefly out-statted the already-validated Chapter 9/11
+  // walls - reset to this top-down approach instead. Untested past a
+  // handful of spot-probes (`probe_ch_bosses.js`) given the sheer
+  // stage count (30 new stages) - expect iteration, same as every
+  // other hand-tuned chapter in this file.
   // ---------------------------------------------------------------
-  var CAMPAIGN_CH1 = [
-    { id: 'camp1_a', name: 'Rustling Grunt', hp: 70, atk: 30, def: 20, spd: 84, critChance: 8, critDamage: 150, acc: 5, res: 8,
+  var CAMPAIGN_CH1A = [
+    { id: 'camp1a_a', name: 'Rustling Grunt', hp: 35, atk: 17, def: 14, spd: 84, critChance: 8, critDamage: 150, acc: 5, res: 8,
       basic: { name: 'Jab', coeff: 0.8, aoe: false } },
-    { id: 'camp1_b', name: 'Rustling Grunt', hp: 70, atk: 30, def: 20, spd: 82, critChance: 8, critDamage: 150, acc: 5, res: 8,
+    { id: 'camp1a_b', name: 'Rustling Grunt', hp: 35, atk: 17, def: 14, spd: 82, critChance: 8, critDamage: 150, acc: 5, res: 8,
       basic: { name: 'Jab', coeff: 0.8, aoe: false } },
-    { id: 'camp1_c', name: 'Rustling Grunt', hp: 70, atk: 30, def: 20, spd: 80, critChance: 8, critDamage: 150, acc: 5, res: 8,
+    { id: 'camp1a_c', name: 'Rustling Grunt', hp: 35, atk: 17, def: 14, spd: 80, critChance: 8, critDamage: 150, acc: 5, res: 8,
       basic: { name: 'Jab', coeff: 0.8, aoe: false } }
   ];
-  var CAMPAIGN_CH2 = [
-    { id: 'camp2_a', name: 'Bramble Scout', hp: 85, atk: 34, def: 24, spd: 90, critChance: 10, critDamage: 150, acc: 8, res: 8,
+  var CAMPAIGN_CH1B = [
+    { id: 'camp1b_a', name: 'Rustling Grunt', hp: 45, atk: 21, def: 18, spd: 84, critChance: 8, critDamage: 150, acc: 5, res: 8,
+      basic: { name: 'Jab', coeff: 0.8, aoe: false } },
+    { id: 'camp1b_b', name: 'Rustling Grunt', hp: 45, atk: 21, def: 18, spd: 82, critChance: 8, critDamage: 150, acc: 5, res: 8,
+      basic: { name: 'Jab', coeff: 0.8, aoe: false } },
+    { id: 'camp1b_c', name: 'Grunt Brute', hp: 58, atk: 27, def: 23, spd: 88, critChance: 10, critDamage: 155, acc: 7, res: 10,
+      basic: { name: 'Warband Roar', coeff: 0.8, aoe: false, applyDebuff: { type: 'Attack Down', chance: 30 } } }
+  ];
+  var CAMPAIGN_CH1C = [
+    { id: 'camp1c_a', name: 'Grunt Reaver', hp: 64, atk: 30, def: 26, spd: 84, critChance: 8, critDamage: 150, acc: 5, res: 8,
+      basic: { name: 'Reaver Slash', coeff: 0.85, aoe: false } },
+    { id: 'camp1c_b', name: 'Grunt Reaver', hp: 64, atk: 30, def: 26, spd: 82, critChance: 8, critDamage: 150, acc: 5, res: 8,
+      basic: { name: 'Reaver Slash', coeff: 0.85, aoe: false } },
+    { id: 'camp1c_c', name: 'Grunt Warchief', hp: 110, atk: 38, def: 26, spd: 88, critChance: 13, critDamage: 165, acc: 10, res: 13,
+      isBoss: true,
+      basic: { name: "Warchief's Cleave", coeff: 1.05, aoe: false } }
+  ];
+
+  var CAMPAIGN_CH2A = [
+    { id: 'camp2a_a', name: 'Bramble Scout', hp: 44, atk: 21, def: 17, spd: 90, critChance: 10, critDamage: 150, acc: 8, res: 8,
       basic: { name: 'Thorn Fling', coeff: 0.85, aoe: false } },
-    { id: 'camp2_b', name: 'Bramble Scout', hp: 85, atk: 34, def: 24, spd: 88, critChance: 10, critDamage: 150, acc: 8, res: 8,
+    { id: 'camp2a_b', name: 'Bramble Scout', hp: 44, atk: 21, def: 17, spd: 88, critChance: 10, critDamage: 150, acc: 8, res: 8,
       basic: { name: 'Thorn Fling', coeff: 0.85, aoe: false } },
-    { id: 'camp2_c', name: 'Bramble Brute', hp: 100, atk: 30, def: 34, spd: 72, critChance: 6, critDamage: 150, acc: 5, res: 12,
+    { id: 'camp2a_c', name: 'Bramble Scout', hp: 44, atk: 21, def: 17, spd: 86, critChance: 10, critDamage: 150, acc: 8, res: 8,
+      basic: { name: 'Thorn Fling', coeff: 0.85, aoe: false } }
+  ];
+  var CAMPAIGN_CH2B = [
+    { id: 'camp2b_a', name: 'Bramble Scout', hp: 57, atk: 25, def: 22, spd: 90, critChance: 10, critDamage: 150, acc: 8, res: 8,
+      basic: { name: 'Thorn Fling', coeff: 0.85, aoe: false } },
+    { id: 'camp2b_b', name: 'Bramble Scout', hp: 57, atk: 25, def: 22, spd: 88, critChance: 10, critDamage: 150, acc: 8, res: 8,
+      basic: { name: 'Thorn Fling', coeff: 0.85, aoe: false } },
+    { id: 'camp2b_c', name: 'Bramble Brute', hp: 73, atk: 32, def: 29, spd: 76, critChance: 8, critDamage: 155, acc: 7, res: 14,
       basic: { name: 'Bramble Slam', coeff: 0.75, aoe: false, applyDebuff: { type: 'Defense Down', chance: 30 } } }
   ];
-  var CAMPAIGN_CH3 = [
-    { id: 'camp3_a', name: 'Fen Stalker', hp: 100, atk: 38, def: 27, spd: 95, critChance: 12, critDamage: 150, acc: 10, res: 10,
+  var CAMPAIGN_CH2C = [
+    { id: 'camp2c_a', name: 'Bramble Warrior', hp: 64, atk: 30, def: 26, spd: 90, critChance: 10, critDamage: 150, acc: 8, res: 8,
+      basic: { name: 'Thorn Cleave', coeff: 0.85, aoe: false } },
+    { id: 'camp2c_b', name: 'Bramble Warrior', hp: 64, atk: 30, def: 26, spd: 88, critChance: 10, critDamage: 150, acc: 8, res: 8,
+      basic: { name: 'Thorn Cleave', coeff: 0.85, aoe: false } },
+    { id: 'camp2c_c', name: 'Bramble Ancient', hp: 140, atk: 45, def: 32, spd: 76, critChance: 11, critDamage: 165, acc: 10, res: 17,
+      isBoss: true,
+      basic: { name: "Ancient's Wrath", coeff: 1.05, aoe: false } }
+  ];
+
+  var CAMPAIGN_CH3A = [
+    { id: 'camp3a_a', name: 'Fen Stalker', hp: 55, atk: 22, def: 20, spd: 95, critChance: 12, critDamage: 150, acc: 10, res: 10,
       basic: { name: 'Fen Bite', coeff: 0.8, aoe: false, applyDebuff: { type: 'Poison', chance: 40 } } },
-    { id: 'camp3_b', name: 'Fen Stalker', hp: 100, atk: 38, def: 27, spd: 93, critChance: 12, critDamage: 150, acc: 10, res: 10,
+    { id: 'camp3a_b', name: 'Fen Stalker', hp: 55, atk: 22, def: 20, spd: 93, critChance: 12, critDamage: 150, acc: 10, res: 10,
       basic: { name: 'Fen Bite', coeff: 0.8, aoe: false, applyDebuff: { type: 'Poison', chance: 40 } } },
-    { id: 'camp3_c', name: 'Fen Warden', hp: 120, atk: 34, def: 38, spd: 76, critChance: 8, critDamage: 150, acc: 8, res: 16,
+    { id: 'camp3a_c', name: 'Fen Stalker', hp: 55, atk: 22, def: 20, spd: 91, critChance: 12, critDamage: 150, acc: 10, res: 10,
+      basic: { name: 'Fen Bite', coeff: 0.8, aoe: false, applyDebuff: { type: 'Poison', chance: 40 } } }
+  ];
+  var CAMPAIGN_CH3B = [
+    { id: 'camp3b_a', name: 'Fen Stalker', hp: 70, atk: 25, def: 25, spd: 95, critChance: 12, critDamage: 150, acc: 10, res: 10,
+      basic: { name: 'Fen Bite', coeff: 0.8, aoe: false, applyDebuff: { type: 'Poison', chance: 40 } } },
+    { id: 'camp3b_b', name: 'Fen Stalker', hp: 70, atk: 25, def: 25, spd: 93, critChance: 12, critDamage: 150, acc: 10, res: 10,
+      basic: { name: 'Fen Bite', coeff: 0.8, aoe: false, applyDebuff: { type: 'Poison', chance: 40 } } },
+    { id: 'camp3b_c', name: 'Fen Warden', hp: 89, atk: 36, def: 32, spd: 80, critChance: 10, critDamage: 155, acc: 10, res: 18,
       basic: { name: 'Bog Slam', coeff: 0.75, aoe: false } }
   ];
-  var CAMPAIGN_CH4 = [
-    { id: 'camp4_a', name: 'Iron Footman', hp: 115, atk: 42, def: 34, spd: 82, critChance: 10, critDamage: 150, acc: 10, res: 16,
+  var CAMPAIGN_CH3C = [
+    { id: 'camp3c_a', name: 'Fen Ravager', hp: 81, atk: 36, def: 32, spd: 95, critChance: 12, critDamage: 150, acc: 10, res: 10,
+      basic: { name: 'Bog Crush', coeff: 0.85, aoe: false } },
+    { id: 'camp3c_b', name: 'Fen Ravager', hp: 81, atk: 36, def: 32, spd: 93, critChance: 12, critDamage: 150, acc: 10, res: 10,
+      basic: { name: 'Bog Crush', coeff: 0.85, aoe: false } },
+    { id: 'camp3c_c', name: 'Fen Matriarch', hp: 170, atk: 50, def: 36, spd: 80, critChance: 15, critDamage: 165, acc: 13, res: 19,
+      isBoss: true,
+      basic: { name: "Matriarch's Call", coeff: 1.05, aoe: false } }
+  ];
+
+  var CAMPAIGN_CH4A = [
+    { id: 'camp4a_a', name: 'Iron Footman', hp: 65, atk: 24, def: 22, spd: 82, critChance: 10, critDamage: 150, acc: 10, res: 16,
       basic: { name: 'Shield Punch', coeff: 0.8, aoe: false } },
-    { id: 'camp4_b', name: 'Iron Footman', hp: 115, atk: 42, def: 34, spd: 80, critChance: 10, critDamage: 150, acc: 10, res: 16,
+    { id: 'camp4a_b', name: 'Iron Footman', hp: 65, atk: 24, def: 22, spd: 80, critChance: 10, critDamage: 150, acc: 10, res: 16,
       basic: { name: 'Shield Punch', coeff: 0.8, aoe: false } },
-    { id: 'camp4_c', name: 'Iron Archer', hp: 95, atk: 47, def: 22, spd: 100, critChance: 20, critDamage: 165, acc: 18, res: 12,
+    { id: 'camp4a_c', name: 'Iron Footman', hp: 65, atk: 24, def: 22, spd: 78, critChance: 10, critDamage: 150, acc: 10, res: 16,
+      basic: { name: 'Shield Punch', coeff: 0.8, aoe: false } }
+  ];
+  var CAMPAIGN_CH4B = [
+    { id: 'camp4b_a', name: 'Iron Footman', hp: 83, atk: 28, def: 27, spd: 82, critChance: 10, critDamage: 150, acc: 10, res: 16,
+      basic: { name: 'Shield Punch', coeff: 0.8, aoe: false } },
+    { id: 'camp4b_b', name: 'Iron Footman', hp: 83, atk: 28, def: 27, spd: 80, critChance: 10, critDamage: 150, acc: 10, res: 16,
+      basic: { name: 'Shield Punch', coeff: 0.8, aoe: false } },
+    { id: 'camp4b_c', name: 'Iron Archer', hp: 89, atk: 36, def: 32, spd: 104, critChance: 22, critDamage: 170, acc: 20, res: 14,
       basic: { name: 'Piercing Shot', coeff: 0.9, aoe: false } }
   ];
-  var CAMPAIGN_CH5 = [
-    { id: 'camp5_a', name: 'Ashen Cultist', hp: 145, atk: 52, def: 33, spd: 96, critChance: 12, critDamage: 155, acc: 14, res: 18,
+  var CAMPAIGN_CH4C = [
+    { id: 'camp4c_a', name: 'Iron Legionnaire', hp: 99, atk: 40, def: 36, spd: 82, critChance: 10, critDamage: 150, acc: 10, res: 16,
+      basic: { name: 'Legion Cleave', coeff: 0.9, aoe: false } },
+    { id: 'camp4c_b', name: 'Iron Legionnaire', hp: 99, atk: 40, def: 36, spd: 80, critChance: 10, critDamage: 150, acc: 10, res: 16,
+      basic: { name: 'Legion Cleave', coeff: 0.9, aoe: false } },
+    { id: 'camp4c_c', name: 'Iron Centurion', hp: 170, atk: 55, def: 40, spd: 104, critChance: 17, critDamage: 172, acc: 16, res: 20,
+      isBoss: true,
+      basic: { name: "Centurion's Charge", coeff: 1.05, aoe: false } }
+  ];
+
+  var CAMPAIGN_CH5A = [
+    { id: 'camp5a_a', name: 'Ashen Cultist', hp: 75, atk: 26, def: 26, spd: 96, critChance: 12, critDamage: 155, acc: 14, res: 18,
       basic: { name: 'Ember Lash', coeff: 0.85, aoe: false, applyDebuff: { type: 'Attack Down', chance: 35 } } },
-    { id: 'camp5_b', name: 'Ashen Cultist', hp: 145, atk: 52, def: 33, spd: 94, critChance: 12, critDamage: 155, acc: 14, res: 18,
+    { id: 'camp5a_b', name: 'Ashen Cultist', hp: 75, atk: 26, def: 26, spd: 94, critChance: 12, critDamage: 155, acc: 14, res: 18,
       basic: { name: 'Ember Lash', coeff: 0.85, aoe: false, applyDebuff: { type: 'Attack Down', chance: 35 } } },
-    { id: 'camp5_c', name: 'Ashen Zealot', hp: 175, atk: 48, def: 46, spd: 84, critChance: 10, critDamage: 150, acc: 10, res: 24,
+    { id: 'camp5a_c', name: 'Ashen Cultist', hp: 75, atk: 26, def: 26, spd: 92, critChance: 12, critDamage: 155, acc: 14, res: 18,
+      basic: { name: 'Ember Lash', coeff: 0.85, aoe: false, applyDebuff: { type: 'Attack Down', chance: 35 } } }
+  ];
+  var CAMPAIGN_CH5B = [
+    { id: 'camp5b_a', name: 'Ashen Cultist', hp: 95, atk: 31, def: 30, spd: 96, critChance: 12, critDamage: 155, acc: 14, res: 18,
+      basic: { name: 'Ember Lash', coeff: 0.85, aoe: false, applyDebuff: { type: 'Attack Down', chance: 35 } } },
+    { id: 'camp5b_b', name: 'Ashen Cultist', hp: 95, atk: 31, def: 30, spd: 94, critChance: 12, critDamage: 155, acc: 14, res: 18,
+      basic: { name: 'Ember Lash', coeff: 0.85, aoe: false, applyDebuff: { type: 'Attack Down', chance: 35 } } },
+    { id: 'camp5b_c', name: 'Ashen Zealot', hp: 102, atk: 40, def: 36, spd: 88, critChance: 12, critDamage: 155, acc: 12, res: 27,
       basic: { name: 'Cinder Slam', coeff: 0.75, aoe: false } }
   ];
-  var CAMPAIGN_CH6 = [
-    { id: 'camp6_a', name: 'Steel Vanguard', hp: 165, atk: 58, def: 50, spd: 88, critChance: 12, critDamage: 150, acc: 12, res: 22,
+  var CAMPAIGN_CH5C = [
+    { id: 'camp5c_a', name: 'Ashen Warpriest', hp: 113, atk: 44, def: 40, spd: 96, critChance: 12, critDamage: 155, acc: 14, res: 18,
+      basic: { name: 'Zealous Strike', coeff: 0.85, aoe: false } },
+    { id: 'camp5c_b', name: 'Ashen Warpriest', hp: 113, atk: 44, def: 40, spd: 94, critChance: 12, critDamage: 155, acc: 14, res: 18,
+      basic: { name: 'Zealous Strike', coeff: 0.85, aoe: false } },
+    { id: 'camp5c_c', name: 'Ashen High Priest', hp: 195, atk: 55, def: 40, spd: 88, critChance: 17, critDamage: 172, acc: 19, res: 23,
+      isBoss: true,
+      basic: { name: 'Rite of Ash', coeff: 1.05, aoe: false } }
+  ];
+
+  var CAMPAIGN_CH6A = [
+    { id: 'camp6a_a', name: 'Steel Vanguard', hp: 87, atk: 29, def: 29, spd: 88, critChance: 12, critDamage: 150, acc: 12, res: 22,
       basic: { name: 'Vanguard Strike', coeff: 0.85, aoe: false } },
-    { id: 'camp6_b', name: 'Steel Vanguard', hp: 165, atk: 58, def: 50, spd: 86, critChance: 12, critDamage: 150, acc: 12, res: 22,
+    { id: 'camp6a_b', name: 'Steel Vanguard', hp: 87, atk: 29, def: 29, spd: 86, critChance: 12, critDamage: 150, acc: 12, res: 22,
       basic: { name: 'Vanguard Strike', coeff: 0.85, aoe: false } },
-    { id: 'camp6_c', name: 'Steel Marksman', hp: 138, atk: 64, def: 33, spd: 102, critChance: 24, critDamage: 168, acc: 20, res: 16,
+    { id: 'camp6a_c', name: 'Steel Vanguard', hp: 87, atk: 29, def: 29, spd: 84, critChance: 12, critDamage: 150, acc: 12, res: 22,
+      basic: { name: 'Vanguard Strike', coeff: 0.85, aoe: false } }
+  ];
+  var CAMPAIGN_CH6B = [
+    { id: 'camp6b_a', name: 'Steel Vanguard', hp: 111, atk: 34, def: 34, spd: 88, critChance: 12, critDamage: 150, acc: 12, res: 22,
+      basic: { name: 'Vanguard Strike', coeff: 0.85, aoe: false } },
+    { id: 'camp6b_b', name: 'Steel Vanguard', hp: 111, atk: 34, def: 34, spd: 86, critChance: 12, critDamage: 150, acc: 12, res: 22,
+      basic: { name: 'Vanguard Strike', coeff: 0.85, aoe: false } },
+    { id: 'camp6b_c', name: 'Steel Marksman', hp: 118, atk: 43, def: 40, spd: 106, critChance: 26, critDamage: 173, acc: 22, res: 18,
       basic: { name: 'Trueshot', coeff: 0.95, aoe: false } }
   ];
-  var CAMPAIGN_CH7 = [
-    { id: 'camp7_a', name: 'Dusk Marauder', hp: 182, atk: 64, def: 46, spd: 92, critChance: 14, critDamage: 155, acc: 16, res: 24,
+  var CAMPAIGN_CH6C = [
+    { id: 'camp6c_a', name: 'Steel Praetorian', hp: 131, atk: 48, def: 44, spd: 88, critChance: 12, critDamage: 150, acc: 12, res: 22,
+      basic: { name: 'Praetorian Volley', coeff: 0.95, aoe: false } },
+    { id: 'camp6c_b', name: 'Steel Praetorian', hp: 131, atk: 48, def: 44, spd: 86, critChance: 12, critDamage: 150, acc: 12, res: 22,
+      basic: { name: 'Praetorian Volley', coeff: 0.95, aoe: false } },
+    { id: 'camp6c_c', name: 'Steel Warmaster', hp: 225, atk: 60, def: 44, spd: 106, critChance: 19, critDamage: 175, acc: 21, res: 24,
+      isBoss: true,
+      basic: { name: "Warmaster's Edge", coeff: 1.05, aoe: false } }
+  ];
+
+  var CAMPAIGN_CH7A = [
+    { id: 'camp7a_a', name: 'Dusk Marauder', hp: 96, atk: 32, def: 30, spd: 92, critChance: 14, critDamage: 155, acc: 16, res: 24,
       basic: { name: 'Dusk Rend', coeff: 0.9, aoe: false, applyDebuff: { type: 'Bleed', chance: 45 } } },
-    { id: 'camp7_b', name: 'Dusk Marauder', hp: 182, atk: 64, def: 46, spd: 90, critChance: 14, critDamage: 155, acc: 16, res: 24,
+    { id: 'camp7a_b', name: 'Dusk Marauder', hp: 96, atk: 32, def: 30, spd: 90, critChance: 14, critDamage: 155, acc: 16, res: 24,
       basic: { name: 'Dusk Rend', coeff: 0.9, aoe: false, applyDebuff: { type: 'Bleed', chance: 45 } } },
-    { id: 'camp7_c', name: 'Dusk Overseer', hp: 210, atk: 58, def: 55, spd: 80, critChance: 12, critDamage: 150, acc: 14, res: 32,
+    { id: 'camp7a_c', name: 'Dusk Marauder', hp: 96, atk: 32, def: 30, spd: 88, critChance: 14, critDamage: 155, acc: 16, res: 24,
+      basic: { name: 'Dusk Rend', coeff: 0.9, aoe: false, applyDebuff: { type: 'Bleed', chance: 45 } } }
+  ];
+  var CAMPAIGN_CH7B = [
+    { id: 'camp7b_a', name: 'Dusk Marauder', hp: 122, atk: 37, def: 36, spd: 92, critChance: 14, critDamage: 155, acc: 16, res: 24,
+      basic: { name: 'Dusk Rend', coeff: 0.9, aoe: false, applyDebuff: { type: 'Bleed', chance: 45 } } },
+    { id: 'camp7b_b', name: 'Dusk Marauder', hp: 122, atk: 37, def: 36, spd: 90, critChance: 14, critDamage: 155, acc: 16, res: 24,
+      basic: { name: 'Dusk Rend', coeff: 0.9, aoe: false, applyDebuff: { type: 'Bleed', chance: 45 } } },
+    { id: 'camp7b_c', name: 'Dusk Overseer', hp: 131, atk: 47, def: 42, spd: 84, critChance: 14, critDamage: 155, acc: 16, res: 35,
       basic: { name: 'Chilling Gaze', coeff: 0.7, aoe: false, applyDebuff: { type: 'Speed Down', chance: 50 } } }
   ];
-  // Capstone: the Warlord reuses the same generic isBoss devour-a-debuff
-  // mechanic as Main Boss's Trial Warlord (see hollowKingMechanic) -
-  // pushed to a chapter finale rather than a new one-off mechanic. This
-  // is Chapter 9's wall (verified via probe) - deliberately the hardest
-  // fight the player has faced since Chapter 1's own Stage 9 plateau,
-  // roughly matched to Chapter 1's own Stage 12 boss (hp280/atk68).
-  var CAMPAIGN_CH8 = [
+  var CAMPAIGN_CH7C = [
+    { id: 'camp7c_a', name: 'Dusk Warden', hp: 145, atk: 52, def: 47, spd: 92, critChance: 12, critDamage: 150, acc: 14, res: 31,
+      basic: { name: "Warden's Grasp", coeff: 0.8, aoe: false } },
+    { id: 'camp7c_b', name: 'Dusk Warden', hp: 145, atk: 52, def: 47, spd: 90, critChance: 12, critDamage: 150, acc: 14, res: 31,
+      basic: { name: "Warden's Grasp", coeff: 0.8, aoe: false } },
+    { id: 'camp7c_c', name: 'Dusk Reaver', hp: 250, atk: 65, def: 47, spd: 84, critChance: 17, critDamage: 165, acc: 19, res: 36,
+      isBoss: true,
+      basic: { name: "Reaver's Descent", coeff: 1.05, aoe: false } }
+  ];
+
+  // Chapter 9 (this array set, "8"): Elite Guard/Campaign Warlord's
+  // squad had no separate weaker "regular" unit to begin with (every
+  // unit here already reads as elite), so Stage A/B scale straight
+  // down from Elite Guard's own numbers instead of a distinct R/S
+  // split. Stage C is the ORIGINAL untouched squad - Chapter 9's own
+  // wall (verified via probe, deliberately the hardest fight since
+  // Chapter 1's Stage 9 plateau) - never touched by this expansion.
+  var CAMPAIGN_CH8A = [
+    { id: 'camp8a_a', name: 'Elite Guard', hp: 96, atk: 33, def: 29, spd: 90, critChance: 14, critDamage: 155, acc: 16, res: 28,
+      basic: { name: 'Guard Cleave', coeff: 0.9, aoe: false } },
+    { id: 'camp8a_b', name: 'Elite Guard', hp: 96, atk: 33, def: 29, spd: 88, critChance: 14, critDamage: 155, acc: 16, res: 28,
+      basic: { name: 'Guard Cleave', coeff: 0.9, aoe: false } },
+    { id: 'camp8a_c', name: 'Elite Guard', hp: 96, atk: 33, def: 29, spd: 86, critChance: 14, critDamage: 155, acc: 16, res: 28,
+      basic: { name: 'Guard Cleave', coeff: 0.9, aoe: false } }
+  ];
+  var CAMPAIGN_CH8B = [
+    { id: 'camp8b_a', name: 'Elite Guard', hp: 123, atk: 42, def: 36, spd: 90, critChance: 14, critDamage: 155, acc: 16, res: 28,
+      basic: { name: 'Guard Cleave', coeff: 0.9, aoe: false } },
+    { id: 'camp8b_b', name: 'Elite Guard', hp: 123, atk: 42, def: 36, spd: 88, critChance: 14, critDamage: 155, acc: 16, res: 28,
+      basic: { name: 'Guard Cleave', coeff: 0.9, aoe: false } },
+    { id: 'camp8b_c', name: 'Ashen Enforcer', hp: 158, atk: 54, def: 47, spd: 92, critChance: 16, critDamage: 160, acc: 18, res: 25,
+      basic: { name: "Enforcer's Wrath", coeff: 0.95, aoe: false, applyDebuff: { type: 'Attack Down', chance: 30 } } }
+  ];
+  var CAMPAIGN_CH8C = [
     { id: 'camp8_a', name: 'Elite Guard', hp: 175, atk: 60, def: 52, spd: 90, critChance: 14, critDamage: 155, acc: 16, res: 28,
       basic: { name: 'Guard Cleave', coeff: 0.9, aoe: false } },
     { id: 'camp8_b', name: 'Elite Guard', hp: 175, atk: 60, def: 52, spd: 88, critChance: 14, critDamage: 155, acc: 16, res: 28,
@@ -2331,20 +2537,59 @@
       isBoss: true,
       basic: { name: "Warlord's Judgment", coeff: 1.05, aoe: false } }
   ];
-  // Chapter 10: the relief step between the Ch.9 boss wall and the
-  // Ch.11 finale - noticeably softer than either, same wall/relief/
-  // wall/capstone shape Chapter 1's own plateau already established.
-  var CAMPAIGN_CH9 = [
-    { id: 'camp9_a', name: 'Void Marauder', hp: 185, atk: 58, def: 40, spd: 96, critChance: 15, critDamage: 160, acc: 16, res: 26,
+
+  // Chapter 10: the relief step between the Chapter 9 boss wall and
+  // the Chapter 11 finale - noticeably softer than either, same
+  // wall/relief/wall/capstone shape Chapter 1's own plateau already
+  // established, now recurring across chapters instead of stages.
+  var CAMPAIGN_CH9A = [
+    { id: 'camp9a_a', name: 'Void Marauder', hp: 83, atk: 28, def: 25, spd: 96, critChance: 15, critDamage: 160, acc: 16, res: 26,
       basic: { name: 'Void Rend', coeff: 0.95, aoe: false, applyDebuff: { type: 'Bleed', chance: 40 } } },
-    { id: 'camp9_b', name: 'Void Marauder', hp: 185, atk: 58, def: 40, spd: 94, critChance: 15, critDamage: 160, acc: 16, res: 26,
+    { id: 'camp9a_b', name: 'Void Marauder', hp: 83, atk: 28, def: 25, spd: 94, critChance: 15, critDamage: 160, acc: 16, res: 26,
       basic: { name: 'Void Rend', coeff: 0.95, aoe: false, applyDebuff: { type: 'Bleed', chance: 40 } } },
-    { id: 'camp9_c', name: 'Void Harbinger', hp: 205, atk: 52, def: 46, spd: 86, critChance: 12, critDamage: 155, acc: 14, res: 34,
+    { id: 'camp9a_c', name: 'Void Marauder', hp: 83, atk: 28, def: 25, spd: 92, critChance: 15, critDamage: 160, acc: 16, res: 26,
+      basic: { name: 'Void Rend', coeff: 0.95, aoe: false, applyDebuff: { type: 'Bleed', chance: 40 } } }
+  ];
+  var CAMPAIGN_CH9B = [
+    { id: 'camp9b_a', name: 'Void Marauder', hp: 106, atk: 36, def: 32, spd: 96, critChance: 15, critDamage: 160, acc: 16, res: 26,
+      basic: { name: 'Void Rend', coeff: 0.95, aoe: false, applyDebuff: { type: 'Bleed', chance: 40 } } },
+    { id: 'camp9b_b', name: 'Void Marauder', hp: 106, atk: 36, def: 32, spd: 94, critChance: 15, critDamage: 160, acc: 16, res: 26,
+      basic: { name: 'Void Rend', coeff: 0.95, aoe: false, applyDebuff: { type: 'Bleed', chance: 40 } } },
+    { id: 'camp9b_c', name: 'Void Harbinger', hp: 136, atk: 46, def: 41, spd: 90, critChance: 14, critDamage: 160, acc: 16, res: 37,
       basic: { name: 'Dread Pulse', coeff: 0.8, aoe: false, applyDebuff: { type: 'Resistance Down', chance: 40 } } }
   ];
-  // Ch.11 is Campaign's true finale - gates Dungeon/Galactic War/Grand
-  // Arena all at once, so it's the hardest single fight in the game.
-  var CAMPAIGN_CH10 = [
+  var CAMPAIGN_CH9C = [
+    { id: 'camp9c_a', name: 'Void Stalker', hp: 151, atk: 51, def: 46, spd: 96, critChance: 12, critDamage: 155, acc: 14, res: 33,
+      basic: { name: 'Void Lash', coeff: 0.85, aoe: false } },
+    { id: 'camp9c_b', name: 'Void Stalker', hp: 151, atk: 51, def: 46, spd: 94, critChance: 12, critDamage: 155, acc: 14, res: 33,
+      basic: { name: 'Void Lash', coeff: 0.85, aoe: false } },
+    { id: 'camp9c_c', name: 'The Devourer', hp: 260, atk: 64, def: 46, spd: 90, critChance: 17, critDamage: 168, acc: 19, res: 38,
+      isBoss: true,
+      basic: { name: 'Devouring Maw', coeff: 1.05, aoe: false } }
+  ];
+
+  // Chapter 11 (this array set, "10"): Herald Guard/The Herald's squad,
+  // like Chapter 9's, has no separate weaker regular unit - Stage A/B
+  // scale down from Herald Guard's own numbers. Stage C is Campaign's
+  // true, untouched finale - gates Dungeon/Galactic War/Grand Arena
+  // all at once, the hardest single fight in the game.
+  var CAMPAIGN_CH10A = [
+    { id: 'camp10a_a', name: 'Herald Guard', hp: 92, atk: 32, def: 26, spd: 94, critChance: 15, critDamage: 160, acc: 16, res: 30,
+      basic: { name: 'Herald Strike', coeff: 0.92, aoe: false } },
+    { id: 'camp10a_b', name: 'Herald Guard', hp: 92, atk: 32, def: 26, spd: 92, critChance: 15, critDamage: 160, acc: 16, res: 30,
+      basic: { name: 'Herald Strike', coeff: 0.92, aoe: false } },
+    { id: 'camp10a_c', name: 'Herald Guard', hp: 92, atk: 32, def: 26, spd: 90, critChance: 15, critDamage: 160, acc: 16, res: 30,
+      basic: { name: 'Herald Strike', coeff: 0.92, aoe: false } }
+  ];
+  var CAMPAIGN_CH10B = [
+    { id: 'camp10b_a', name: 'Herald Guard', hp: 118, atk: 41, def: 34, spd: 94, critChance: 15, critDamage: 160, acc: 16, res: 30,
+      basic: { name: 'Herald Strike', coeff: 0.92, aoe: false } },
+    { id: 'camp10b_b', name: 'Herald Guard', hp: 118, atk: 41, def: 34, spd: 92, critChance: 15, critDamage: 160, acc: 16, res: 30,
+      basic: { name: 'Herald Strike', coeff: 0.92, aoe: false } },
+    { id: 'camp10b_c', name: 'Hollow Acolyte', hp: 151, atk: 52, def: 43, spd: 93, critChance: 17, critDamage: 165, acc: 19, res: 34,
+      basic: { name: "Acolyte's Whisper", coeff: 0.95, aoe: false, applyDebuff: { type: 'Resistance Down', chance: 30 } } }
+  ];
+  var CAMPAIGN_CH10C = [
     { id: 'camp10_a', name: 'Herald Guard', hp: 168, atk: 58, def: 48, spd: 94, critChance: 15, critDamage: 160, acc: 16, res: 30,
       basic: { name: 'Herald Strike', coeff: 0.92, aoe: false } },
     { id: 'camp10_b', name: 'Herald Guard', hp: 168, atk: 58, def: 48, spd: 92, critChance: 15, critDamage: 160, acc: 16, res: 30,
@@ -2353,8 +2598,21 @@
       isBoss: true,
       basic: { name: "Herald's Reckoning", coeff: 0.97, aoe: false } }
   ];
+
+  // Each old chapter is now 3 stages (regular/mini-boss/boss); the
+  // Chapter-1 tutorial ladder stays its own 12 flat stages up front.
+  var CAMPAIGN_CHAPTER_LENGTHS = [CAMPAIGN_CH1_STAGE_COUNT, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3];
   var CAMPAIGN_CHAPTERS = CAMPAIGN_CH1_STAGES.concat([
-    CAMPAIGN_CH1, CAMPAIGN_CH2, CAMPAIGN_CH3, CAMPAIGN_CH4, CAMPAIGN_CH5, CAMPAIGN_CH6, CAMPAIGN_CH7, CAMPAIGN_CH8, CAMPAIGN_CH9, CAMPAIGN_CH10
+    CAMPAIGN_CH1A, CAMPAIGN_CH1B, CAMPAIGN_CH1C,
+    CAMPAIGN_CH2A, CAMPAIGN_CH2B, CAMPAIGN_CH2C,
+    CAMPAIGN_CH3A, CAMPAIGN_CH3B, CAMPAIGN_CH3C,
+    CAMPAIGN_CH4A, CAMPAIGN_CH4B, CAMPAIGN_CH4C,
+    CAMPAIGN_CH5A, CAMPAIGN_CH5B, CAMPAIGN_CH5C,
+    CAMPAIGN_CH6A, CAMPAIGN_CH6B, CAMPAIGN_CH6C,
+    CAMPAIGN_CH7A, CAMPAIGN_CH7B, CAMPAIGN_CH7C,
+    CAMPAIGN_CH8A, CAMPAIGN_CH8B, CAMPAIGN_CH8C,
+    CAMPAIGN_CH9A, CAMPAIGN_CH9B, CAMPAIGN_CH9C,
+    CAMPAIGN_CH10A, CAMPAIGN_CH10B, CAMPAIGN_CH10C
   ]);
 
   // Dungeon: 4v4, single wave - the strategy-over-stats mode. Every

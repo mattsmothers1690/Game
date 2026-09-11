@@ -381,13 +381,13 @@ stat axis or an economy shared with other modes.
 
 | Mode (`ENCOUNTERS` id) | Squad | Progression | Unlocks at (Campaign stage) | Rewards |
 |---|---|---|---|---|
-| **Campaign** (`campaign`) | 3v3 | 22 fixed hand-authored stages (`CAMPAIGN_CHAPTERS` = `CAMPAIGN_CH1_STAGES` (12) + the old `CAMPAIGN_CH1..CH10` (10), now displaying as Chapter 2-11 — see "New-game onboarding" below) — **not** the infinite ladder, no stat compounding, replaying an old stage is always the same fight | Always open | Scrap + Gold only (bootstrap) |
+| **Campaign** (`campaign`) | 3v3 | 42 fixed hand-authored stages (`CAMPAIGN_CHAPTERS` = `CAMPAIGN_CH1_STAGES` (12) + Chapters 2-11, each now its own regular/mini-boss/boss trio (3 stages × 10 chapters = 30) — see "New-game onboarding" and "Chapters 2-11 mini-boss/boss expansion" below) — **not** the infinite ladder, no stat compounding, replaying an old stage is always the same fight | Always open | Scrap + Gold only (bootstrap) |
 | **Tower** (`tower`) | 5v5 | Infinite stage ladder | Stage 7 | Gear (guaranteed) + Gear Rework Catalysts (rare, rides gear drops) + Scrap |
 | **Faction Wars** (`faction`) | 4v4 × 3 waves | Infinite stage ladder | Stage 10 | Charms (rolled chance) + Charm Dust (guaranteed) |
 | **Main Boss** (`mainboss`) | 3v3 | Infinite stage ladder | Stage 4 | Gold + XP (champion leveling) + Shards (level cap) + Summon Shards |
-| **Dungeon** (`dungeon`) | 4v4 | Infinite stage ladder | Stage 22 (Campaign complete) | Ascension Cores only |
-| **Galactic War** (`galactic`) | 5v5 × 5 waves | Infinite stage ladder, no retreat between waves within one attempt | Stage 22 (same threshold as Dungeon — a "you finished Campaign" bonus node, not a fifth step in the unlock sequence) | Bulk Scrap + Gold + XP only — no gear/charms/shards/catalysts/Ascension Cores |
-| **Grand Arena** (`grandarena`) | 3v3 vs. one of 4 AI archetype squads | Infinite stage ladder, stage number cycles through the 4 archetypes (`(stage - 1) % 4`) forever | Stage 22 (alongside Dungeon/Galactic War) | Arena Medals only — spent on Arena Pulls (Vanguard-set gear), never dropped directly |
+| **Dungeon** (`dungeon`) | 4v4 | Infinite stage ladder | Stage 42 (Campaign complete) | Ascension Cores only |
+| **Galactic War** (`galactic`) | 5v5 × 5 waves | Infinite stage ladder, no retreat between waves within one attempt | Stage 42 (same threshold as Dungeon — a "you finished Campaign" bonus node, not a fifth step in the unlock sequence) | Bulk Scrap + Gold + XP only — no gear/charms/shards/catalysts/Ascension Cores |
+| **Grand Arena** (`grandarena`) | 3v3 vs. one of 4 AI archetype squads | Infinite stage ladder, stage number cycles through the 4 archetypes (`(stage - 1) % 4`) forever | Stage 42 (alongside Dungeon/Galactic War) | Arena Medals only — spent on Arena Pulls (Vanguard-set gear), never dropped directly |
 
 `CONTENT_UNLOCKS = { mainboss: 4, tower: 7, faction: 10, dungeon:
 CAMPAIGN_CHAPTERS.length, galactic: CAMPAIGN_CHAPTERS.length,
@@ -450,9 +450,10 @@ plateau that forces a detour into whichever other mode just unlocked —
 the core farm-and-push loop starting from the very first session
 instead of only after Campaign is fully cleared.
 - `CAMPAIGN_CH1_STAGES` (`CAMPAIGN_C1S1`..`CAMPAIGN_C1S12`) are 12 flat
-  `fixedChapters` entries prepended to the old `CAMPAIGN_CHAPTERS`
-  array (`CAMPAIGN_CHAPTERS = CAMPAIGN_CH1_STAGES.concat([CAMPAIGN_CH1,
-  ..., CAMPAIGN_CH10])`, 22 stages total) — this needed zero changes to
+  `fixedChapters` entries prepended to the `CAMPAIGN_CHAPTERS` array
+  (now 42 stages total, once Chapters 2-11 each became their own
+  regular/mini-boss/boss trio — see "Chapters 2-11 mini-boss/boss
+  expansion" below) — this needed zero changes to
   the core stage-indexing machinery (`getSelectedStage`/
   `setSelectedStage`/`maxSelectableStage`/`spawnWave` all already
   operate on a flat stage index). A new per-encounter `stageLabelFor`
@@ -505,57 +506,106 @@ instead of only after Campaign is fully cleared.
   starters stopped being "whichever 3-6 champions a mode's `teamIds`
   names," since an unowned default member would otherwise silently
   count toward a "full" squad.
-- Chapters 2-11 (the old Chapters 1-10) keep their original structure
-  (one hand-authored fight per chapter, no multi-stage sub-ladder) but
-  their **numbers were retuned** — see "Chapters 2-11 difficulty seam"
-  below. Whether they also get the multi-stage tutorial-ladder
-  treatment Chapter 1 got, or stay single capstone fights between the
-  other modes' ladders, is still an explicitly open decision the user
-  has not yet made (see "Next up").
+- Chapters 2-11 (the old Chapters 1-10) were first retuned in place
+  (still one hand-authored fight per chapter), then — once the user
+  asked for mini-bosses/bosses in the Campaign — each expanded into its
+  own 3-stage regular/mini-boss/boss trio, the same shape Chapter 1
+  already uses at Stage 9/12 one tier further out. See "Chapters 2-11
+  mini-boss/boss expansion" below for the full mechanism; the retune
+  history that preceded it is folded into that same section since the
+  expansion's new numbers are built directly on top of it.
 
-**Chapters 2-11 difficulty seam — retuned.** The original CH1-CH10
-numbers were hand-tuned for a level-1, all-Legendary 3-champion squad
-(~200 total atk). Once Chapter 1 flipped the starters to a weak
-Common/Rare trio, the squad actually arriving at Chapter 2 is whichever
-3 of the 5 post-Chapter-1 champions (3 starters + Bastian + Vara) the
-player picks — best case Vara+Bastian+Squall, ~163 total atk,
-meaningfully less burst than the original baseline despite similar
-HP/DEF. Probed (`probe_ch2_11.js`, 8 trials/stage, that exact squad, no
-extra gear/levels — the same pessimistic-floor methodology Chapter 1
-used) before touching anything: the original numbers came back 8/8 for
-Chapters 2-8 (no climb at all) then fell off a cliff to 3/8 at Chapter
-9's boss and 1/8 at both Chapter 10 (a plain chapter, not even a
-capstone) and Chapter 11's finale — backwards pacing where a non-boss
-chapter was harder than the boss before it.
-- First retune pass overshot hard in the other direction — an
-  aggressive ~8-15%/chapter exponential climb hit a wall as early as
-  Chapter 5 (0/8) and stayed at 0/8 through Chapter 11, because this
-  engine's naive-auto-battle combat has a narrow, fairly binary
-  win/loss threshold in raw stat space (small stat bumps can flip a
-  matchup from ~100% to ~0%), not a gradual slope — a lesson worth
-  keeping in mind for any future difficulty tuning here: move in small
-  increments and re-probe, don't extrapolate a whole curve from theory.
-- Landed on (verified via repeated probes, accepting normal 8-trial
-  sample noise): Chapters 2-6 easy/warm-up (~8/8), Chapter 7 a real dip
-  (~4-7/8, texture rather than a flat floor), Chapter 8 building up,
-  Chapter 9's boss a genuine wall (~0-1/8, comparable to Chapter 1's
-  own Stage 9), Chapter 10 a real relief step (~5-8/8, still noticeably
-  harder than 2-6 thanks to a Bleed-heavy enemy kit that punishes lack
-  of cleanse/Resistance even at lower raw stats than the finale), and
-  Chapter 11's finale the hardest overall (~2-3/8) — the same
-  wall/relief/wall/capstone shape Chapter 1's own plateau established,
-  now recurring one tier up. `test_content_framework.js`/
-  `test_galactic_war.js` (which clear the Chapter 11 finale with a
-  stronger Vara+Mire+Kestrel squad to test the dual Dungeon/Galactic
-  War unlock) still pass — the retune only pulled numbers down/up
-  within a narrow band, it didn't change the finale's role.
-- Exact numbers live in the `CAMPAIGN_CH1`-`CAMPAIGN_CH10` blocks'
-  own comments (note: these old variable names now display as Chapter
-  2-11 — see the naming-history bullet under Implementation notes).
-  Treat this as a second pass, not final — same as Chapter 1's own
-  numbers, expect further iteration once Tower gear and Main Boss
-  levels are actually in the loop when a real player reaches this
-  point instead of the zero-farming floor this probe assumes.
+**Chapters 2-11 mini-boss/boss expansion.** Before this pass, Chapters
+2-11 were still single fights (the original CH1-CH10 numbers,
+hand-tuned for a level-1 all-Legendary 3-champion squad, then retuned
+once for the post-Chapter-1 starter squad — see the retune history
+below). The user then asked for a mini-boss at each chapter's halfway
+point and a boss at the end, and confirmed (via `AskUserQuestion`) the
+larger of two scopes on offer: split each of Chapters 2-11 into its
+own multi-stage mini-ladder like Chapter 1, rather than just re-tagging
+each chapter's existing single 3-enemy squad. This is the exact "give
+Chapters 2-10 the multi-stage treatment" decision earlier passes of
+this doc had flagged as explicitly deferred — now done.
+- **Structure**: each old chapter (`CAMPAIGN_CH1`..`CAMPAIGN_CH10`,
+  displaying as Chapter 2-11) became 3 stages — `CAMPAIGN_CH{n}A`
+  (regular warm-up), `CAMPAIGN_CH{n}B` (mini-boss at the chapter's
+  halfway point, 2 regular units + 1 named tougher unit, no `isBoss`),
+  `CAMPAIGN_CH{n}C` (2 elite units + 1 named boss, `isBoss: true`).
+  `CAMPAIGN_CHAPTER_LENGTHS = [12, 3,3,3,3,3,3,3,3,3,3]` (Chapter 1's
+  12 tutorial stages, then 3 per chapter after it) replaces the old
+  binary "stage <= 12 or a flat Chapter N" label logic with a general
+  `campaignChapterInfo(stage)` helper (walks the lengths array to find
+  which chapter and which sub-stage) that both `campaignStageLabel`
+  ("Chapter N - Stage M/T", now uniform across every chapter including
+  Chapter 1, where before only Chapter 1 showed a sub-stage count) and
+  `campaignClearMessage` (sub-stage-relative "Stage M cleared - Stage
+  M+1 unlocked!" within a chapter, "Chapter N cleared - Chapter N+1
+  unlocked!" at a chapter boundary) now read off directly. Total
+  Campaign length: 12 + 10×3 = **42 stages** (up from 22) —
+  `CAMPAIGN_CHAPTERS.length` still drives `CONTENT_UNLOCKS.dungeon/
+  galactic/grandarena` automatically, no separate change needed there.
+- **The two chapters that already had a real boss** (Chapter 9's
+  Campaign Warlord, Chapter 11's The Herald) keep that exact,
+  previously-validated boss stage **completely unchanged** as their new
+  Stage C — reusing already-probed numbers rather than re-deriving them
+  preserves every prior calibration point, especially the two hardest
+  fights in the game. Their two new stages (A/B) scale *down* from
+  their own existing "Elite Guard"/"Herald Guard" numbers (there was no
+  separate weaker regular unit to derive from in these two chapters to
+  begin with — every unit already read as elite). Their new mid-chapter
+  mini-bosses are original: "Ashen Enforcer" (Chapter 9) and "Hollow
+  Acolyte" (Chapter 11).
+- **The other 8 chapters had no boss unit at all** (just 2 regular + 1
+  "special" unit, e.g. Bramble Scout ×2 + Bramble Brute) — each gained
+  a genuine new named boss: Grunt Warchief (Ch.2), Bramble Ancient
+  (Ch.3), Fen Matriarch (Ch.4), Iron Centurion (Ch.5), Ashen High
+  Priest (Ch.6 — a deliberate tie to the Ashen Cult's rise already in
+  the lore for this chapter), Steel Warmaster (Ch.7), Dusk Reaver
+  (Ch.8), and The Devourer (Ch.10 — a deliberate tie to the Hollow
+  King's hunger, right before Chapter 11's Herald). Each chapter's
+  original "special" unit (Bramble Brute, Fen Warden, Iron Archer,
+  Ashen Zealot, Steel Marksman, Dusk Overseer, Void Harbinger) became
+  that chapter's Stage B mini-boss, scaled up rather than replaced —
+  it already read as a cut above its squadmates, so it earned the slot
+  rather than needing a new identity.
+- **Numbers use a top-down target curve, not a bottom-up derivation.**
+  An early attempt derived each new boss purely from its own chapter's
+  existing regular/special units in isolation, and produced a
+  non-monotonic climb that briefly out-statted the already-validated
+  Chapter 9/11 bosses (Chapter 8's derived boss came out higher-HP than
+  Chapter 9's own Campaign Warlord) — backwards, since Chapter 9 is
+  supposed to still be the harder wall. Fixed by setting one explicit
+  target hp/atk/def curve across all 10 new-or-kept bosses first
+  (climbing gently Chapter 2→8, holding Chapter 9's real numbers as the
+  wall, dipping at Chapter 10 for relief, holding Chapter 11's real
+  numbers as the hardest fight), then deriving each chapter's "elite"
+  support pair, mini-boss, and regular stage down from *that* target
+  via one consistent set of ratios (elite ≈0.58/0.80/1.0 × boss's
+  hp/atk/def; mini-boss ≈0.90 × elite; Stage B's support pair ≈0.70 ×
+  elite; Stage A's regulars ≈0.55 × elite) — not from each chapter's
+  own pre-existing units. Reused abilities/debuffs (Poison, Bleed,
+  Defense Down, Speed Down, Resistance Down) stayed on whichever new
+  unit descends from the original template that carried them.
+- **Verified via spot-probes only** (`probe_ch_bosses.js`,
+  `test_boss_flags.js`, `test_chapter_expansion.js`), not an exhaustive
+  8-trial-per-stage sweep of all 30 new stages — that would be
+  impractical at this scale. Confirmed: Chapters 2/6's regular-to-boss
+  climb reads as expected warm-up/build territory (8/8 at this probe's
+  squad power, consistent with Chapters 2-8's already-established
+  easy/building character), Chapter 9's boss stage is untouched and
+  still hits its historical ~0/8 wall, Chapter 10's new boss reads as a
+  real-but-passable relief step (~7/8), and Chapter 11's finale is
+  untouched and still hits its historical ~2/8. Also confirmed via the
+  `window.__debug` hook that mini-boss units never carry `isBoss` and
+  every chapter's actual boss does, matching the design intent exactly
+  (not just a stat bump wearing a boss-sounding name). Treat this as a
+  first pass on 30 brand-new stages, same as everything else in this
+  file — expect iteration once real playtesting (not a naive
+  first-target-click auto-bot) exercises it.
+- `CAMPAIGN_STORY`/`CAMPAIGN_STORY_AFTER` (see "Lore & Narrative"
+  below) were rewritten in full for the new stage range — every
+  mini-boss and boss above gets its own setup line and payoff line,
+  not a reused chapter-level summary.
 
 Implementation notes:
 - **Fixed vs. infinite vs. cycling**: `ENCOUNTERS[id].fixedChapters`
@@ -563,7 +613,7 @@ Implementation notes:
   `spawnWave` passes stage `1` to `scaledEnemyTemplate` for such
   encounters instead of the real stage, so a chapter's authored numbers
   ARE its difficulty, forever. `getSelectedStage`/`setSelectedStage`
-  both cap at `fixedChapters.length` (now 22) so there's no "Stage 23"
+  both cap at `fixedChapters.length` (now 42) so there's no "Stage 43"
   once every stage is cleared. `ENCOUNTERS[id].archetypeCycle` is
   Grand Arena's equivalent for picking *which* opponent squad a stage
   fights (`archetypeForStage`), while still scaling stats and rewards
@@ -665,9 +715,11 @@ source of truth.
   tradition. It feeds on affliction (the literal in-fiction reason for
   the Fury mechanic) and on the four factions' compounding grudges
   alike — division is fuel, which is why it surfaced exactly here.
-- **The 22-stage Campaign maps onto a three-act structure**, using
-  existing enemy names/stages as-is (no renaming needed, every one
-  already fit):
+- **The 42-stage Campaign maps onto a three-act structure**, using
+  existing enemy names as-is wherever they predate the mini-boss/boss
+  expansion (no renaming needed, every one already fit) and new named
+  mini-bosses/bosses for every chapter that gained one (see "Chapters
+  2-11 mini-boss/boss expansion" above for exactly which):
   - **Act I — Chapter 1 (Stages 1-12), "The Unclaimed Line":** the
     tutorial ladder's own arc — a mixed Stormcaller/Deathmark patrol
     (Zephyr/Fang/Squall) investigates wrong wildlife and banditry,
@@ -675,19 +727,25 @@ source of truth.
     reinforcements in-fiction, hits Stage 9's wall as the first
     visibly-corrupted warband, and Stage 12's Chapter Warlord as the
     first named enemy showing outside direction.
-  - **Act II — Chapters 2-8 (old Ch.1-7), "Four Borders, One Wound":**
+  - **Act II — Chapters 2-8 (Stages 13-33), "Four Borders, One Wound":**
     the same pattern erupts on all four factions' borders
     simultaneously, forcing the first-ever mixed joint task-forces
     (the in-fiction reason any 3-champion squad from any faction mix
     is normal from here on) as the threat escalates from wildlife/
-    banditry into the openly-worshipping Ashen Cult.
-  - **Act III — Chapters 9-11 (old Ch.8-10), "The Mask Comes Off":**
-    Chapter 9's Campaign Warlord unifies the scattered warbands (the
-    real wall); Chapter 10's Void Marauders/Harbinger reveal cultists
-    as conduits rather than people; Chapter 11's Herald is the Hollow
-    King's first direct avatar in the world, not the Hollow King
-    itself — deliberately leaves the actual Hollow King unfought,
-    open for future content.
+    banditry into the openly-worshipping Ashen Cult. Each chapter now
+    has its own mini-boss/boss beat: Grunt Warchief (Ch.2), Bramble
+    Ancient (Ch.3), Fen Matriarch (Ch.4), Iron Centurion (Ch.5), Ashen
+    High Priest (Ch.6 — the Cult's first named leader), Steel Warmaster
+    (Ch.7), Dusk Reaver (Ch.8).
+  - **Act III — Chapters 9-11 (Stages 34-42), "The Mask Comes Off":**
+    Chapter 9's Campaign Warlord (Stage 36, preceded by a second, worse
+    Ashen Enforcer at Stage 35) unifies the scattered warbands — the
+    real wall; Chapter 10's Void Marauders/Harbinger/The Devourer
+    (Stage 39) reveal cultists as conduits rather than people; Chapter
+    11's Hollow Acolyte (Stage 41) and The Herald (Stage 42, Campaign's
+    true finale) is the Hollow King's first direct avatar in the world,
+    not the Hollow King itself — deliberately leaves the actual Hollow
+    King unfought, open for future content.
   - **After the Herald:** Dungeon = the vaults the Herald's breach
     uncovered (the hunger's oldest leftovers, a debuff-mitigation test
     rather than a stat check — ties into Dungeon's existing design
@@ -698,31 +756,33 @@ source of truth.
     on purpose, non-lethally, because the wartime alliance needs a
     reason to outlive the war (ties into its existing "vs. AI
     archetype squads" identity as friendly, not hostile, competition).
-- **Now surfaced in-game as a per-stage story blurb** (`CAMPAIGN_STORY`,
-  keyed 1-22 by the same flat stage index everything else in Campaign
+- **Surfaced in-game as a per-stage story blurb** (`CAMPAIGN_STORY`,
+  keyed 1-42 by the same flat stage index everything else in Campaign
   uses): one short italic line rendered in `#teamSelectStory` at
   team-select, right before the fight it precedes — wired into
   `renderTeamSelect` (`pendingEncounterId === 'campaign' ?
   CAMPAIGN_STORY[pendingStage] : null`, hidden entirely on every other
-  encounter). Condensed straight from this section's own beats, not a
-  separate script — Stage 1 is the patrol's dispatch, Stage 6/8 name
-  Bastian/Vara joining in-fiction the same turn they're granted as
-  rewards, Stage 9 is "the wall," Stage 12 introduces the Chapter
-  Warlord by name, Stage 20/22 (Chapters 9/11) carry the Campaign
-  Warlord and the Herald respectively. A deliberately light touch: one
-  line, no dialogue system, no branching, no new screen — the existing
-  team-select moment already fires once per stage and had room for it.
-  A matching `CAMPAIGN_STORY_AFTER` table pays off each of those lines
-  on the victory screen (`#resultStory`, wired into `endBattle`) —
-  written as a direct continuation of the matching `CAMPAIGN_STORY`
-  entry, not a restatement of it (Stage 1: patrol dispatched → rats
-  scatter, cause unclear; Stage 22: the Herald named → the Herald
-  shatters, the Hollow King still out there). Shown only on an actual
-  `won` Campaign result — a `DEFEAT` never earns the consequence of a
-  win it didn't get, and every non-Campaign encounter still shows
-  neither table. A full Codex/lore screen for the faction dossiers
-  themselves is still not built — revisit only if asked for a deeper
-  reference than the Artifact already provides.
+  encounter). Every mini-boss/boss introduced by the expansion above
+  gets its own setup line at its stage, not a reused chapter-level
+  summary — e.g. Stage 14 (Chapter 2's mini-boss) reads "One raider
+  doesn't break like the rest...", Stage 15 (its boss) reads "Whatever
+  answers to 'Warchief' out here commands the whole warband...". A
+  matching `CAMPAIGN_STORY_AFTER` table pays off each of those lines on
+  the victory screen (`#resultStory`, wired into `endBattle`) — written
+  as a direct continuation of the matching `CAMPAIGN_STORY` entry, not
+  a restatement of it (Stage 1: patrol dispatched → rats scatter, cause
+  unclear; Stage 42: the Herald named → the Herald shatters, the Hollow
+  King still out there). Shown only on an actual `won` Campaign result
+  — a `DEFEAT` never earns the consequence of a win it didn't get, and
+  every non-Campaign encounter still shows neither table. Both tables
+  were rewritten in full when Chapters 2-11 expanded from 1 stage each
+  to 3 — the old 22-entry versions are gone, not left stale alongside
+  the new ones. A deliberately light touch throughout: one line per
+  stage, no dialogue system, no branching, no new screen — the existing
+  team-select/victory moments already fire once per stage and had the
+  room. A full Codex/lore screen for the faction dossiers themselves is
+  still not built — revisit only if asked for a deeper reference than
+  the Artifact already provides.
 
 ## Testing methodology
 
@@ -834,17 +894,18 @@ framework above for the full mechanism (`CAMPAIGN_CH1_STAGES`,
 `CAMPAIGN_STAGE_CHAMPION_REWARDS`, the retuned `CHAMPION_TRIAL`
 baseline, the new `CONTENT_UNLOCKS` sequencing).
 
-**Chapters 2-11 difficulty seam — retuned.** Follow-up to the Chapter 1
-rework above: the old Chapters 1-10 (now displaying as 2-11) were still
-tuned for the pre-rework all-Legendary squad and had gone flat-trivial
-for 7 straight chapters before falling off a cliff — see "Chapters
-2-11 difficulty seam — retuned" under Content framework above for the
-full probe history and final numbers.
-
-Explicitly still open, per the user's own framing ("only then decide
-whether Chapters 2-10 get the same multi-stage treatment or stay as
-capstone fights between ladders") — do not start that work without
-being asked.
+**Chapters 2-11 mini-boss/boss expansion — built.** Follow-up to the
+Chapter 1 rework above, in two steps: first a straight difficulty
+retune (Chapters 2-11 were still tuned for the pre-rework all-Legendary
+squad and had gone flat-trivial for 7 straight chapters before falling
+off a cliff), then — once the user asked for a mini-boss at each
+chapter's halfway point and a boss at the end — a full expansion of
+each chapter from 1 fight into its own 3-stage regular/mini-boss/boss
+mini-ladder, the exact "give Chapters 2-10 the multi-stage treatment"
+decision this doc had previously flagged as deferred. See "Chapters
+2-11 mini-boss/boss expansion" under Content framework above for the
+full mechanism, naming, and probe history. Campaign is now 42 stages
+total (was 22).
 
 **Faction/Hollow King lore — written and now walked through in the
 Campaign.** The user asked for backstory explaining the factions
