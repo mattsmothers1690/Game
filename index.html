@@ -118,11 +118,12 @@
     padding: 3px 8px; border-radius: 6px; font-size: 0.62rem;
   }
   .invActionBtn:disabled { opacity: 0.4; }
-  #scrapDisplay, #goldDisplay, #shardDisplay, #charmDustDisplay, #ascensionDisplay, #arenaMedalDisplay, #catalystDisplay { color: #fbbf24; font-size: 0.85rem; margin: 4px 0 0; }
+  #scrapDisplay, #goldDisplay, #shardDisplay, #charmDustDisplay, #ascensionDisplay, #arenaMedalDisplay, #summonShardDisplay, #catalystDisplay { color: #fbbf24; font-size: 0.85rem; margin: 4px 0 0; }
   #shardDisplay { color: #a78bfa; }
   #charmDustDisplay { color: #86efac; }
   #ascensionDisplay { color: #f472b6; }
   #arenaMedalDisplay { color: #38bdf8; }
+  #summonShardDisplay { color: #fb7185; }
   #catalystDisplay { color: #7dd3fc; font-size: 0.7rem; }
   .xpFill { background: linear-gradient(90deg,#a78bfa,#7c3aed); }
 
@@ -378,6 +379,7 @@
   <div id="charmDustDisplay"></div>
   <div id="ascensionDisplay"></div>
   <div id="arenaMedalDisplay"></div>
+  <div id="summonShardDisplay"></div>
   <div id="catalystDisplay"></div>
   <div id="armoryGrid"></div>
 
@@ -388,6 +390,15 @@
     <div class="farmControls">
       <button id="raiseLevelCapBtn" class="overlayBtn"></button>
     </div>
+  </div>
+
+  <div id="summonPanel" class="farmPanel">
+    <h2>Summon</h2>
+    <div style="color:#888;font-size:0.7rem;">Main Boss victories pay Summon Shards. Spend them to summon a new champion — higher rarities are rarer. A pull that lands on a champion you already own refunds part of the cost instead of doing nothing.</div>
+    <div class="farmControls">
+      <button id="summonPullBtn" class="overlayBtn"></button>
+    </div>
+    <div id="summonPullDesc"></div>
   </div>
 
   <div id="arenaShopPanel" class="farmPanel">
@@ -1244,6 +1255,82 @@
     return instance;
   }
 
+  // ---------------------------------------------------------------
+  // CHAMPION ROSTER & SUMMONING: the confirmed, deliberately-scoped
+  // exception to "no gacha currency" at the top of this doc - the user
+  // chose real RNG summons over a deterministic pick-your-champion
+  // unlock. Only the original 6 (STARTER_CHAMPION_IDS) start owned;
+  // everything added since (Zephyr/Squall/Fang/Vex, and any future
+  // Epic/Legendary champion) must be summoned. Kept scoped to match the
+  // rest of the no-FOMO philosophy: no stamina/timers gating pulls, no
+  // real-money purchase, and a pull can never feel wasted - landing on
+  // an already-owned champion refunds part of the cost instead of
+  // doing nothing (see pullChampionSummon).
+  // ---------------------------------------------------------------
+  var CHAMPION_ROSTER_KEY = 'machineborn_champion_roster_v1';
+  var STARTER_CHAMPION_IDS = ['vara', 'mire', 'kestrel', 'rook', 'nyx', 'wren'];
+  function loadChampionRoster() {
+    try {
+      var raw = localStorage.getItem(CHAMPION_ROSTER_KEY);
+      return raw ? JSON.parse(raw) : STARTER_CHAMPION_IDS.slice();
+    } catch (e) { return STARTER_CHAMPION_IDS.slice(); }
+  }
+  function saveChampionRoster() {
+    try { localStorage.setItem(CHAMPION_ROSTER_KEY, JSON.stringify(championRoster)); } catch (e) { /* private mode / quota */ }
+  }
+  var championRoster = loadChampionRoster();
+  function isChampionOwned(id) { return championRoster.indexOf(id) !== -1; }
+  function unlockChampion(id) {
+    if (isChampionOwned(id)) return false;
+    championRoster.push(id);
+    saveChampionRoster();
+    return true;
+  }
+
+  var SUMMON_SHARD_KEY = 'machineborn_summon_shard_v1';
+  function loadSummonShard() {
+    try { var raw = localStorage.getItem(SUMMON_SHARD_KEY); return raw ? (parseInt(raw, 10) || 0) : 0; } catch (e) { return 0; }
+  }
+  function saveSummonShard() {
+    try { localStorage.setItem(SUMMON_SHARD_KEY, String(summonShard)); } catch (e) { /* private mode / quota */ }
+  }
+  var summonShard = loadSummonShard();
+  var SUMMON_PULL_COST = 10;
+  var SUMMON_DUPLICATE_REFUND = 5;
+
+  // Reuses DROP_RARITY_WEIGHTS as-is (no stage bump - summons aren't
+  // stage-gated, they're a flat Armory spend) rather than a parallel
+  // weight table.
+  function rollSummonRarity() {
+    var total = RARITY_ORDER.reduce(function (sum, r) { return sum + DROP_RARITY_WEIGHTS[r]; }, 0);
+    var roll = Math.random() * total;
+    for (var i = 0; i < RARITY_ORDER.length; i++) {
+      roll -= DROP_RARITY_WEIGHTS[RARITY_ORDER[i]];
+      if (roll <= 0) return RARITY_ORDER[i];
+    }
+    return RARITY_ORDER[RARITY_ORDER.length - 1];
+  }
+
+  // Returns { rarity, duplicate, champion } - champion is null on a
+  // duplicate (every champion of that rarity is already owned, e.g.
+  // every current Legendary and, until Epic champions exist, every
+  // Epic roll too - not a bug, the pool is just still small).
+  function pullChampionSummon() {
+    if (summonShard < SUMMON_PULL_COST) return null;
+    summonShard -= SUMMON_PULL_COST;
+    saveSummonShard();
+    var rarity = rollSummonRarity();
+    var candidates = CHAMPIONS.filter(function (c) { return c.rarity === rarity && !isChampionOwned(c.id); });
+    if (!candidates.length) {
+      summonShard += SUMMON_DUPLICATE_REFUND;
+      saveSummonShard();
+      return { rarity: rarity, duplicate: true, champion: null };
+    }
+    var champion = candidates[Math.floor(Math.random() * candidates.length)];
+    unlockChampion(champion.id);
+    return { rarity: rarity, duplicate: false, champion: champion };
+  }
+
   var GEAR_SALVAGE_VALUE = { Common: 15, Rare: 35, Epic: 80, Legendary: 200 };
   var CHARM_SALVAGE_VALUE = { Common: 10, Rare: 25, Epic: 55, Legendary: 120 };
   var GEAR_LEVEL_MAX = 12;
@@ -2067,6 +2154,11 @@
   var ENCOUNTER_XP_REWARD = { mainboss: 40, galactic: 70 };
   var ENCOUNTER_ARENA_MEDAL_REWARD = { grandarena: 4 };
   var ENCOUNTER_SHARD_REWARD = { mainboss: 3 };
+  // Main Boss is already the account's "grow your champions" mode
+  // (Gold/XP/Shards) - Summon Shards ride alongside those as a second
+  // documented reward-purity exception (Galactic War/Grand Arena each
+  // already made one of their own), rather than inventing a mode.
+  var ENCOUNTER_SUMMON_SHARD_REWARD = { mainboss: 4 };
   var ENCOUNTER_CHARMDUST_REWARD = { faction: 60 };
   var ENCOUNTER_ASCENSION_REWARD = { dungeon: 2 };
 
@@ -2719,6 +2811,14 @@
         rewardLines.push('+' + shardReward + ' Shard' + (shardReward === 1 ? '' : 's'));
       }
 
+      var summonShardReward = Math.round((ENCOUNTER_SUMMON_SHARD_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
+      if (summonShardReward > 0) {
+        summonShard += summonShardReward;
+        saveSummonShard();
+        logLine('logSys', 'Earned ' + summonShardReward + ' Summon Shard' + (summonShardReward === 1 ? '' : 's') + '.');
+        rewardLines.push('+' + summonShardReward + ' Summon Shard' + (summonShardReward === 1 ? '' : 's'));
+      }
+
       var charmDustReward = Math.round((ENCOUNTER_CHARMDUST_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
       if (charmDustReward > 0) {
         charmDust += charmDustReward;
@@ -3232,6 +3332,16 @@
   }
 
   function teamSelectCardHtml(champ) {
+    if (!isChampionOwned(champ.id)) {
+      var lockedFactionName = (FACTIONS[champ.faction] && FACTIONS[champ.faction].name) || '';
+      var lockedNameColor = RARITY_COLOR[champ.rarity] || '#fff';
+      return '' +
+        '<button class="selectCard locked" data-id="' + champ.id + '" disabled>' +
+          '<div class="selectName" style="color:' + lockedNameColor + '">' + champ.name + '</div>' +
+          '<div class="selectRole">' + champ.role + (lockedFactionName ? ' · ' + lockedFactionName : '') + '</div>' +
+          '<div class="selectStats" style="color:#666;">Locked — Summon to unlock</div>' +
+        '</button>';
+    }
     var selected = selectedTeamIds.indexOf(champ.id) !== -1;
     var full = selectedTeamIds.length >= squadSizeFor(pendingEncounterId);
     var disabled = !selected && full;
@@ -3418,18 +3528,23 @@
     document.getElementById('charmDustDisplay').textContent = 'Charm Dust: ' + charmDust;
     document.getElementById('ascensionDisplay').textContent = 'Ascension Cores: ' + ascensionCore;
     document.getElementById('arenaMedalDisplay').textContent = 'Arena Medals: ' + arenaMedal;
+    document.getElementById('summonShardDisplay').textContent = 'Summon Shards: ' + summonShard;
     document.getElementById('catalystDisplay').textContent =
       'Set Catalyst: ' + setCatalyst + ' · Stat Catalyst: ' + statCatalyst + ' · Substat Catalyst: ' + substatCatalyst;
     renderChampions();
     renderGearFarm();
     renderCharmFarm();
     renderArenaShop();
+    renderSummonPanel();
   }
 
   // ---------------------------------------------------------------
   // CHAMPION LEVELING PANEL
   // ---------------------------------------------------------------
   function championRowHtml(champ) {
+    if (!isChampionOwned(champ.id)) {
+      return '<div class="charmInvRow" style="color:#666;">' + champ.name + ' (' + champ.rarity + ') — Locked, summon to unlock</div>';
+    }
     var level = championLevel(champ.id);
     var xp = championXp(champ.id);
     var cap = effectiveLevelCap();
@@ -3471,6 +3586,27 @@
 
   document.getElementById('raiseLevelCapBtn').addEventListener('click', function () {
     raiseLevelCap();
+    renderArmory();
+  });
+
+  // ---------------------------------------------------------------
+  // SUMMON (champion-acquisition economy - see pullChampionSummon)
+  // ---------------------------------------------------------------
+  function renderSummonPanel() {
+    var btn = document.getElementById('summonPullBtn');
+    btn.textContent = 'Summon (' + SUMMON_PULL_COST + ' Shards)';
+    btn.disabled = summonShard < SUMMON_PULL_COST;
+  }
+
+  document.getElementById('summonPullBtn').addEventListener('click', function () {
+    var result = pullChampionSummon();
+    var desc = '';
+    if (result) {
+      desc = result.duplicate
+        ? 'Summoned a ' + result.rarity + ' champion you already own — refunded ' + SUMMON_DUPLICATE_REFUND + ' Summon Shards.'
+        : 'Summoned ' + result.champion.name + ' (' + result.rarity + ', ' + (FACTIONS[result.champion.faction] ? FACTIONS[result.champion.faction].name : result.champion.faction) + ')!';
+    }
+    document.getElementById('summonPullDesc').textContent = desc;
     renderArmory();
   });
 

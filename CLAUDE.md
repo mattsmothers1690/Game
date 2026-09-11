@@ -88,6 +88,8 @@ dependencies, no server). Served via GitHub Pages at
 | `machineborn_substat_catalyst_v1` | Substat Catalyst currency (a number) — Tower/Rework: substats only | Persistent |
 | `machineborn_charmdust_v1` | Charm Dust currency (a number) — Faction Wars' charm economy (Scrap's counterpart) | Persistent |
 | `machineborn_arena_medal_v1` | Arena Medal currency (a number) — Grand Arena's economy, spent on Arena Pulls (guaranteed Vanguard-set gear, otherwise unobtainable) | Persistent |
+| `machineborn_summon_shard_v1` | Summon Shard currency (a number) — Main Boss's second reward, spent on champion Summon pulls | Persistent |
+| `machineborn_champion_roster_v1` | Array of owned champion ids — only `STARTER_CHAMPION_IDS` start owned; everything since must be summoned | Persistent |
 
 Every inventory is a flat array of independent rolled instances keyed
 by a generated `instanceId`; equipping references an instance by ID.
@@ -347,9 +349,13 @@ Implementation notes:
   `ENCOUNTER_ARENA_MEDAL_REWARD` has only `grandarena`, and there is no
   `ENCOUNTER_DROPS.grandarena` entry at all — Grand Arena's gear payoff
   (`pullArenaGear`) is a manual Armory spend, never a victory-screen
-  roll, so the reward line itself stays Medals-only. `endBattle` guards
-  every reward block with `if (reward > 0)` so a mode that doesn't
-  grant something never shows a useless "+0 X" line.
+  roll, so the reward line itself stays Medals-only.
+  `ENCOUNTER_SUMMON_SHARD_REWARD` has only `mainboss` — Main Boss's
+  champion-growth identity now covers Gold/XP/Shards *and* Summon
+  Shards, but `pullChampionSummon` is the same kind of manual Armory
+  spend as Grand Arena's gear pull, never a victory-screen roll.
+  `endBattle` guards every reward block with `if (reward > 0)` so a
+  mode that doesn't grant something never shows a useless "+0 X" line.
 - Champion leveling itself (Gold/XP spend, level curve, Shard-gated
   cap) is unchanged from when it was Boss/Wave/Champion-Trial-agnostic
   — see the leveling bullet above; only Main Boss feeds it now.
@@ -455,14 +461,25 @@ Still to design/build, in rough order:
    presence). Epic-tier champions (to reach faction bonus3, and to
    round out the rarity ladder before the summon pool goes live) are
    still open.
-2. **Summon currency + Armory action**: a new currency (name TBD, kept
-   distinct from the existing `machineborn_shards_v1` — that one is
-   already Main Boss's level-cap resource, a same-named "Shards" would
-   collide) spent on a rarity-weighted champion pull, reusing the
-   `DROP_RARITY_WEIGHTS`-style convention. Likely owned by Main Boss
-   (already the account's "grow your champions" mode — Gold/XP/Shards)
-   as an additional reward, similar to how Galactic War/Grand Arena
-   each already made one documented exception to strict reward purity.
+2. ~~Summon currency + Armory action~~ **Built**: Summon Shards
+   (`machineborn_summon_shard_v1`, kept distinct from the pre-existing
+   `machineborn_shards_v1` — that one is Main Boss's level-cap resource)
+   are Main Boss's second reward alongside Gold/XP/Shards
+   (`ENCOUNTER_SUMMON_SHARD_REWARD`) — another documented reward-purity
+   exception, same as Galactic War/Grand Arena each already made one.
+   Spend them in the Armory's Summon panel (`pullChampionSummon`,
+   `SUMMON_PULL_COST` = 10) on a rarity-weighted pull reusing
+   `DROP_RARITY_WEIGHTS` as-is (no stage bump - it's a flat spend, not
+   stage-gated). Only the original 6 (`STARTER_CHAMPION_IDS`) start
+   owned (`machineborn_champion_roster_v1`); everything since must be
+   summoned. Landing on a rarity where every champion is already owned
+   (right now: every Legendary, and every Epic since none exist yet)
+   refunds half the cost (`SUMMON_DUPLICATE_REFUND` = 5) rather than
+   doing nothing - no pull ever feels wasted. An unowned champion's
+   team-select card and Armory Champions-panel row both render as
+   `Locked — Summon to unlock` (disabled, dimmed via the existing
+   `.selectCard:disabled` style) rather than being hidden - same
+   "gate is visible, not mysterious" convention as `isContentUnlocked`.
 3. **Roster-tier gating**: the mechanism connecting "better champions"
    to "higher tiers, better rewards" is not yet designed. Leading idea:
    a `ROSTER_UNLOCKS`-style gate (mirroring `CONTENT_UNLOCKS`'s
