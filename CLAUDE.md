@@ -698,12 +698,23 @@ source of truth.
     on purpose, non-lethally, because the wartime alliance needs a
     reason to outlive the war (ties into its existing "vs. AI
     archetype squads" identity as friendly, not hostile, competition).
-- **Status: narrative canon only, no game-code or copy changes made
-  yet.** Chapter/stage numbers, enemy names, and mode identities above
-  are already accurate to what's shipped — nothing needed renaming to
-  fit. Whether/how to surface any of this in-game (chapter subtitles,
-  a Codex/lore screen, victory-line flavor text) is an open follow-up,
-  not started — see "Next up".
+- **Now surfaced in-game as a per-stage story blurb** (`CAMPAIGN_STORY`,
+  keyed 1-22 by the same flat stage index everything else in Campaign
+  uses): one short italic line rendered in `#teamSelectStory` at
+  team-select, right before the fight it precedes — wired into
+  `renderTeamSelect` (`pendingEncounterId === 'campaign' ?
+  CAMPAIGN_STORY[pendingStage] : null`, hidden entirely on every other
+  encounter). Condensed straight from this section's own beats, not a
+  separate script — Stage 1 is the patrol's dispatch, Stage 6/8 name
+  Bastian/Vara joining in-fiction the same turn they're granted as
+  rewards, Stage 9 is "the wall," Stage 12 introduces the Chapter
+  Warlord by name, Stage 20/22 (Chapters 9/11) carry the Campaign
+  Warlord and the Herald respectively. A deliberately light touch: one
+  line, no dialogue system, no branching, no new screen — the existing
+  team-select moment already fires once per stage and had room for it.
+  A full Codex/lore screen for the faction dossiers themselves is still
+  not built — revisit only if asked for a deeper reference than the
+  Artifact already provides.
 
 ## Testing methodology
 
@@ -827,15 +838,16 @@ whether Chapters 2-10 get the same multi-stage treatment or stay as
 capstone fights between ladders") — do not start that work without
 being asked.
 
-**Faction/Hollow King lore — written, not yet surfaced in-game.** The
-user asked for backstory explaining the factions "battling and
-fighting each other," to use in the Campaign — see "Lore & Narrative"
-above for the canonical summary and the published Artifact for full
-text. Deliberately scoped as narrative-only this pass: no chapter
-subtitles, Codex screen, or victory-line flavor text were added to
-`index.html`. Revisit once the user decides how much of it (if any)
-should actually render in-game, rather than guessing at UI scope for a
-purely creative-writing ask.
+**Faction/Hollow King lore — written and now walked through in the
+Campaign.** The user asked for backstory explaining the factions
+"battling and fighting each other," then asked for the Campaign itself
+to walk the player through it as a story-driven campaign — see "Lore &
+Narrative" above for the canonical summary (including the
+`CAMPAIGN_STORY` in-game integration) and the published Artifact for
+the full-length version. A dedicated Codex/lore screen for the full
+faction dossiers is still not built — revisit only if asked for a
+deeper in-game reference than the current one-line-per-stage treatment
+plus the Artifact.
 
 Longer-term, deferred until asked for:
 - A **Charm Upgrade** to pair with the new Charm Reforge — gear has

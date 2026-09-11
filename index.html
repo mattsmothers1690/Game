@@ -56,6 +56,21 @@
   /* ---------------- TEAM SELECT ---------------- */
   #teamSelectScreen { display: none; text-align: center; padding: 30px 16px; }
   #teamSelectCounter { color: #999; font-size: 0.85rem; margin-top: 4px; }
+  #teamSelectStory {
+    display: none;
+    max-width: 560px;
+    margin: 14px auto 0;
+    padding: 12px 16px;
+    background: #171922;
+    border: 1px solid #2f2f45;
+    border-left: 3px solid #a78bfa;
+    border-radius: 8px;
+    color: #b8bcc8;
+    font-size: 0.82rem;
+    font-style: italic;
+    line-height: 1.5;
+    text-align: left;
+  }
   #teamSelectGrid {
     display: flex;
     flex-wrap: wrap;
@@ -476,6 +491,7 @@
 <div id="teamSelectScreen">
   <h1 id="teamSelectTitle">CHOOSE YOUR TEAM</h1>
   <div id="teamSelectCounter">Selected 0 / 0</div>
+  <div id="teamSelectStory"></div>
   <div id="teamSelectGrid"></div>
   <div id="teamSelectActions">
     <button id="teamSelectBackBtn" class="overlayBtn">BACK</button>
@@ -2144,6 +2160,40 @@
   // aren't earnable this early anyway - they're a Main Boss reward and
   // Main Boss only unlocks at Stage 4).
   var CAMPAIGN_STAGE_CHAMPION_REWARDS = { 6: 'bastian', 8: 'vara' };
+
+  // One short narrative line per Campaign stage (flat 1-22 index, same
+  // indexing as everything else in this file), shown at team-select
+  // right before the fight it precedes. Canon lives in full in the
+  // published lore Artifact ("The Unclaimed Line") and its CLAUDE.md
+  // summary under "Lore & Narrative" - this is the condensed, in-game
+  // version of that same three-act arc (Act I = Stages 1-12, Chapter
+  // 1's own tutorial ladder; Act II = Stages 13-19/old Ch.1-7; Act III
+  // = Stages 20-22/old Ch.8-10), using the exact enemy names and unlock
+  // points already shipped - nothing needed renaming to fit.
+  var CAMPAIGN_STORY = {
+    1: 'A mixed patrol — Zephyr, Fang, and Squall — is sent to the unclaimed border after reports of wildlife turning strangely aggressive.',
+    2: "The aggression isn't settling down. If anything, it's spreading further along the border than it should.",
+    3: "Even the vermin out here bite wrong now. Something in the marsh isn't behaving the way marshes behave.",
+    4: "The \"wildlife\" reports turn out to be cover — Highway Thief bands are raiding openly, using the panic as camouflage.",
+    5: 'Word spreads of hostile beasts further out. The patrol pushes into territory the maps simply mark as empty.',
+    6: "An Ironclad line-captain, Bastian, decides three scouts holding this alone is one Warden's Oath short of sensible — and joins for good.",
+    7: 'Enough ground is secured that a half-abandoned Ashenwall keep becomes usable again as a forward supply cache.',
+    8: "Vara arrives — not to rescue anyone, but because Bastian's report used the words \"not natural\" three times in two paragraphs.",
+    9: "The wall. A warband that should have broken twice over — and didn't. The first fight against something visibly, physically wrong.",
+    10: "The same \"wrong warband\" pattern is being reported on three other borders that were never Ashenwall's problem.",
+    11: 'The warband regroups under its hardest veterans — coordinated in a way raiders like this have no business being.',
+    12: "The Chapter Warlord. The warband's chieftain — and the first named enemy who is clearly no longer deciding his own next move.",
+    13: 'A border far from Ashenwall reports the same wrongness. This was never just a local problem.',
+    14: 'Deeper into contested ground, the pattern holds everywhere it\'s checked: corrupted wildlife, then corrupted will.',
+    15: 'For the first time in living memory, the four banners quietly pool scouts and veterans instead of defending four borders alone.',
+    16: 'It stops looking like wildlife and banditry. Something is organizing out here — and being worshipped for it.',
+    17: 'The Ashen Cult recruits openly now, drawing in the desperate and the already-touched alike.',
+    18: 'Hardened raiders who were once just mercenaries now fight for the cult\'s banner without hesitation.',
+    19: "The cult's ranks swell past anything a warband should sustain. Someone is holding it all together.",
+    20: 'The Campaign Warlord unites every scattered warband — including the remnants of the very first one — under a single banner.',
+    21: "The cultists stop looking like people wearing the hunger's favor. They start looking like thin places where it pours straight through.",
+    22: 'The Herald. Not the Hollow King itself — the first shape it has bothered wearing into the world directly.'
+  };
 
   // ---------------------------------------------------------------
   // CAMPAIGN CHAPTERS 2-11 - the original Chapters 1-10, now shifted up
@@ -3983,6 +4033,10 @@
     if (config.archetypeCycle) title += ' — VS ' + archetypeForStage(config, pendingStage).name.toUpperCase();
     document.getElementById('teamSelectTitle').textContent = title;
     document.getElementById('teamSelectCounter').textContent = 'Selected ' + selectedTeamIds.length + ' / ' + squadSize;
+    var storyEl = document.getElementById('teamSelectStory');
+    var story = pendingEncounterId === 'campaign' ? CAMPAIGN_STORY[pendingStage] : null;
+    storyEl.textContent = story || '';
+    storyEl.style.display = story ? 'block' : 'none';
     document.getElementById('teamSelectGrid').innerHTML = CHAMPIONS.map(teamSelectCardHtml).join('');
     document.getElementById('teamSelectBeginBtn').disabled = selectedTeamIds.length !== squadSize;
   }
