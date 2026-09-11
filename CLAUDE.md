@@ -175,6 +175,13 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
     is manual/deterministic/paid (Ascension Cores only, no Gold/XP
     needed), rising cost per rank (`ascensionCost`). Lives in the same
     Champions panel row as Level Up.
+11. **Galactic War** (`galactic`, see Content framework below): the
+    "big generic farm" node — 5v5 across `GALACTIC_WAVES`' 5 waves, no
+    retreat between them, each wave after the first spawning with a
+    stacking War Fervor Attack Up (`GALACTIC_WAR_FERVOR_STEP`). Unlocks
+    at Campaign Ch.10 alongside Dungeon. Pays bulk Scrap+Gold+XP with
+    no specialist material of its own — the deliberate exception to
+    every other mode's single-material rule.
 
 ## Content framework
 
@@ -184,8 +191,12 @@ that maxing one mode's specialty naturally pushes you to farm a
 odd one out: it has no farmable specialty of its own (a small
 Scrap+Gold trickle only) because its job is being the account-wide
 **gate** — `CONTENT_UNLOCKS` in `index.html` — that unlocks the other
-four as you clear its chapters. Nothing else is gated by anything;
+modes as you clear its chapters. Nothing else is gated by anything;
 once Campaign clears the threshold, that mode is open forever.
+**Galactic War** is the one deliberate exception to "exactly ONE
+material identity": it's the "big generic farm" node by design, so it
+pays bulk Scrap+Gold+XP instead of owning a new specialist material —
+see its row below and the implementation notes.
 
 | Mode (`ENCOUNTERS` id) | Squad | Progression | Unlocks at | Rewards |
 |---|---|---|---|---|
@@ -194,6 +205,7 @@ once Campaign clears the threshold, that mode is open forever.
 | **Faction Wars** (`faction`) | 4v4 × 3 waves | Infinite stage ladder | Campaign Ch.5 | Charms (rolled chance) + Charm Dust (guaranteed) |
 | **Main Boss** (`mainboss`) | 3v3 | Infinite stage ladder | Campaign Ch.8 | Gold + XP (champion leveling) + Shards (level cap) |
 | **Dungeon** (`dungeon`) | 4v4 | Infinite stage ladder | Campaign Ch.10 | Ascension Cores only |
+| **Galactic War** (`galactic`) | 5v5 × 5 waves | Infinite stage ladder, no retreat between waves within one attempt | Campaign Ch.10 (same threshold as Dungeon — a "you finished Campaign" bonus node, not a fifth step in the unlock sequence) | Bulk Scrap + Gold + XP only — no gear/charms/shards/catalysts/Ascension Cores |
 
 Dungeon is deliberately different in *kind*, not just reward: every
 enemy in `DUNGEON_WAVE_1` leads with a debuff instead of raw damage
@@ -206,6 +218,19 @@ designed. Keep that principle for any future mode: a new mode earns
 its place by testing something *different* (turn economy, debuff
 mitigation, burst vs. sustain, counter-picking), not by being Tower
 with bigger numbers.
+
+Galactic War earns its place the same way, but on a different axis:
+turn economy under escalating pressure rather than debuff mitigation.
+Every wave after the first spawns already carrying a stacking "War
+Fervor" Attack Up (`GALACTIC_WAR_FERVOR_STEP` = 15% per wave, applied
+in `spawnWave` when `ENCOUNTERS[id].stackingBuffPerWave` is set) — on
+top of the same infinite-ladder stage scaling every other mode already
+uses. There's no retreat between `GALACTIC_WAVES`' 5 waves (reusing the
+same `currentWaves`/`waveIndex` wave-transition path Faction Wars'
+3 waves already use — team HP/buffs carry over, only enemies respawn),
+so a clean, fast, high-burst/AoE clear reaches the finale before Fervor
+stacks up much, while a slow, grindy clear is fighting later waves at
+a real Attack disadvantage on top of their own escalation.
 
 Implementation notes:
 - **Fixed vs. infinite**: `ENCOUNTERS[id].fixedChapters` (an array of
@@ -224,9 +249,11 @@ Implementation notes:
 - **Reward purity**: every `ENCOUNTER_*_REWARD` / `ENCOUNTER_DROPS` /
   `GEAR_REWORK_CATALYST_CHANCE` table only has entries for the mode(s)
   that actually own that material — e.g. `ENCOUNTER_GOLD_REWARD` has
-  only `campaign` and `mainboss` keys. `endBattle` guards every reward
-  block with `if (reward > 0)` so a mode that doesn't grant something
-  never shows a useless "+0 X" line.
+  only `campaign`, `mainboss`, and `galactic` keys (Galactic War is the
+  one intentional multi-mode overlap — see above — never a specialist
+  material like gear/charms/shards/Ascension Cores). `endBattle` guards
+  every reward block with `if (reward > 0)` so a mode that doesn't
+  grant something never shows a useless "+0 X" line.
 - Champion leveling itself (Gold/XP spend, level curve, Shard-gated
   cap) is unchanged from when it was Boss/Wave/Champion-Trial-agnostic
   — see the leveling bullet above; only Main Boss feeds it now.
@@ -292,24 +319,18 @@ acquisition path anymore.
 
 ## Next up (not yet built)
 
-The content framework's first five modes are built: Campaign (the
+The content framework's first six modes are built: Campaign (the
 gate, 10 fixed chapters), Tower/Faction Wars/Main Boss/Dungeon (each
-single-material specialists unlocked by Campaign progress), Champion
+single-material specialists unlocked by Campaign progress), Galactic
+War (the generic bulk-farm node, unlocked alongside Dungeon), Champion
 leveling, Ascension, and Gear Rework — see "Systems that exist today"
 and "Content framework" above.
 
 The user's full target roster is **Main Boss, Faction Wars, Tower,
-Dungeon, Galactic Challenge/War, Grand Arena** — the first four exist;
-**Galactic Challenge/War** and **Grand Arena** are the two still to
-build, one at a time per the user's explicit preference (build, test,
-ship one before starting the next):
-- **Galactic Challenge/War**: proposed design (confirmed with the
-  user, not yet built) — one continuous multi-wave siege, no retreat,
-  enemies gain a stacking buff each wave (punishes slow/grindy clears,
-  rewards burst/AoE). No new specialist material — pays a bulk
-  Scrap+Gold+XP payout instead, the "big generic farm" node. Since
-  there's no server/multiplayer, this can't be real PvP - it's a
-  single-player siege gauntlet, not a war against anything.
+Dungeon, Galactic Challenge/War, Grand Arena** — the first five now
+exist; **Grand Arena** is the one still to build, per the user's
+explicit "one at a time" preference (build, test, ship one before
+starting the next):
 - **Grand Arena**: proposed design (confirmed with the user, not yet
   built) — PvE vs. pre-built AI archetype squads (Aggro/Control/
   Stall/Burst) that actually use their full kit intelligently (unlike

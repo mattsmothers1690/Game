@@ -349,6 +349,14 @@
       <button id="dungeonStageUpBtn" class="stageStepBtn">+</button>
     </div>
   </div>
+  <div class="nodeRow">
+    <button id="startGalacticBtn" data-encounter="galactic">GALACTIC WAR (5v5)</button>
+    <div class="stageStepper">
+      <button id="galacticStageDownBtn" class="stageStepBtn">−</button>
+      <span id="galacticStageLabel" class="stageLabel"></span>
+      <button id="galacticStageUpBtn" class="stageStepBtn">+</button>
+    </div>
+  </div>
   <button id="armoryBtn">ARMORY</button>
 </div>
 
@@ -1607,20 +1615,73 @@
       basic: { name: 'Binding Chains', coeff: 0.7, aoe: false, applyDebuff: { type: 'Stun', chance: 25 }, applyDebuff2: { type: 'Speed Down', chance: 40 } } }
   ];
 
+  // Galactic War: 5v5, one continuous no-retreat siege - every wave's
+  // enemies spawn already carrying a stacking "War Fervor" Attack Up
+  // (see spawnWave's stackingBuffPerWave handling), so the siege gets
+  // harder purely from wave count, independent of the infinite-ladder
+  // stage scaling every other mode already uses. No specialist material
+  // of its own - it pays a bulk Scrap+Gold+XP payout instead, the "big
+  // generic farm" node that rewards clearing waves fast/clean (burst,
+  // AoE) over a slow grind that eats more stacking Fervor per wave.
+  var GALACTIC_WAVE_1 = [
+    { id: 'skirmisher1', name: 'Vanguard Skirmisher', hp: 90, atk: 48, def: 25, spd: 105, critChance: 10, critDamage: 150, acc: 10, res: 10,
+      basic: { name: 'Blaster Shot', coeff: 0.85, aoe: false } },
+    { id: 'skirmisher2', name: 'Vanguard Skirmisher', hp: 90, atk: 48, def: 25, spd: 103, critChance: 10, critDamage: 150, acc: 10, res: 10,
+      basic: { name: 'Blaster Shot', coeff: 0.85, aoe: false } },
+    { id: 'skirmisher3', name: 'Vanguard Skirmisher', hp: 90, atk: 48, def: 25, spd: 101, critChance: 10, critDamage: 150, acc: 10, res: 10,
+      basic: { name: 'Blaster Shot', coeff: 0.85, aoe: false } }
+  ];
+  var GALACTIC_WAVE_2 = [
+    { id: 'raider1', name: 'Raider', hp: 120, atk: 55, def: 40, spd: 92, critChance: 10, critDamage: 150, acc: 12, res: 12,
+      basic: { name: 'Cleave', coeff: 0.8, aoe: false } },
+    { id: 'raider2', name: 'Raider', hp: 120, atk: 55, def: 40, spd: 90, critChance: 10, critDamage: 150, acc: 12, res: 12,
+      basic: { name: 'Cleave', coeff: 0.8, aoe: false } },
+    { id: 'raider3', name: 'Raider', hp: 120, atk: 55, def: 40, spd: 88, critChance: 10, critDamage: 150, acc: 12, res: 12,
+      basic: { name: 'Cleave', coeff: 0.8, aoe: false } }
+  ];
+  var GALACTIC_WAVE_3 = [
+    { id: 'sapper1', name: 'Void Sapper', hp: 105, atk: 50, def: 35, spd: 98, critChance: 10, critDamage: 150, acc: 15, res: 12,
+      basic: { name: 'Sap Charge', coeff: 0.6, aoe: false, applyDebuff: { type: 'Defense Down', chance: 45 } } },
+    { id: 'sapper2', name: 'Void Sapper', hp: 105, atk: 50, def: 35, spd: 96, critChance: 10, critDamage: 150, acc: 15, res: 12,
+      basic: { name: 'Sap Charge', coeff: 0.6, aoe: false, applyDebuff: { type: 'Defense Down', chance: 45 } } },
+    { id: 'sapper3', name: 'Void Sapper', hp: 105, atk: 50, def: 35, spd: 94, critChance: 10, critDamage: 150, acc: 15, res: 12,
+      basic: { name: 'Sap Charge', coeff: 0.6, aoe: false, applyDebuff: { type: 'Defense Down', chance: 45 } } }
+  ];
+  var GALACTIC_WAVE_4 = [
+    { id: 'breaker1', name: 'Siege Breaker', hp: 150, atk: 58, def: 55, spd: 85, critChance: 10, critDamage: 150, acc: 15, res: 18,
+      basic: { name: 'Siege Hammer', coeff: 0.9, aoe: false, applyDebuff: { type: 'Attack Down', chance: 35 } } },
+    { id: 'breaker2', name: 'Siege Breaker', hp: 150, atk: 58, def: 55, spd: 83, critChance: 10, critDamage: 150, acc: 15, res: 18,
+      basic: { name: 'Siege Hammer', coeff: 0.9, aoe: false, applyDebuff: { type: 'Attack Down', chance: 35 } } },
+    { id: 'breaker3', name: 'Siege Breaker', hp: 150, atk: 58, def: 55, spd: 81, critChance: 10, critDamage: 150, acc: 15, res: 18,
+      basic: { name: 'Siege Hammer', coeff: 0.9, aoe: false, applyDebuff: { type: 'Attack Down', chance: 35 } } }
+  ];
+  var GALACTIC_WAVE_5 = [
+    { id: 'escort1', name: 'Dreadnought Escort', hp: 130, atk: 60, def: 45, spd: 95, critChance: 12, critDamage: 155, acc: 18, res: 20,
+      basic: { name: 'Plasma Burst', coeff: 0.85, aoe: false } },
+    { id: 'escort2', name: 'Dreadnought Escort', hp: 130, atk: 60, def: 45, spd: 93, critChance: 12, critDamage: 155, acc: 18, res: 20,
+      basic: { name: 'Plasma Burst', coeff: 0.85, aoe: false } },
+    { id: 'dreadnought', name: 'Siege Dreadnought', hp: 320, atk: 75, def: 65, spd: 90, critChance: 15, critDamage: 170, acc: 22, res: 28,
+      isBoss: true,
+      basic: { name: 'Orbital Cannon', coeff: 1.0, aoe: false } }
+  ];
+  var GALACTIC_WAVES = [GALACTIC_WAVE_1, GALACTIC_WAVE_2, GALACTIC_WAVE_3, GALACTIC_WAVE_4, GALACTIC_WAVE_5];
+  var GALACTIC_WAR_FERVOR_STEP = 15; // % Attack Up stacked onto every wave after the first
+
   // ---------------------------------------------------------------
   // ENCOUNTERS
   // Squad size follows content type: 3v3 for Campaign and Main Boss,
-  // 5v5 for Tower, 4v4 for Faction Wars and Dungeon (per design
-  // direction - not a change to the combat engine's default, just a
-  // per-encounter squad size). `fixedChapters` marks Campaign as
-  // non-scaling (see spawnWave).
+  // 5v5 for Tower and Galactic War, 4v4 for Faction Wars and Dungeon
+  // (per design direction - not a change to the combat engine's
+  // default, just a per-encounter squad size). `fixedChapters` marks
+  // Campaign as non-scaling (see spawnWave).
   // ---------------------------------------------------------------
   var ENCOUNTERS = {
     campaign: { label: 'Campaign', teamIds: ['vara', 'kestrel', 'nyx'], fixedChapters: CAMPAIGN_CHAPTERS },
     tower: { label: 'Tower', teamIds: ['vara', 'mire', 'kestrel', 'rook', 'nyx'], waves: [BOSS_WAVE] },
     faction: { label: 'Faction Wars', teamIds: ['mire', 'kestrel', 'rook', 'nyx'], waves: [WAVE_1, WAVE_2, WAVE_3] },
     mainboss: { label: 'Main Boss', teamIds: ['wren', 'vara', 'rook'], waves: [CHAMPION_TRIAL] },
-    dungeon: { label: 'Dungeon', teamIds: ['vara', 'wren', 'mire', 'nyx'], waves: [DUNGEON_WAVE_1] }
+    dungeon: { label: 'Dungeon', teamIds: ['vara', 'wren', 'mire', 'nyx'], waves: [DUNGEON_WAVE_1] },
+    galactic: { label: 'Galactic War', teamIds: ['vara', 'mire', 'kestrel', 'rook', 'nyx'], waves: GALACTIC_WAVES, stackingBuffPerWave: true }
   };
 
   // Content framework: each mode owns exactly ONE material identity -
@@ -1632,16 +1693,19 @@
   // target. Clearing Campaign chapters is what unlocks the rest -
   // CONTENT_UNLOCKS below. Dungeon gates behind Ch.10 (Campaign's true
   // finale) rather than Ch.8, since it's meant to come after the other
-  // three are already open.
-  var CONTENT_UNLOCKS = { tower: 3, faction: 5, mainboss: 8, dungeon: 10 };
+  // three are already open. Galactic War shares that same Ch.10
+  // threshold - it's not a fifth specialist unlocked in sequence, it's
+  // the "you've finished Campaign, now push everything at once" bonus
+  // node that opens alongside Dungeon.
+  var CONTENT_UNLOCKS = { tower: 3, faction: 5, mainboss: 8, dungeon: 10, galactic: 10 };
   function isContentUnlocked(encounterId) {
     var required = CONTENT_UNLOCKS[encounterId];
     return !required || (stageProgress.campaign || 0) >= required;
   }
 
-  var ENCOUNTER_SCRAP_REWARD = { campaign: 10, tower: 40 };
-  var ENCOUNTER_GOLD_REWARD = { campaign: 10, mainboss: 50 };
-  var ENCOUNTER_XP_REWARD = { mainboss: 40 };
+  var ENCOUNTER_SCRAP_REWARD = { campaign: 10, tower: 40, galactic: 90 };
+  var ENCOUNTER_GOLD_REWARD = { campaign: 10, mainboss: 50, galactic: 90 };
+  var ENCOUNTER_XP_REWARD = { mainboss: 40, galactic: 70 };
   var ENCOUNTER_SHARD_REWARD = { mainboss: 3 };
   var ENCOUNTER_CHARMDUST_REWARD = { faction: 60 };
   var ENCOUNTER_ASCENSION_REWARD = { dungeon: 2 };
@@ -1747,6 +1811,15 @@
     var scaleStage = ENCOUNTERS[currentEncounterId].fixedChapters ? 1 : stage;
     enemies = templates.map(function (e) { return makeUnit(scaledEnemyTemplate(e, scaleStage), true); });
     enemies.forEach(function (e) { if (e.isBoss) { e.bossTurnCount = 0; e.fury = 0; } });
+    // Galactic War: no retreat between waves, and each new wave's
+    // reinforcements arrive already carrying a stacking War Fervor
+    // Attack Up - independent of stage scaling, this is what makes the
+    // siege itself get harder the longer it drags on.
+    if (ENCOUNTERS[currentEncounterId].stackingBuffPerWave && waveIndex > 0) {
+      var fervor = waveIndex * GALACTIC_WAR_FERVOR_STEP;
+      enemies.forEach(function (e) { applyBuff(e, 'Attack Up', fervor, 999, {}); });
+      logLine('logBoss', 'Reinforcements arrive with War Fervor +' + fervor + '% Attack!');
+    }
   }
 
   function newBattle(encounterId, teamIds, stage) {
@@ -2790,9 +2863,10 @@
   document.getElementById('startFactionBtn').addEventListener('click', function () { if (isContentUnlocked('faction')) openTeamSelect('faction'); });
   document.getElementById('startMainbossBtn').addEventListener('click', function () { if (isContentUnlocked('mainboss')) openTeamSelect('mainboss'); });
   document.getElementById('startDungeonBtn').addEventListener('click', function () { if (isContentUnlocked('dungeon')) openTeamSelect('dungeon'); });
+  document.getElementById('startGalacticBtn').addEventListener('click', function () { if (isContentUnlocked('galactic')) openTeamSelect('galactic'); });
 
   function renderStageLabels() {
-    ['campaign', 'tower', 'faction', 'mainboss', 'dungeon'].forEach(function (id) {
+    ['campaign', 'tower', 'faction', 'mainboss', 'dungeon', 'galactic'].forEach(function (id) {
       var config = ENCOUNTERS[id];
       var locked = !isContentUnlocked(id);
       var startBtn = document.getElementById('start' + capitalize(id) + 'Btn');
@@ -2824,6 +2898,8 @@
   document.getElementById('mainbossStageUpBtn').addEventListener('click', function () { setSelectedStage('mainboss', getSelectedStage('mainboss') + 1); renderStageLabels(); });
   document.getElementById('dungeonStageDownBtn').addEventListener('click', function () { setSelectedStage('dungeon', getSelectedStage('dungeon') - 1); renderStageLabels(); });
   document.getElementById('dungeonStageUpBtn').addEventListener('click', function () { setSelectedStage('dungeon', getSelectedStage('dungeon') + 1); renderStageLabels(); });
+  document.getElementById('galacticStageDownBtn').addEventListener('click', function () { setSelectedStage('galactic', getSelectedStage('galactic') - 1); renderStageLabels(); });
+  document.getElementById('galacticStageUpBtn').addEventListener('click', function () { setSelectedStage('galactic', getSelectedStage('galactic') + 1); renderStageLabels(); });
 
   // ---------------------------------------------------------------
   // ARMORY
