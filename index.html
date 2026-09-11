@@ -1377,7 +1377,12 @@
   // doing nothing (see pullChampionSummon).
   // ---------------------------------------------------------------
   var CHAMPION_ROSTER_KEY = 'machineborn_champion_roster_v1';
-  var STARTER_CHAMPION_IDS = ['vara', 'mire', 'kestrel', 'rook', 'nyx', 'wren'];
+  // Starters are deliberately weak (2 Common + 1 Rare) - the six former
+  // "Legendary starters" now live entirely in the real summon pool
+  // (see CAMPAIGN_CH1_STAGES: two of them are handed out as guaranteed,
+  // deterministic stage-clear rewards early in Campaign Chapter 1
+  // instead of an RNG pull - the rest stay real Summon Shard targets).
+  var STARTER_CHAMPION_IDS = ['zephyr', 'fang', 'squall'];
   function loadChampionRoster() {
     try {
       var raw = localStorage.getItem(CHAMPION_ROSTER_KEY);
@@ -1421,9 +1426,9 @@
   }
 
   // Returns { rarity, duplicate, champion } - champion is null on a
-  // duplicate (every champion of that rarity is already owned, e.g.
-  // every current Legendary and, until Epic champions exist, every
-  // Epic roll too - not a bug, the pool is just still small).
+  // duplicate (every champion of that rarity is already owned - e.g.
+  // Common rolls once both Zephyr and Squall are owned - not a bug,
+  // it's expected once a rarity tier is fully collected).
   function pullChampionSummon() {
     if (summonShard < SUMMON_PULL_COST) return null;
     summonShard -= SUMMON_PULL_COST;
@@ -1892,25 +1897,226 @@
   // actually Hollow-King-specific, it triggers off `actor.isBoss`
   // generically) rather than inventing a parallel one - punishes
   // leaning on debuff-stacking to clear this node.
+  // Stage-1 numbers retuned down from the mode's old late-game-unlock
+  // baseline (hp150/120/260) to fit Main Boss's new unlock point at
+  // Campaign Chapter 1 Stage 4 - the exact moment the roster is still
+  // just the 3 level-1 starters with no gear. Verified via probe at
+  // ~1/8 wins before this pass; the numbers below are tuned for a
+  // real, winnable (not trivial) first clear at that power level.
   var CHAMPION_TRIAL = [
-    { id: 'sentinel1', name: 'Arena Sentinel', hp: 150, atk: 55, def: 60, spd: 92, critChance: 10, critDamage: 150, acc: 10, res: 20,
+    { id: 'sentinel1', name: 'Arena Sentinel', hp: 70, atk: 26, def: 20, spd: 92, critChance: 10, critDamage: 150, acc: 10, res: 20,
       basic: { name: 'Guard Strike', coeff: 0.85, aoe: false, applyDebuff: { type: 'Defense Down', chance: 40 } } },
-    { id: 'adept1', name: 'Arena Adept', hp: 120, atk: 65, def: 45, spd: 100, critChance: 15, critDamage: 160, acc: 15, res: 15,
+    { id: 'adept1', name: 'Arena Adept', hp: 55, atk: 30, def: 16, spd: 100, critChance: 15, critDamage: 160, acc: 15, res: 15,
       basic: { name: 'Focused Bolt', coeff: 1.0, aoe: false } },
-    { id: 'warlord1', name: 'Trial Warlord', hp: 260, atk: 70, def: 65, spd: 90, critChance: 15, critDamage: 165, acc: 20, res: 25,
+    { id: 'warlord1', name: 'Trial Warlord', hp: 105, atk: 33, def: 22, spd: 90, critChance: 15, critDamage: 165, acc: 20, res: 25,
       isBoss: true,
       basic: { name: "Champion's Wrath", coeff: 1.1, aoe: false } }
   ];
 
   // ---------------------------------------------------------------
-  // CAMPAIGN CHAPTERS - fixed-difficulty content, deliberately NOT the
-  // infinite 1.12^(stage-1) ladder the other modes use (see spawnWave's
+  // CAMPAIGN CHAPTER 1 - the new-game tutorial/onboarding ladder. Unlike
+  // every other chapter (one hand-authored fight = one chapter, see
+  // below), Chapter 1 is itself a 12-stage sub-ladder - still
+  // `fixedChapters` content (no auto stat-compounding, each stage's
+  // numbers ARE its difficulty), just addressed as 12 flat entries at
+  // the front of `CAMPAIGN_CHAPTERS` instead of 1. This is what actually
+  // realizes the game's own core loop starting from the very first
+  // session instead of only after Campaign is already cleared:
+  // - Stages 1-3: trivial, teach basic attack + targeting + that
+  //   debuffs exist (Stage 3's Marsh Adder seeds a weak Poison).
+  // - Stage 4: unlocks Main Boss (`CONTENT_UNLOCKS.mainboss`) - the
+  //   earliest detour, matching Main Boss's 3v3 squad size exactly
+  //   (the starter roster is only 3 champions - see below).
+  // - Stage 6: `unlockChampion('bastian')` - a guaranteed Epic, handed
+  //   out directly rather than via an RNG Summon pull (see "confirmed:
+  //   direct reward beats an RNG-bypass" in project history - Summon
+  //   Shards aren't earnable this early since they're a Main Boss
+  //   reward and Main Boss only just unlocked at Stage 4).
+  // - Stage 7: unlocks Tower (`CONTENT_UNLOCKS.tower`) - deliberately
+  //   AFTER Stage 6's Epic, so the roster is already at 4 champions
+  //   with only one more (below) needed for Tower's 5v5.
+  // - Stage 8: `unlockChampion('vara')` - a guaranteed Legendary. Roster
+  //   is now exactly 5, so Tower (unlocked one stage earlier) is
+  //   immediately fully fieldable, not just technically "unlocked."
+  // - Stage 9: the first real plateau - a genuine difficulty spike
+  //   (not just a gentle step) that a fresh, unleveled, ungeared
+  //   5-champion squad is meant to struggle with, pushing the player to
+  //   actually go spend a few Main Boss/Tower visits before returning.
+  // - Stage 10: unlocks Faction Wars (`CONTENT_UNLOCKS.faction`) - the
+  //   charm detour, for whenever the *next* plateau demands it.
+  // - Stage 12: the chapter's boss capstone (`isBoss`, reuses the
+  //   generic devour-a-debuff mechanic every other capstone already
+  //   uses - see hollowKingMechanic).
+  // Dungeon/Galactic War/Grand Arena stay deferred to the true end of
+  // Campaign (`CONTENT_UNLOCKS` = the last stage, same "you finished
+  // the whole thing" bonus-node convention Galactic War/Grand Arena
+  // already used pre-rework) rather than getting pulled into Chapter 1.
+  //
+  // Numbers are tuned against the NEW starter roster (Zephyr/Fang/
+  // Squall - Common/Rare, meaningfully weaker than the old all-
+  // Legendary starter squad Chapters 2+ below still assume), not
+  // against Chapter 2+'s baseline - expect this to need iteration once
+  // playtested, same as Chapter 8/10's difficulty needed multiple
+  // passes historically. Chapters 2-11 (the original Chapters 1-10,
+  // shifted up one) are UNCHANGED and still assume a full Legendary
+  // squad - reconciling that difficulty seam is explicitly deferred,
+  // not forgotten (see CLAUDE.md "Next up").
+  // ---------------------------------------------------------------
+  var CAMPAIGN_C1S1 = [
+    { id: 'c1s1_a', name: 'Field Rat', hp: 38, atk: 18, def: 10, spd: 75, critChance: 5, critDamage: 150, acc: 0, res: 5,
+      basic: { name: 'Nibble', coeff: 0.8, aoe: false } },
+    { id: 'c1s1_b', name: 'Field Rat', hp: 38, atk: 18, def: 10, spd: 73, critChance: 5, critDamage: 150, acc: 0, res: 5,
+      basic: { name: 'Nibble', coeff: 0.8, aoe: false } },
+    { id: 'c1s1_c', name: 'Field Rat', hp: 38, atk: 18, def: 10, spd: 71, critChance: 5, critDamage: 150, acc: 0, res: 5,
+      basic: { name: 'Nibble', coeff: 0.8, aoe: false } }
+  ];
+  var CAMPAIGN_C1S2 = [
+    { id: 'c1s2_a', name: 'Startled Boar', hp: 45, atk: 20, def: 12, spd: 78, critChance: 5, critDamage: 150, acc: 0, res: 5,
+      basic: { name: 'Charge', coeff: 0.8, aoe: false } },
+    { id: 'c1s2_b', name: 'Startled Boar', hp: 45, atk: 20, def: 12, spd: 76, critChance: 5, critDamage: 150, acc: 0, res: 5,
+      basic: { name: 'Charge', coeff: 0.8, aoe: false } },
+    { id: 'c1s2_c', name: 'Startled Boar', hp: 45, atk: 20, def: 12, spd: 74, critChance: 5, critDamage: 150, acc: 0, res: 5,
+      basic: { name: 'Charge', coeff: 0.8, aoe: false } }
+  ];
+  var CAMPAIGN_C1S3 = [
+    { id: 'c1s3_a', name: 'Marsh Snapper', hp: 50, atk: 22, def: 14, spd: 81, critChance: 5, critDamage: 150, acc: 5, res: 5,
+      basic: { name: 'Snap', coeff: 0.8, aoe: false } },
+    { id: 'c1s3_b', name: 'Marsh Snapper', hp: 50, atk: 22, def: 14, spd: 79, critChance: 5, critDamage: 150, acc: 5, res: 5,
+      basic: { name: 'Snap', coeff: 0.8, aoe: false } },
+    { id: 'c1s3_c', name: 'Marsh Adder', hp: 55, atk: 20, def: 16, spd: 76, critChance: 5, critDamage: 150, acc: 10, res: 5,
+      basic: { name: 'Venom Bite', coeff: 0.7, aoe: false, applyDebuff: { type: 'Poison', chance: 35 } } }
+  ];
+  // Stage 4: clearing this unlocks Main Boss (CONTENT_UNLOCKS.mainboss).
+  var CAMPAIGN_C1S4 = [
+    { id: 'c1s4_a', name: 'Highway Thief', hp: 58, atk: 25, def: 17, spd: 84, critChance: 8, critDamage: 150, acc: 8, res: 8,
+      basic: { name: 'Cudgel Swing', coeff: 0.85, aoe: false } },
+    { id: 'c1s4_b', name: 'Highway Thief', hp: 58, atk: 25, def: 17, spd: 82, critChance: 8, critDamage: 150, acc: 8, res: 8,
+      basic: { name: 'Cudgel Swing', coeff: 0.85, aoe: false } },
+    { id: 'c1s4_c', name: 'Highway Thief', hp: 58, atk: 25, def: 17, spd: 80, critChance: 8, critDamage: 150, acc: 8, res: 8,
+      basic: { name: 'Cudgel Swing', coeff: 0.85, aoe: false } }
+  ];
+  var CAMPAIGN_C1S5 = [
+    { id: 'c1s5_a', name: 'Wild Hound', hp: 65, atk: 28, def: 19, spd: 87, critChance: 8, critDamage: 150, acc: 8, res: 10,
+      basic: { name: 'Bite', coeff: 0.85, aoe: false } },
+    { id: 'c1s5_b', name: 'Wild Hound', hp: 65, atk: 28, def: 19, spd: 85, critChance: 8, critDamage: 150, acc: 8, res: 10,
+      basic: { name: 'Bite', coeff: 0.85, aoe: false } },
+    { id: 'c1s5_c', name: 'Hound Alpha', hp: 70, atk: 26, def: 21, spd: 83, critChance: 8, critDamage: 150, acc: 8, res: 12,
+      basic: { name: 'Intimidating Roar', coeff: 0.6, aoe: false, applyDebuff: { type: 'Attack Down', chance: 30 } } }
+  ];
+  // Stage 6: clearing this grants Bastian (guaranteed Epic, no RNG).
+  var CAMPAIGN_C1S6 = [
+    { id: 'c1s6_a', name: 'Cave Lurker', hp: 72, atk: 30, def: 21, spd: 89, critChance: 10, critDamage: 150, acc: 10, res: 12,
+      basic: { name: 'Claw Rake', coeff: 0.85, aoe: false } },
+    { id: 'c1s6_b', name: 'Cave Lurker', hp: 72, atk: 30, def: 21, spd: 87, critChance: 10, critDamage: 150, acc: 10, res: 12,
+      basic: { name: 'Claw Rake', coeff: 0.85, aoe: false } },
+    { id: 'c1s6_c', name: 'Cave Lurker', hp: 72, atk: 30, def: 21, spd: 85, critChance: 10, critDamage: 150, acc: 10, res: 12,
+      basic: { name: 'Claw Rake', coeff: 0.85, aoe: false } }
+  ];
+  // Stage 7: clearing this unlocks Tower (CONTENT_UNLOCKS.tower).
+  var CAMPAIGN_C1S7 = [
+    { id: 'c1s7_a', name: 'Rockhide Brawler', hp: 78, atk: 33, def: 23, spd: 91, critChance: 10, critDamage: 150, acc: 10, res: 14,
+      basic: { name: 'Boulder Toss', coeff: 0.9, aoe: false } },
+    { id: 'c1s7_b', name: 'Rockhide Brawler', hp: 78, atk: 33, def: 23, spd: 89, critChance: 10, critDamage: 150, acc: 10, res: 14,
+      basic: { name: 'Boulder Toss', coeff: 0.9, aoe: false } },
+    { id: 'c1s7_c', name: 'Rockhide Brawler', hp: 78, atk: 33, def: 23, spd: 87, critChance: 10, critDamage: 150, acc: 10, res: 14,
+      basic: { name: 'Boulder Toss', coeff: 0.9, aoe: false } }
+  ];
+  // Stage 8: clearing this grants Vara (guaranteed Legendary, no RNG) -
+  // roster is now exactly 5, so Tower (unlocked one stage earlier) is
+  // immediately fully fieldable.
+  var CAMPAIGN_C1S8 = [
+    { id: 'c1s8_a', name: 'Ridge Raider', hp: 85, atk: 36, def: 25, spd: 93, critChance: 10, critDamage: 150, acc: 10, res: 15,
+      basic: { name: 'Ambush Strike', coeff: 0.9, aoe: false } },
+    { id: 'c1s8_b', name: 'Ridge Raider', hp: 85, atk: 36, def: 25, spd: 91, critChance: 10, critDamage: 150, acc: 10, res: 15,
+      basic: { name: 'Ambush Strike', coeff: 0.9, aoe: false } },
+    { id: 'c1s8_c', name: 'Ridge Raider Captain', hp: 90, atk: 34, def: 27, spd: 89, critChance: 10, critDamage: 155, acc: 12, res: 17,
+      basic: { name: 'Weakening Slash', coeff: 0.7, aoe: false, applyDebuff: { type: 'Defense Down', chance: 30 } } }
+  ];
+  // Stage 9: the first real plateau - a genuine spike over Stage 8, not
+  // a gentle step, meant to send a fresh/ungeared squad back to
+  // Main Boss/Tower before it's beatable.
+  var CAMPAIGN_C1S9 = [
+    { id: 'c1s9_a', name: 'Warband Enforcer', hp: 190, atk: 64, def: 40, spd: 99, critChance: 14, critDamage: 160, acc: 14, res: 20,
+      basic: { name: 'Warband Slash', coeff: 0.95, aoe: false, applyDebuff: { type: 'Bleed', chance: 45 } } },
+    { id: 'c1s9_b', name: 'Warband Enforcer', hp: 190, atk: 64, def: 40, spd: 97, critChance: 14, critDamage: 160, acc: 14, res: 20,
+      basic: { name: 'Warband Slash', coeff: 0.95, aoe: false, applyDebuff: { type: 'Bleed', chance: 45 } } },
+    { id: 'c1s9_c', name: 'Warband Enforcer', hp: 190, atk: 64, def: 40, spd: 95, critChance: 14, critDamage: 160, acc: 14, res: 20,
+      basic: { name: 'Warband Slash', coeff: 0.95, aoe: false, applyDebuff: { type: 'Bleed', chance: 45 } } }
+  ];
+  // Stage 10: clearing this unlocks Faction Wars (CONTENT_UNLOCKS.faction).
+  var CAMPAIGN_C1S10 = [
+    { id: 'c1s10_a', name: 'Thornback Marauder', hp: 150, atk: 52, def: 36, spd: 96, critChance: 12, critDamage: 155, acc: 12, res: 18,
+      basic: { name: 'Thorned Lash', coeff: 0.9, aoe: false, applyDebuff: { type: 'Poison', chance: 40 } } },
+    { id: 'c1s10_b', name: 'Thornback Marauder', hp: 150, atk: 52, def: 36, spd: 94, critChance: 12, critDamage: 155, acc: 12, res: 18,
+      basic: { name: 'Thorned Lash', coeff: 0.9, aoe: false, applyDebuff: { type: 'Poison', chance: 40 } } },
+    { id: 'c1s10_c', name: 'Thornback Marauder', hp: 150, atk: 52, def: 36, spd: 92, critChance: 12, critDamage: 155, acc: 12, res: 18,
+      basic: { name: 'Thorned Lash', coeff: 0.9, aoe: false, applyDebuff: { type: 'Poison', chance: 40 } } }
+  ];
+  var CAMPAIGN_C1S11 = [
+    { id: 'c1s11_a', name: 'Warcamp Veteran', hp: 145, atk: 50, def: 35, spd: 98, critChance: 14, critDamage: 158, acc: 14, res: 20,
+      basic: { name: 'Veteran Strike', coeff: 0.92, aoe: false } },
+    { id: 'c1s11_b', name: 'Warcamp Veteran', hp: 145, atk: 50, def: 35, spd: 96, critChance: 14, critDamage: 158, acc: 14, res: 20,
+      basic: { name: 'Veteran Strike', coeff: 0.92, aoe: false } },
+    { id: 'c1s11_c', name: 'Warcamp Veteran', hp: 145, atk: 50, def: 35, spd: 94, critChance: 14, critDamage: 158, acc: 14, res: 20,
+      basic: { name: 'Veteran Strike', coeff: 0.92, aoe: false } }
+  ];
+  // Stage 12: Chapter 1's boss capstone - reuses the generic
+  // devour-a-debuff mechanic every other capstone already uses.
+  var CAMPAIGN_C1S12 = [
+    { id: 'c1s12_a', name: 'Warcamp Guard', hp: 120, atk: 48, def: 33, spd: 90, critChance: 10, critDamage: 150, acc: 12, res: 18,
+      basic: { name: 'Warcamp Cleave', coeff: 0.85, aoe: false } },
+    { id: 'c1s12_b', name: 'Warcamp Guard', hp: 120, atk: 48, def: 33, spd: 88, critChance: 10, critDamage: 150, acc: 12, res: 18,
+      basic: { name: 'Warcamp Cleave', coeff: 0.85, aoe: false } },
+    { id: 'c1s12_c', name: 'Chapter Warlord', hp: 280, atk: 68, def: 45, spd: 96, critChance: 18, critDamage: 165, acc: 16, res: 22,
+      isBoss: true,
+      basic: { name: "Reckoning Blow", coeff: 1.0, aoe: false } }
+  ];
+  var CAMPAIGN_CH1_STAGES = [
+    CAMPAIGN_C1S1, CAMPAIGN_C1S2, CAMPAIGN_C1S3, CAMPAIGN_C1S4, CAMPAIGN_C1S5, CAMPAIGN_C1S6,
+    CAMPAIGN_C1S7, CAMPAIGN_C1S8, CAMPAIGN_C1S9, CAMPAIGN_C1S10, CAMPAIGN_C1S11, CAMPAIGN_C1S12
+  ];
+  var CAMPAIGN_CH1_STAGE_COUNT = CAMPAIGN_CH1_STAGES.length;
+
+  // Chapter N (N>=2) -> "Chapter N-1" display before this rework, now
+  // just "Chapter N" - Chapter 1's 12 stages sit in front of these
+  // unchanged fights, shifting them all up by one chapter number.
+  function campaignStageLabel(stage) {
+    if (stage <= CAMPAIGN_CH1_STAGE_COUNT) return 'Chapter 1 - Stage ' + stage + '/' + CAMPAIGN_CH1_STAGE_COUNT;
+    return 'Chapter ' + (stage - CAMPAIGN_CH1_STAGE_COUNT + 1);
+  }
+
+  // Victory-screen "X cleared - Y unlocked!" text for Campaign
+  // specifically, since it's no longer one flat "Chapter N" per stage -
+  // Chapter 1's internal stages say "Stage N", the Chapter 1 -> 2
+  // transition (and every chapter boundary after it) says "Chapter N".
+  function campaignClearMessage(stage, maxStage) {
+    if (stage < CAMPAIGN_CH1_STAGE_COUNT) return 'Stage ' + stage + ' cleared — Stage ' + (stage + 1) + ' unlocked!';
+    if (stage === CAMPAIGN_CH1_STAGE_COUNT) return 'Chapter 1 cleared — Chapter 2 unlocked!';
+    var chapterNow = stage - CAMPAIGN_CH1_STAGE_COUNT + 1;
+    return stage < maxStage
+      ? 'Chapter ' + chapterNow + ' cleared — Chapter ' + (chapterNow + 1) + ' unlocked!'
+      : 'Chapter ' + chapterNow + ' cleared — Campaign complete!';
+  }
+
+  // Guaranteed, deterministic champion unlocks baked into Chapter 1's
+  // stage-clear rewards - not an RNG Summon pull (see project history:
+  // confirmed a direct reward over an RNG-bypass, since Summon Shards
+  // aren't earnable this early anyway - they're a Main Boss reward and
+  // Main Boss only unlocks at Stage 4).
+  var CAMPAIGN_STAGE_CHAMPION_REWARDS = { 6: 'bastian', 8: 'vara' };
+
+  // ---------------------------------------------------------------
+  // CAMPAIGN CHAPTERS 2+ - the original Chapters 1-10, UNCHANGED, now
+  // shifted up one chapter number by Chapter 1's new stages above.
+  // Still fixed-difficulty content, deliberately NOT the infinite
+  // 1.12^(stage-1) ladder the other modes use (see spawnWave's
   // `fixedChapters` check). Each chapter's numbers ARE its difficulty,
-  // hand-tuned to climb gently across a level-1 roster; replaying an
-  // old chapter is always the same fight, never harder. Campaign is
-  // the account-wide gate (CONTENT_UNLOCKS below) other modes check -
-  // it has no farmable specialty of its own beyond a small Scrap/Gold
-  // trickle, on purpose, so every other mode still earns its own visit.
+  // hand-tuned to climb gently across a level-1 (Legendary) roster;
+  // replaying an old chapter is always the same fight, never harder.
+  // Campaign is the account-wide gate (CONTENT_UNLOCKS below) other
+  // modes check - it has no farmable specialty of its own beyond a
+  // small Scrap/Gold trickle, on purpose, so every other mode still
+  // earns its own visit.
   // ---------------------------------------------------------------
   var CAMPAIGN_CH1 = [
     { id: 'camp1_a', name: 'Rustling Grunt', hp: 60, atk: 28, def: 15, spd: 80, critChance: 5, critDamage: 150, acc: 0, res: 5,
@@ -1999,7 +2205,9 @@
       isBoss: true,
       basic: { name: "Herald's Reckoning", coeff: 0.97, aoe: false } }
   ];
-  var CAMPAIGN_CHAPTERS = [CAMPAIGN_CH1, CAMPAIGN_CH2, CAMPAIGN_CH3, CAMPAIGN_CH4, CAMPAIGN_CH5, CAMPAIGN_CH6, CAMPAIGN_CH7, CAMPAIGN_CH8, CAMPAIGN_CH9, CAMPAIGN_CH10];
+  var CAMPAIGN_CHAPTERS = CAMPAIGN_CH1_STAGES.concat([
+    CAMPAIGN_CH1, CAMPAIGN_CH2, CAMPAIGN_CH3, CAMPAIGN_CH4, CAMPAIGN_CH5, CAMPAIGN_CH6, CAMPAIGN_CH7, CAMPAIGN_CH8, CAMPAIGN_CH9, CAMPAIGN_CH10
+  ]);
 
   // Dungeon: 4v4, single wave - the strategy-over-stats mode. Every
   // enemy here leads with a debuff instead of raw damage (Stun/Poison/
@@ -2230,10 +2438,10 @@
   // Campaign as non-scaling (see spawnWave).
   // ---------------------------------------------------------------
   var ENCOUNTERS = {
-    campaign: { label: 'Campaign', teamIds: ['vara', 'kestrel', 'nyx'], fixedChapters: CAMPAIGN_CHAPTERS },
-    tower: { label: 'Tower', teamIds: ['vara', 'mire', 'kestrel', 'rook', 'nyx'], waves: [BOSS_WAVE] },
-    faction: { label: 'Faction Wars', teamIds: ['mire', 'kestrel', 'rook', 'nyx'], waves: [WAVE_1, WAVE_2, WAVE_3] },
-    mainboss: { label: 'Main Boss', teamIds: ['wren', 'vara', 'rook'], waves: [CHAMPION_TRIAL] },
+    campaign: { label: 'Campaign', teamIds: ['zephyr', 'fang', 'squall'], fixedChapters: CAMPAIGN_CHAPTERS, stageLabelFor: campaignStageLabel },
+    tower: { label: 'Tower', teamIds: ['zephyr', 'fang', 'squall', 'bastian', 'vara'], waves: [BOSS_WAVE] },
+    faction: { label: 'Faction Wars', teamIds: ['fang', 'squall', 'bastian', 'vara'], waves: [WAVE_1, WAVE_2, WAVE_3] },
+    mainboss: { label: 'Main Boss', teamIds: ['zephyr', 'fang', 'squall'], waves: [CHAMPION_TRIAL] },
     dungeon: { label: 'Dungeon', teamIds: ['vara', 'wren', 'mire', 'nyx'], waves: [DUNGEON_WAVE_1] },
     galactic: { label: 'Galactic War', teamIds: ['vara', 'mire', 'kestrel', 'rook', 'nyx'], waves: GALACTIC_WAVES, stackingBuffPerWave: true },
     grandarena: { label: 'Grand Arena', teamIds: ['vara', 'kestrel', 'rook'], archetypeCycle: GRAND_ARENA_ARCHETYPES }
@@ -2245,14 +2453,19 @@
   // Ascension Cores (a new champion-power axis beyond level/gear/
   // charms - see ascendChampion). Campaign is the only cross-cutting
   // one (small Scrap+Gold trickle) since it's the gate, not a farm
-  // target. Clearing Campaign chapters is what unlocks the rest -
-  // CONTENT_UNLOCKS below. Dungeon gates behind Ch.10 (Campaign's true
-  // finale) rather than Ch.8, since it's meant to come after the other
-  // three are already open. Galactic War and Grand Arena share that
-  // same Ch.10 threshold - neither is a fifth/sixth specialist unlocked
-  // in sequence, they're both "you've finished Campaign, now push
-  // everything at once" bonus nodes that open alongside Dungeon.
-  var CONTENT_UNLOCKS = { tower: 3, faction: 5, mainboss: 8, dungeon: 10, galactic: 10, grandarena: 10 };
+  // target. Clearing Campaign stages is what unlocks the rest -
+  // CONTENT_UNLOCKS below, now keyed to the flat CAMPAIGN_CHAPTERS
+  // stage index (Chapter 1's 12 stages come first, see above), not a
+  // literal chapter number. Main Boss (leveling) and Tower (gear) both
+  // unlock WITHIN Chapter 1 itself - Stage 4 and Stage 7 respectively -
+  // so both detour modes are already open by the time Chapter 1's own
+  // plateau (Stage 9) hits; Faction Wars (charms) follows at Stage 10
+  // for whichever plateau comes after that. Dungeon/Galactic War/Grand
+  // Arena stay deferred to the true end of the whole 22-stage Campaign
+  // (`CAMPAIGN_CHAPTERS.length`) - the same "you've finished Campaign,
+  // now push everything at once" bonus-node convention they always
+  // used, just at the new final index instead of the old Chapter 10.
+  var CONTENT_UNLOCKS = { mainboss: 4, tower: 7, faction: 10, dungeon: CAMPAIGN_CHAPTERS.length, galactic: CAMPAIGN_CHAPTERS.length, grandarena: CAMPAIGN_CHAPTERS.length };
   function isContentUnlocked(encounterId) {
     var required = CONTENT_UNLOCKS[encounterId];
     return !required || (stageProgress.campaign || 0) >= required;
@@ -3070,14 +3283,21 @@
       stageProgress[currentEncounterId] = Math.max(prevCleared, currentStage);
       saveStageProgress();
       if (currentStage > prevCleared) {
-        rewardLines.push(currentStage < maxChapter
-          ? stageNoun + ' ' + currentStage + ' cleared — ' + stageNoun + ' ' + (currentStage + 1) + ' unlocked!'
-          : stageNoun + ' ' + currentStage + ' cleared — Campaign complete!');
+        rewardLines.push(currentEncounterId === 'campaign'
+          ? campaignClearMessage(currentStage, maxChapter)
+          : (currentStage < maxChapter
+              ? stageNoun + ' ' + currentStage + ' cleared — ' + stageNoun + ' ' + (currentStage + 1) + ' unlocked!'
+              : stageNoun + ' ' + currentStage + ' cleared — Campaign complete!'));
         if (selectedStage[currentEncounterId] === currentStage && currentStage < maxChapter) selectedStage[currentEncounterId] = currentStage + 1;
         if (currentEncounterId === 'campaign') {
           Object.keys(CONTENT_UNLOCKS).forEach(function (id) {
             if (CONTENT_UNLOCKS[id] === currentStage) rewardLines.push(ENCOUNTERS[id].label + ' unlocked!');
           });
+          var championRewardId = CAMPAIGN_STAGE_CHAMPION_REWARDS[currentStage];
+          if (championRewardId && unlockChampion(championRewardId)) {
+            var championReward = CHAMPIONS.find(function (c) { return c.id === championRewardId; });
+            rewardLines.push(championReward.name + ' joins your roster!');
+          }
         }
       }
       renderStageLabels();
@@ -3511,7 +3731,12 @@
   function openTeamSelect(encounterId) {
     pendingEncounterId = encounterId;
     pendingStage = getSelectedStage(encounterId);
-    selectedTeamIds = ENCOUNTERS[encounterId].teamIds.slice();
+    // Pre-select the encounter's default squad, but only whichever
+    // members are actually owned - a default that assumes champions
+    // the player hasn't summoned/unlocked yet must never silently
+    // pre-fill "selected" behind a locked, unclickable card (that would
+    // let Begin Battle enable with an unowned champion in the squad).
+    selectedTeamIds = ENCOUNTERS[encounterId].teamIds.filter(isChampionOwned);
     document.getElementById('startScreen').style.display = 'none';
     document.getElementById('teamSelectScreen').style.display = 'block';
     renderTeamSelect();
@@ -3562,7 +3787,7 @@
   function renderTeamSelect() {
     var config = ENCOUNTERS[pendingEncounterId];
     var squadSize = squadSizeFor(pendingEncounterId);
-    var title = config.label.toUpperCase() + ' — STAGE ' + pendingStage;
+    var title = config.label.toUpperCase() + ' — ' + (config.stageLabelFor ? config.stageLabelFor(pendingStage).toUpperCase() : ('STAGE ' + pendingStage));
     if (config.archetypeCycle) title += ' — VS ' + archetypeForStage(config, pendingStage).name.toUpperCase();
     document.getElementById('teamSelectTitle').textContent = title;
     document.getElementById('teamSelectCounter').textContent = 'Selected ' + selectedTeamIds.length + ' / ' + squadSize;
@@ -3603,7 +3828,7 @@
       var startBtn = document.getElementById('start' + capitalize(id) + 'Btn');
       startBtn.disabled = locked;
       if (locked) {
-        document.getElementById(id + 'StageLabel').textContent = 'Locked — Campaign Ch. ' + CONTENT_UNLOCKS[id];
+        document.getElementById(id + 'StageLabel').textContent = 'Locked — Campaign ' + campaignStageLabel(CONTENT_UNLOCKS[id]);
         document.getElementById(id + 'StageDownBtn').disabled = true;
         document.getElementById(id + 'StageUpBtn').disabled = true;
         return;
@@ -3613,7 +3838,8 @@
       var stageNoun = config.fixedChapters ? 'Chapter' : 'Stage';
       var max = maxSelectableStage(id);
       var rosterCapped = !config.fixedChapters && stage === rosterStageCap() && cleared + 1 > rosterStageCap();
-      var labelText = stageNoun + ' ' + stage + (rosterCapped ? ' (roster-capped)' : stage > cleared ? ' (new)' : '');
+      var labelBase = config.stageLabelFor ? config.stageLabelFor(stage) : (stageNoun + ' ' + stage);
+      var labelText = labelBase + (rosterCapped ? ' (roster-capped)' : stage > cleared ? ' (new)' : '');
       if (config.archetypeCycle) labelText += ' — vs ' + archetypeForStage(config, stage).name;
       document.getElementById(id + 'StageLabel').textContent = labelText;
       document.getElementById(id + 'StageDownBtn').disabled = stage <= 1;

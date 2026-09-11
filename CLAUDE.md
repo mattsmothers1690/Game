@@ -109,6 +109,13 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
    (Stormcallers), Raze (Deathmark). No build choices on any of them.
    Base stats are modified by equipped gear and by champion level (see
    Champion leveling below).
+   - **Starters are deliberately weak, not the original six** — see
+     "New-game onboarding" below. `STARTER_CHAMPION_IDS = ['zephyr',
+     'fang', 'squall']` (2 Common + 1 Rare). The original six Legendaries
+     now live entirely in the real Summon pool alongside Vex/Bastian/
+     Morwen/Talon/Raze; Bastian and Vara are additionally handed out as
+     guaranteed, deterministic Campaign Chapter 1 stage-clear rewards
+     (`CAMPAIGN_STAGE_CHAMPION_REWARDS`) rather than only via RNG.
    - **Rarity** reuses the same Common/Rare/Epic/Legendary scale as
      gear/charms rather than a parallel one. **Kit complexity scales
      with rarity**, mirroring how `GEAR_SUBSTAT_COUNT` scales gear's
@@ -321,15 +328,23 @@ one material identity (Arena Medals) but is the one mode whose reward
 is spent on a gear *set* found nowhere else, rather than gating a
 stat axis or an economy shared with other modes.
 
-| Mode (`ENCOUNTERS` id) | Squad | Progression | Unlocks at | Rewards |
+| Mode (`ENCOUNTERS` id) | Squad | Progression | Unlocks at (Campaign stage) | Rewards |
 |---|---|---|---|---|
-| **Campaign** (`campaign`) | 3v3 | 10 fixed hand-authored chapters (`CAMPAIGN_CHAPTERS`) — **not** the infinite ladder, no stat compounding, replaying an old chapter is always the same fight | Always open | Scrap + Gold only (bootstrap) |
-| **Tower** (`tower`) | 5v5 | Infinite stage ladder | Campaign Ch.3 | Gear (guaranteed) + Gear Rework Catalysts (rare, rides gear drops) + Scrap |
-| **Faction Wars** (`faction`) | 4v4 × 3 waves | Infinite stage ladder | Campaign Ch.5 | Charms (rolled chance) + Charm Dust (guaranteed) |
-| **Main Boss** (`mainboss`) | 3v3 | Infinite stage ladder | Campaign Ch.8 | Gold + XP (champion leveling) + Shards (level cap) |
-| **Dungeon** (`dungeon`) | 4v4 | Infinite stage ladder | Campaign Ch.10 | Ascension Cores only |
-| **Galactic War** (`galactic`) | 5v5 × 5 waves | Infinite stage ladder, no retreat between waves within one attempt | Campaign Ch.10 (same threshold as Dungeon — a "you finished Campaign" bonus node, not a fifth step in the unlock sequence) | Bulk Scrap + Gold + XP only — no gear/charms/shards/catalysts/Ascension Cores |
-| **Grand Arena** (`grandarena`) | 3v3 vs. one of 4 AI archetype squads | Infinite stage ladder, stage number cycles through the 4 archetypes (`(stage - 1) % 4`) forever | Campaign Ch.10 (alongside Dungeon/Galactic War) | Arena Medals only — spent on Arena Pulls (Vanguard-set gear), never dropped directly |
+| **Campaign** (`campaign`) | 3v3 | 22 fixed hand-authored stages (`CAMPAIGN_CHAPTERS` = `CAMPAIGN_CH1_STAGES` (12) + the old `CAMPAIGN_CH1..CH10` (10), now displaying as Chapter 2-11 — see "New-game onboarding" below) — **not** the infinite ladder, no stat compounding, replaying an old stage is always the same fight | Always open | Scrap + Gold only (bootstrap) |
+| **Tower** (`tower`) | 5v5 | Infinite stage ladder | Stage 7 | Gear (guaranteed) + Gear Rework Catalysts (rare, rides gear drops) + Scrap |
+| **Faction Wars** (`faction`) | 4v4 × 3 waves | Infinite stage ladder | Stage 10 | Charms (rolled chance) + Charm Dust (guaranteed) |
+| **Main Boss** (`mainboss`) | 3v3 | Infinite stage ladder | Stage 4 | Gold + XP (champion leveling) + Shards (level cap) + Summon Shards |
+| **Dungeon** (`dungeon`) | 4v4 | Infinite stage ladder | Stage 22 (Campaign complete) | Ascension Cores only |
+| **Galactic War** (`galactic`) | 5v5 × 5 waves | Infinite stage ladder, no retreat between waves within one attempt | Stage 22 (same threshold as Dungeon — a "you finished Campaign" bonus node, not a fifth step in the unlock sequence) | Bulk Scrap + Gold + XP only — no gear/charms/shards/catalysts/Ascension Cores |
+| **Grand Arena** (`grandarena`) | 3v3 vs. one of 4 AI archetype squads | Infinite stage ladder, stage number cycles through the 4 archetypes (`(stage - 1) % 4`) forever | Stage 22 (alongside Dungeon/Galactic War) | Arena Medals only — spent on Arena Pulls (Vanguard-set gear), never dropped directly |
+
+`CONTENT_UNLOCKS = { mainboss: 4, tower: 7, faction: 10, dungeon:
+CAMPAIGN_CHAPTERS.length, galactic: CAMPAIGN_CHAPTERS.length,
+grandarena: CAMPAIGN_CHAPTERS.length }` — keyed to Campaign's flat
+stage index now, not a "chapter number" (Chapter 1 alone spans 12
+stages). Main Boss deliberately unlocks *before* Tower despite Tower's
+old head-start, because Main Boss's 3v3 matches the 3-champion starter
+roster exactly while Tower's 5v5 doesn't — see "New-game onboarding".
 
 Dungeon is deliberately different in *kind*, not just reward: every
 enemy in `DUNGEON_WAVE_1` leads with a debuff instead of raw damage
@@ -376,14 +391,82 @@ warrant specifically to offset that, rather than letting compounding
 stage scaling stack with an already-hard-hitting kit into something
 uncounterable on a fresh squad's very first turn.
 
+**New-game onboarding — Campaign Chapter 1 as a 12-stage tutorial
+ladder.** The user's framing: a new save should open with a weak
+starter squad, learn the game's mechanics across Campaign's first
+chapter, earn two guaranteed champions along the way, then hit a real
+plateau that forces a detour into whichever other mode just unlocked —
+the core farm-and-push loop starting from the very first session
+instead of only after Campaign is fully cleared.
+- `CAMPAIGN_CH1_STAGES` (`CAMPAIGN_C1S1`..`CAMPAIGN_C1S12`) are 12 flat
+  `fixedChapters` entries prepended to the old `CAMPAIGN_CHAPTERS`
+  array (`CAMPAIGN_CHAPTERS = CAMPAIGN_CH1_STAGES.concat([CAMPAIGN_CH1,
+  ..., CAMPAIGN_CH10])`, 22 stages total) — this needed zero changes to
+  the core stage-indexing machinery (`getSelectedStage`/
+  `setSelectedStage`/`maxSelectableStage`/`spawnWave` all already
+  operate on a flat stage index). A new per-encounter `stageLabelFor`
+  hook (`campaignStageLabel`, mirroring Grand Arena's existing
+  `archetypeCycle` hook pattern) translates the flat index back into
+  "Chapter 1 - Stage N/12" for stages 1-12 and "Chapter M" (M =
+  stage-12+1, so old Chapter 1 now reads "Chapter 2") beyond that —
+  `campaignClearMessage` produces the matching victory-screen text
+  ("Stage N cleared", "Chapter 1 cleared — Chapter 2 unlocked!", etc.).
+- Stages 1-3 are trivial (teach basic attack/targeting/that debuffs
+  exist). Stage 4 unlocks Main Boss — the earliest detour, sized to
+  match the 3-champion starter roster exactly. Stage 6 grants Bastian
+  (Epic) and Stage 8 grants Vara (Legendary) directly via
+  `unlockChampion()` — see `CAMPAIGN_STAGE_CHAMPION_REWARDS = {6:
+  'bastian', 8: 'vara'}` — **not** an RNG Summon pull. This was a
+  deliberate confirmed decision: the user first asked whether the 1st/
+  2nd Summon pulls could simply bypass RNG and auto-grant a champion;
+  since Summon Shards aren't even earnable yet this early (they're a
+  Main Boss reward, and Main Boss only just unlocked at Stage 4), a
+  direct stage-clear reward was simpler and just as effective, so that
+  path was dropped in favor of a plain `unlockChampion()` call — no new
+  "Champion Core" item, no RNG-bypass machinery. Stage 7 unlocks Tower
+  (5v5) — timed so the roster has reached exactly 5 owned champions
+  (3 starters + Bastian + Vara) by the time a 5v5 mode needs fielding.
+  Stage 9 is the intentional plateau (see below). Stage 10 unlocks
+  Faction Wars. Stage 12 is Chapter 1's capstone fight.
+- **Difficulty tuning was empirical, not assumed** — same methodology
+  as the historical Chapter 8/10 multi-pass tuning. Stage 9 was
+  deliberately built as a wall the starter+Bastian+Vara squad cannot
+  reliably clear (verified via repeated-trial probes, not a single
+  observation — a first pass came back an easy 12/12 because the
+  squad already has 5 champions by Stage 9, not the original 3, so the
+  wall had to be raised until real trials showed it holding). Stages
+  10-12 were then re-tuned around that same probe methodology so the
+  curve reads as "hard wall → moderate relief → moderate wall →
+  capstone" rather than two back-to-back bricks. Exact numbers live in
+  the `CAMPAIGN_C1S*` blocks' own comments — treat them as a first
+  pass, expect further iteration once more of the loop (gear from
+  Tower, XP from Main Boss) is actually available to playtest against.
+- **Main Boss's own base difficulty (`CHAMPION_TRIAL`) was retuned
+  down** for the same reason — it used to be reachable only very late
+  (the old Chapter 8 gate), tuned around a leveled/geared 6-Legendary
+  squad, but now unlocks at Stage 4 when the roster is still exactly
+  the 3 level-1 starters with no gear. Verified via probe at ~1/8 wins
+  before the retune, ~8/8 after (Main Boss stage 1 is meant to be the
+  easy "farm to power up" escape valve, not a wall — the wall is
+  Chapter 1 Stage 9's job).
+- `openTeamSelect` now filters `ENCOUNTERS[id].teamIds` through
+  `isChampionOwned` before pre-selecting a default squad — needed once
+  starters stopped being "whichever 3-6 champions a mode's `teamIds`
+  names," since an unowned default member would otherwise silently
+  count toward a "full" squad.
+- Chapters 2-11 (the old Chapters 1-10) are byte-for-byte unchanged —
+  whether they also get the multi-stage tutorial-ladder treatment, or
+  stay single capstone fights between the other modes' ladders, is an
+  explicitly open decision the user has not yet made (see "Next up").
+
 Implementation notes:
 - **Fixed vs. infinite vs. cycling**: `ENCOUNTERS[id].fixedChapters`
   (an array of chapter template arrays) marks Campaign as non-scaling —
   `spawnWave` passes stage `1` to `scaledEnemyTemplate` for such
   encounters instead of the real stage, so a chapter's authored numbers
   ARE its difficulty, forever. `getSelectedStage`/`setSelectedStage`
-  both cap at `fixedChapters.length` so there's no "Chapter 11" once
-  all 10 chapters are cleared. `ENCOUNTERS[id].archetypeCycle` is
+  both cap at `fixedChapters.length` (now 22) so there's no "Stage 23"
+  once every stage is cleared. `ENCOUNTERS[id].archetypeCycle` is
   Grand Arena's equivalent for picking *which* opponent squad a stage
   fights (`archetypeForStage`), while still scaling stats and rewards
   by the real stage number like an infinite ladder — the two flags are
@@ -391,9 +474,10 @@ Implementation notes:
   Wars/Main Boss/Dungeon/Galactic War have neither flag and no stage
   cap (`Infinity`), the plain infinite-ladder case.
 - **Unlock UI**: a locked node's start button is `disabled` and its
-  stage label reads "Locked — Campaign Ch. N" (`isContentUnlocked`,
+  stage label reads "Locked — Campaign " + `campaignStageLabel(...)`
+  (e.g. "Locked — Campaign Chapter 1 - Stage 7/12", `isContentUnlocked`,
   wired into `renderStageLabels`) rather than being hidden — the gate
-  is visible, not mysterious. Clearing the exact Campaign chapter that
+  is visible, not mysterious. Clearing the exact Campaign stage that
   unlocks a mode surfaces it on the victory screen ("Tower unlocked!").
   For Grand Arena specifically, both the stage label and the
   team-select title also name the upcoming archetype (" — vs Control"),
@@ -534,6 +618,19 @@ Note: "Rework node" turned out to mean gear substat/set/stat-value
 rerolls, not a champion build-choice system — champions still have
 zero build choices, so a champion-facing Rework is not on the table
 until one exists (see the champion build-choice bullet below).
+
+**New-game onboarding / Campaign Chapter 1 tutorial ladder — built.**
+The user's framing: a new save opens with a weak starter squad, learns
+the game across a 12-15-stage first chapter, earns two guaranteed
+champions along the way, hits a real plateau that forces a detour into
+whichever mode just unlocked, and that farm-and-push cycle repeats for
+every subsequent plateau — see "New-game onboarding" under Content
+framework above for the full mechanism (`CAMPAIGN_CH1_STAGES`,
+`CAMPAIGN_STAGE_CHAMPION_REWARDS`, the retuned `CHAMPION_TRIAL`
+baseline, the new `CONTENT_UNLOCKS` sequencing). Explicitly still
+open, per the user's own framing ("only then decide whether Chapters
+2-10 get the same multi-stage treatment or stay as capstone fights
+between ladders") — do not start that work without being asked.
 
 Longer-term, deferred until asked for:
 - A **Charm Upgrade** to pair with the new Charm Reforge — gear has
