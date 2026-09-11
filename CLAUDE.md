@@ -102,7 +102,20 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
    (Contagionist), Wren (Sentinel). Each has basic/active1/active2/
    passive/signature — fixed kits, no build choices. Base stats are
    modified by equipped gear and by champion level (see Champion
-   leveling below).
+   leveling below). Each champion also carries a `rarity` (reusing the
+   same Common/Rare/Epic/Legendary scale as gear/charms — all 6 are
+   currently Legendary) and a `faction` tag. Factions
+   (`FACTIONS`/`FACTION_TIERS`) work like a team-composition mirror of
+   gear sets: `factionBonusStatsFor(teamIds)` counts how many fielded
+   champions share a faction and, at 2/3-member thresholds, applies a
+   flat stat bonus to the *whole squad* (not just that faction's
+   members) via `applyFactionBonusToUnit` — same generalized-tier
+   pattern as `SET_TIERS`/`GEAR_SETS`, computed once per battle in
+   `newBattle`/`resumeBattle` alongside gear/level/ascension. Current
+   factions: Ironclad (Vara, Wren), Blightkin (Mire, Nyx), Stormcallers
+   (Kestrel), Deathmark (Rook) — only Ironclad/Blightkin can reach
+   bonus2 today since the other two have just one member each; that's
+   expected to fill in as more champions are added, not a bug.
 2. **Buffs/debuffs**: full set including +/- Atk/Def/Spd/Res/Acc,
    Shield, Block Buffs, Block Debuffs, Stun, Poison, Bleed, Burn,
    Counter, Provoke, etc.
@@ -391,10 +404,60 @@ Dungeon), Champion leveling, Ascension, and Gear Rework — see "Systems
 that exist today" and "Content framework" above.
 
 The user's full target roster — **Main Boss, Faction Wars, Tower,
-Dungeon, Galactic Challenge/War, Grand Arena** — is now complete. There
-is no next mode queued; further content work should wait for the user
-to ask, per their explicit "one at a time" preference that guided this
-whole buildout (build, test, ship one before starting the next).
+Dungeon, Galactic Challenge/War, Grand Arena** — is now complete.
+
+**New confirmed direction (in progress): a champion-acquisition end
+cycle layered on top of the content framework.** The user's framing:
+unlocking/building better champions should unlock higher tiers of
+existing content, which pay better rewards, which build better
+champions — another turn of the same "push here to unlock pushing
+there" loop the whole game is built on, but at the champion-roster
+level instead of a single mode's material. Confirmed with the user:
+- **This is a deliberate, scoped exception to "No-FOMO... no gacha
+  currency"** at the top of this doc — the user explicitly chose real
+  RNG summons over a deterministic pick-your-champion unlock. Keep it
+  scoped: no stamina/timers, no real-money purchase, no duplicate loss
+  (a summon should never feel wasted) — the "no-FOMO" spirit still
+  applies to everything *around* the RNG, just not to the pull itself.
+- Rarity is a **power tier** (like gear rarity), not just a cost/cosmetic
+  label — a Legendary champion should be meaningfully stronger than a
+  Common one, mirroring how `GEAR_RARITY_MULT`/`GEAR_SUBSTAT_COUNT`
+  raise gear's ceiling by rarity.
+- Factions are champion tags with team-composition bonuses — **built**,
+  see the Champions bullet above (`FACTIONS`/`FACTION_TIERS`/
+  `factionBonusStatsFor`).
+
+Still to design/build, in rough order:
+1. **New lower-rarity champions** (Common/Rare/Epic) to seed the summon
+   pool and populate Stormcallers/Deathmark past 1 member each. Kit
+   complexity should scale with rarity the same way gear substat count
+   does — e.g. Common/Rare could ship without a `passive`/`signature`
+   (both already render safely when absent - `parsePassive`/`slotInfo`
+   handle a missing string). **`active2` is NOT currently optional** -
+   `skillButtonHtml`/`renderActions` assume every champion has one and
+   will throw on `ability.name` if it's undefined - either give every
+   new champion a real (even weak) `active2`, or guard that render path
+   first. Passives/signatures are NOT data-driven from the `passive`/
+   `signature` string fields (those are UI-only flavor text) - actual
+   behavior is hand-wired per champion id inside `wireEventHooks()`, so
+   a new champion's passive/signature (if any) needs its own bespoke
+   block there, same as the existing 6.
+2. **Summon currency + Armory action**: a new currency (name TBD, kept
+   distinct from the existing `machineborn_shards_v1` — that one is
+   already Main Boss's level-cap resource, a same-named "Shards" would
+   collide) spent on a rarity-weighted champion pull, reusing the
+   `DROP_RARITY_WEIGHTS`-style convention. Likely owned by Main Boss
+   (already the account's "grow your champions" mode — Gold/XP/Shards)
+   as an additional reward, similar to how Galactic War/Grand Arena
+   each already made one documented exception to strict reward purity.
+3. **Roster-tier gating**: the mechanism connecting "better champions"
+   to "higher tiers, better rewards" is not yet designed. Leading idea:
+   a `ROSTER_UNLOCKS`-style gate (mirroring `CONTENT_UNLOCKS`'s
+   pattern) keyed off highest-rarity champion owned, blocking further
+   stage progress on the existing infinite ladders past some stage
+   until met, with a reward-multiplier bump alongside it - reusing
+   `stageRewardMultiplier`'s slot rather than inventing a parallel one.
+   Needs confirming with the user before building.
 
 Note: "Rework node" turned out to mean gear substat/set/stat-value
 rerolls, not a champion build-choice system — champions still have

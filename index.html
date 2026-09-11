@@ -512,7 +512,7 @@
   // ---------------------------------------------------------------
   var CHAMPIONS = [
     {
-      id: 'vara', name: 'Vara', role: 'Guardian',
+      id: 'vara', name: 'Vara', role: 'Guardian', rarity: 'Legendary', faction: 'ironclad',
       hp: 145, atk: 55, def: 90, spd: 95, critChance: 15, critDamage: 150, acc: 0, res: 40,
       passive: 'Aegis Instinct — at the start of Vara\'s turn, the lowest-HP% living ally gains a Shield worth 15% of their max HP.',
       signature: 'Whenever an ally below 50% HP is hit, Vara permanently gains Defense.',
@@ -552,7 +552,7 @@
       }
     },
     {
-      id: 'mire', name: 'Mire', role: 'Plaguebearer',
+      id: 'mire', name: 'Mire', role: 'Plaguebearer', rarity: 'Legendary', faction: 'blightkin',
       hp: 120, atk: 65, def: 60, spd: 100, critChance: 15, critDamage: 150, acc: 20, res: 20,
       passive: 'Plague Detonation — at the start of Mire\'s turn, any enemy with 3+ Poison stacks has all of them extended by 1 turn, then takes bonus damage (2% max HP per stack).',
       signature: 'Applying a Poison permanently increases Mire\'s Speed by 1.',
@@ -578,7 +578,7 @@
       }
     },
     {
-      id: 'kestrel', name: 'Kestrel', role: 'Controller',
+      id: 'kestrel', name: 'Kestrel', role: 'Controller', rarity: 'Legendary', faction: 'stormcallers',
       hp: 110, atk: 60, def: 55, spd: 105, critChance: 15, critDamage: 150, acc: 15, res: 25,
       passive: 'Windcall — whenever Kestrel uses her Basic Attack, any ally with 3+ active buffs joins in, each dealing 30% of their Attack as bonus damage to her target(s).',
       signature: 'Every basic attack this Champion performs permanently increases her Attack by 5.',
@@ -602,7 +602,7 @@
       }
     },
     {
-      id: 'rook', name: 'Rook', role: 'Executioner',
+      id: 'rook', name: 'Rook', role: 'Executioner', rarity: 'Legendary', faction: 'deathmark',
       hp: 130, atk: 80, def: 65, spd: 90, critChance: 20, critDamage: 160, acc: 10, res: 15,
       passive: "Executioner's Eye — if Rook's target is below 30% HP, his attacks always critically hit.",
       signature: 'Attacking an enemy below 50% HP permanently increases Rook\'s Crit Damage.',
@@ -627,7 +627,7 @@
       }
     },
     {
-      id: 'nyx', name: 'Nyx', role: 'Contagionist',
+      id: 'nyx', name: 'Nyx', role: 'Contagionist', rarity: 'Legendary', faction: 'blightkin',
       hp: 115, atk: 62, def: 55, spd: 98, critChance: 15, critDamage: 150, acc: 15, res: 20,
       passive: 'Spreading Rot — whenever an enemy dies afflicted with 2+ debuffs, Nyx transfers one of them to a random remaining enemy.',
       signature: 'Every debuff placed on Nyx permanently increases her Speed by 1.',
@@ -670,7 +670,7 @@
       }
     },
     {
-      id: 'wren', name: 'Wren', role: 'Sentinel',
+      id: 'wren', name: 'Wren', role: 'Sentinel', rarity: 'Legendary', faction: 'ironclad',
       hp: 125, atk: 50, def: 70, spd: 97, critChance: 15, critDamage: 150, acc: 10, res: 35,
       passive: "Guardian's Echo — whenever an ally with Counter is attacked, Wren gains a Shield worth 10% of her max HP.",
       signature: "Whenever Wren extends an ally's buffs, she permanently gains Resistance.",
@@ -709,6 +709,71 @@
       }
     }
   ];
+
+  // ---------------------------------------------------------------
+  // CHAMPION RARITY & FACTIONS
+  // Champion `rarity` reuses the same Common/Rare/Epic/Legendary scale
+  // gear and charms already use (`RARITY_ORDER`, defined below) rather
+  // than inventing a parallel one - the existing six are all Legendary
+  // (their kits are already the full basic/active1/active2/passive/
+  // signature shape). Lower-rarity champions to seed the summon pool
+  // are a separate, future addition (see CLAUDE.md "Next up") - this
+  // pass only lays the data model (rarity + faction fields) and the
+  // faction-bonus mechanic itself.
+  //
+  // `faction` groups champions the same way `set` groups gear pieces -
+  // fielding enough champions of one faction in your squad grants a
+  // team-wide bonus, using the exact same generalized tier abstraction
+  // as GEAR_SETS/SET_TIERS (`FACTION_TIERS`/`FACTIONS`) rather than a
+  // parallel structure. Unlike gear sets (an independent random roll
+  // per piece), faction membership is fixed per champion - the "roll"
+  // here is which champions you've unlocked at all.
+  // ---------------------------------------------------------------
+  var FACTION_TIERS = [['bonus2', 2], ['bonus3', 3]];
+  var FACTIONS = {
+    ironclad: { name: 'Ironclad', bonus2: { stats: { def: 15 } } },
+    blightkin: { name: 'Blightkin', bonus2: { stats: { acc: 8 } } },
+    stormcallers: { name: 'Stormcallers', bonus2: { stats: { spd: 6 } } },
+    deathmark: { name: 'Deathmark', bonus2: { stats: { critChance: 8 } } }
+  };
+
+  function teamFactionCounts(teamIds) {
+    var counts = {};
+    teamIds.forEach(function (id) {
+      var champ = CHAMPIONS.find(function (c) { return c.id === id; });
+      if (champ && champ.faction) counts[champ.faction] = (counts[champ.faction] || 0) + 1;
+    });
+    return counts;
+  }
+
+  // Team-wide, not per-champion - reaching a faction's threshold buffs
+  // the whole fielded squad, not just that faction's own members.
+  function factionBonusStatsFor(teamIds) {
+    var bonus = {};
+    var counts = teamFactionCounts(teamIds);
+    Object.keys(counts).forEach(function (factionId) {
+      var def = FACTIONS[factionId];
+      if (!def) return;
+      FACTION_TIERS.forEach(function (pair) {
+        var tier = def[pair[0]];
+        if (tier && tier.stats && counts[factionId] >= pair[1]) {
+          Object.keys(tier.stats).forEach(function (stat) { bonus[stat] = (bonus[stat] || 0) + tier.stats[stat]; });
+        }
+      });
+    });
+    return bonus;
+  }
+
+  function applyFactionBonusToUnit(unit, bonus) {
+    if (bonus.atk) unit.atk += bonus.atk;
+    if (bonus.def) unit.def += bonus.def;
+    if (bonus.spd) unit.spd += bonus.spd;
+    if (bonus.critChance) unit.critChance += bonus.critChance;
+    if (bonus.critDamage) unit.critDamage += bonus.critDamage;
+    if (bonus.acc) unit.acc += bonus.acc;
+    if (bonus.res) unit.res += bonus.res;
+    if (bonus.hp) { unit.maxHp += bonus.hp; unit.hp += bonus.hp; }
+  }
 
   // ---------------------------------------------------------------
   // GEAR (6 main slots, matching Raid's layout). Each acquired piece
@@ -2071,11 +2136,13 @@
     currentWaves = wavesForBattle(config, currentStage);
     currentTeamIds = teamIds || config.teamIds;
     waveIndex = 0;
+    var factionBonus = factionBonusStatsFor(currentTeamIds);
     team = currentTeamIds.map(function (id) {
       var unit = makeUnit(CHAMPIONS.find(function (c) { return c.id === id; }), false);
       applyLevelToUnit(unit);
       applyAscensionToUnit(unit);
       applyGearToUnit(unit);
+      applyFactionBonusToUnit(unit, factionBonus);
       return unit;
     });
     spawnWave(currentWaves[waveIndex], currentStage);
@@ -2172,11 +2239,13 @@
     currentWaves = wavesForBattle(config, currentStage);
     currentTeamIds = saved.teamIds || config.teamIds;
     waveIndex = saved.waveIndex || 0;
+    var factionBonus = factionBonusStatsFor(currentTeamIds);
     team = currentTeamIds.map(function (id) {
       var unit = makeUnit(CHAMPIONS.find(function (c) { return c.id === id; }), false);
       applyLevelToUnit(unit);
       applyAscensionToUnit(unit);
       applyGearToUnit(unit);
+      applyFactionBonusToUnit(unit, factionBonus);
       return unit;
     });
     spawnWave(currentWaves[waveIndex], currentStage);
@@ -3094,16 +3163,18 @@
     var disabled = !selected && full;
     var bonus = gearBonusFor(champ.id);
     var geared = Object.keys(bonus).length > 0;
-    var rarity = highestRarityFor(champ.id);
-    var gearIcon = geared ? ' <span style="color:' + RARITY_COLOR[rarity] + '">⚙</span>' : '';
+    var gearRarity = highestRarityFor(champ.id);
+    var gearIcon = geared ? ' <span style="color:' + RARITY_COLOR[gearRarity] + '">⚙</span>' : '';
     var levelMult = levelStatMultiplier(championLevel(champ.id));
     var dispHp = Math.round(champ.hp * levelMult) + (bonus.hp || 0);
     var dispAtk = Math.round(champ.atk * levelMult) + (bonus.atk || 0);
     var dispSpd = champ.spd + (bonus.spd || 0);
+    var factionName = (FACTIONS[champ.faction] && FACTIONS[champ.faction].name) || '';
+    var nameColor = RARITY_COLOR[champ.rarity] || '#fff';
     return '' +
       '<button class="selectCard' + (selected ? ' selected' : '') + '" data-id="' + champ.id + '"' + (disabled ? ' disabled' : '') + '>' +
-        '<div class="selectName">' + champ.name + ' Lv.' + championLevel(champ.id) + gearIcon + '</div>' +
-        '<div class="selectRole">' + champ.role + '</div>' +
+        '<div class="selectName" style="color:' + nameColor + '">' + champ.name + ' Lv.' + championLevel(champ.id) + gearIcon + '</div>' +
+        '<div class="selectRole">' + champ.role + (factionName ? ' · ' + factionName : '') + '</div>' +
         '<div class="selectStats">HP ' + dispHp + ' / ATK ' + dispAtk + ' / SPD ' + dispSpd + '</div>' +
       '</button>';
   }
