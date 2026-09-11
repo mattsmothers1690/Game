@@ -712,9 +712,17 @@ source of truth.
   Warlord and the Herald respectively. A deliberately light touch: one
   line, no dialogue system, no branching, no new screen — the existing
   team-select moment already fires once per stage and had room for it.
-  A full Codex/lore screen for the faction dossiers themselves is still
-  not built — revisit only if asked for a deeper reference than the
-  Artifact already provides.
+  A matching `CAMPAIGN_STORY_AFTER` table pays off each of those lines
+  on the victory screen (`#resultStory`, wired into `endBattle`) —
+  written as a direct continuation of the matching `CAMPAIGN_STORY`
+  entry, not a restatement of it (Stage 1: patrol dispatched → rats
+  scatter, cause unclear; Stage 22: the Herald named → the Herald
+  shatters, the Hollow King still out there). Shown only on an actual
+  `won` Campaign result — a `DEFEAT` never earns the consequence of a
+  win it didn't get, and every non-Campaign encounter still shows
+  neither table. A full Codex/lore screen for the faction dossiers
+  themselves is still not built — revisit only if asked for a deeper
+  reference than the Artifact already provides.
 
 ## Testing methodology
 

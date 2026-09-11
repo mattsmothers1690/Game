@@ -56,7 +56,7 @@
   /* ---------------- TEAM SELECT ---------------- */
   #teamSelectScreen { display: none; text-align: center; padding: 30px 16px; }
   #teamSelectCounter { color: #999; font-size: 0.85rem; margin-top: 4px; }
-  #teamSelectStory {
+  #teamSelectStory, #resultStory {
     display: none;
     max-width: 560px;
     margin: 14px auto 0;
@@ -71,6 +71,7 @@
     line-height: 1.5;
     text-align: left;
   }
+  #resultStory { margin: 14px 0; }
   #teamSelectGrid {
     display: flex;
     flex-wrap: wrap;
@@ -531,6 +532,7 @@
 <div class="overlay" id="resultOverlay">
   <h2 id="resultText"></h2>
   <div id="resultReward" style="text-align:center;color:#fbbf24;font-size:0.9rem;"></div>
+  <div id="resultStory"></div>
   <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
     <button class="overlayBtn" id="restartBtn" style="margin:0;">RETRY</button>
     <button class="overlayBtn" id="nextStageBtn" style="margin:0;">NEXT STAGE</button>
@@ -2195,6 +2197,35 @@
     22: 'The Herald. Not the Hollow King itself — the first shape it has bothered wearing into the world directly.'
   };
 
+  // The payoff half of CAMPAIGN_STORY - one line per stage, shown on
+  // the victory screen only (a loss doesn't earn the consequence of a
+  // win), same flat 1-22 indexing. Written as a direct continuation of
+  // the matching CAMPAIGN_STORY entry, not a restatement of it.
+  var CAMPAIGN_STORY_AFTER = {
+    1: "The rats scatter. Whatever's making them this bold hasn't shown itself yet.",
+    2: 'The boar drops. Its hide is thicker than it should be for something this young.',
+    3: "The last snapper flees into the reeds. Poison this concentrated shouldn't occur naturally out here.",
+    4: 'The thieves break and run. Whoever is arming them wanted this to look like an accident.',
+    5: "The hounds retreat and, for once, don't regroup. Something else has their attention now.",
+    6: "Bastian plants his shield in the dirt and doesn't ask permission to stay.",
+    7: "The keep's gates groan open for the first time in years. It'll do.",
+    8: "Vara reads the field in silence, then simply nods. That's apparently a compliment.",
+    9: "The warband breaks — barely. Whatever kept it standing that long left before anyone could question it.",
+    10: 'Riders are already inbound from three directions, with the same report, almost word for word.',
+    11: 'The veterans fall in disciplined order, to the last. Discipline like that does not come from panic.',
+    12: 'The Chapter Warlord falls, and something in him seems almost relieved to stop moving.',
+    13: 'Another border, another warband broken. The reports keep arriving faster than the victories.',
+    14: 'The pattern holds. So does the patrol — for now.',
+    15: 'Ironclad, Blightkin, Stormcaller, and Deathmark banners share a camp tonight without incident. A first.',
+    16: "The cultists don't flee like bandits do. They kneel, and keep chanting, until the end.",
+    17: 'New robes on old raiders. The Ashen Cult recruits faster than it can be thinned.',
+    18: "Even the mercenaries fight like true believers now. That's the part that worries the captains.",
+    19: 'Whoever is holding this army together is close. Every captured banner points the same direction.',
+    20: "The Campaign Warlord falls. The remaining warbands don't scatter — they wait, like they're expecting someone else.",
+    21: 'Where the Harbinger stood, the air stays wrong long after the fighting stops.',
+    22: 'The Herald shatters like something hollow finally given a reason to break. The Hollow King is still out there.'
+  };
+
   // ---------------------------------------------------------------
   // CAMPAIGN CHAPTERS 2-11 - the original Chapters 1-10, now shifted up
   // one chapter number by Chapter 1's new stages above. Still
@@ -3489,6 +3520,10 @@
     } else {
       rewardEl.textContent = '';
     }
+    var storyEl = document.getElementById('resultStory');
+    var afterStory = (won && currentEncounterId === 'campaign') ? CAMPAIGN_STORY_AFTER[currentStage] : null;
+    storyEl.textContent = afterStory || '';
+    storyEl.style.display = afterStory ? 'block' : 'none';
     var nextBtn = document.getElementById('nextStageBtn');
     nextBtn.style.display = nextStageAvailable ? '' : 'none';
     document.getElementById('resultOverlay').classList.add('show');
