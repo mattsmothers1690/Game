@@ -394,7 +394,8 @@
 
   <div id="summonPanel" class="farmPanel">
     <h2>Summon</h2>
-    <div style="color:#888;font-size:0.7rem;">Main Boss victories pay Summon Shards. Spend them to summon a new champion — higher rarities are rarer. A pull that lands on a champion you already own refunds part of the cost instead of doing nothing.</div>
+    <div style="color:#888;font-size:0.7rem;">Main Boss victories pay Summon Shards. Spend them to summon a new champion — higher rarities are rarer. A pull that lands on a champion you already own refunds part of the cost instead of doing nothing. A bigger roster also raises your Roster Tier, which is what lets you push Tower/Faction Wars/Main Boss/Dungeon/Galactic War/Grand Arena past their current stage cap.</div>
+    <div id="rosterTierDisplay" style="color:#888;font-size:0.7rem;"></div>
     <div class="farmControls">
       <button id="summonPullBtn" class="overlayBtn"></button>
     </div>
@@ -2193,19 +2194,42 @@
   }
   var stageProgress = loadStageProgress(); // { encounterId: highestStageCleared }
 
+  // Roster-tier gate: unlike Campaign's fixedChapters cap (a permanent
+  // ceiling), this caps how far a non-Campaign infinite ladder can be
+  // PUSHED right now - it never erases stageProgress already banked,
+  // it just holds the stepper back until the roster grows. Deliberately
+  // keyed off roster SIZE, not highest rarity owned - the starter six
+  // are already Legendary, so "highest rarity" would be maxed out from
+  // turn one and never gate anything. Size grows exactly when a summon
+  // lands a genuinely new champion, which is the actual behavior this
+  // is meant to reward. No separate reward-multiplier bump is needed
+  // alongside it - stageRewardMultiplier already scales hard with the
+  // stage number this unlocks access to.
+  var ROSTER_TIER_STAGE_CAP = { 1: 15, 2: 30, 3: Infinity };
+  function rosterTier() {
+    var owned = championRoster.length;
+    if (owned >= 10) return 3;
+    if (owned >= 8) return 2;
+    return 1;
+  }
+  function rosterStageCap() { return ROSTER_TIER_STAGE_CAP[rosterTier()]; }
+
+  function maxSelectableStage(encounterId) {
+    var config = ENCOUNTERS[encounterId];
+    var max = (stageProgress[encounterId] || 0) + 1;
+    if (config.fixedChapters) return Math.min(max, config.fixedChapters.length);
+    return Math.min(max, rosterStageCap());
+  }
+
   var selectedStage = {}; // in-memory only - always opens back on the current frontier on reload
   function getSelectedStage(encounterId) {
     if (!selectedStage[encounterId]) {
-      var config = ENCOUNTERS[encounterId];
-      var frontier = (stageProgress[encounterId] || 0) + 1;
-      selectedStage[encounterId] = config.fixedChapters ? Math.min(frontier, config.fixedChapters.length) : frontier;
+      selectedStage[encounterId] = maxSelectableStage(encounterId);
     }
     return selectedStage[encounterId];
   }
   function setSelectedStage(encounterId, stage) {
-    var config = ENCOUNTERS[encounterId];
-    var max = (stageProgress[encounterId] || 0) + 1;
-    if (config.fixedChapters) max = Math.min(max, config.fixedChapters.length);
+    var max = maxSelectableStage(encounterId);
     selectedStage[encounterId] = Math.max(1, Math.min(stage, max));
   }
 
@@ -3414,13 +3438,14 @@
       }
       var stage = getSelectedStage(id);
       var cleared = stageProgress[id] || 0;
-      var maxChapter = config.fixedChapters ? config.fixedChapters.length : Infinity;
       var stageNoun = config.fixedChapters ? 'Chapter' : 'Stage';
-      var labelText = stageNoun + ' ' + stage + (stage > cleared ? ' (new)' : '');
+      var max = maxSelectableStage(id);
+      var rosterCapped = !config.fixedChapters && stage === rosterStageCap() && cleared + 1 > rosterStageCap();
+      var labelText = stageNoun + ' ' + stage + (rosterCapped ? ' (roster-capped)' : stage > cleared ? ' (new)' : '');
       if (config.archetypeCycle) labelText += ' — vs ' + archetypeForStage(config, stage).name;
       document.getElementById(id + 'StageLabel').textContent = labelText;
       document.getElementById(id + 'StageDownBtn').disabled = stage <= 1;
-      document.getElementById(id + 'StageUpBtn').disabled = stage >= Math.min(cleared + 1, maxChapter);
+      document.getElementById(id + 'StageUpBtn').disabled = stage >= max;
     });
   }
   renderStageLabels();
@@ -3596,6 +3621,10 @@
     var btn = document.getElementById('summonPullBtn');
     btn.textContent = 'Summon (' + SUMMON_PULL_COST + ' Shards)';
     btn.disabled = summonShard < SUMMON_PULL_COST;
+    var tier = rosterTier();
+    var cap = rosterStageCap();
+    document.getElementById('rosterTierDisplay').textContent =
+      'Roster Tier ' + tier + '/3 (' + championRoster.length + ' champions owned) — Stage cap ' + (cap === Infinity ? 'none' : cap);
   }
 
   document.getElementById('summonPullBtn').addEventListener('click', function () {

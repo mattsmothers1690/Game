@@ -243,6 +243,34 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
     `pullArenaGear`, a normal rolled gear instance (random slot/rarity-
     floor-Epic/main stat/substats) forced to the Vanguard set instead
     of an independent set roll — see the gear-sets bullet above.
+13. **Champion summoning + Roster Tier** (the champion-acquisition end
+    cycle the user asked for, layered on top of everything above): Main
+    Boss's second reward, Summon Shards, buys a rarity-weighted
+    champion pull in the Armory's Summon panel (`pullChampionSummon`) —
+    see the Champions bullet and the data-model table for the currency/
+    ownership keys. `rosterTier()` (1/2/3, thresholds at 6/8/10 owned
+    champions) feeds `rosterStageCap()` (15/30/∞), which
+    `maxSelectableStage` applies to every non-`fixedChapters` encounter
+    (Tower/Faction Wars/Main Boss/Dungeon/Galactic War/Grand Arena) —
+    Campaign is exempt (its own `fixedChapters` cap already governs it,
+    and it's the account-wide gate, not something roster growth should
+    touch). Deliberately keyed off **roster size**, not highest rarity
+    owned, despite that being the originally-approved idea: the starter
+    six are already Legendary, so a rarity-keyed gate would sit at max
+    tier from turn one and never actually gate anything — roster size
+    grows exactly when a summon lands a genuinely new champion, which
+    is the behavior this is meant to reward. The cap only holds back
+    the stage *stepper* (`getSelectedStage`/`setSelectedStage`, both now
+    thin wrappers around `maxSelectableStage`) — it never erases
+    `stageProgress` already banked, and no separate reward-multiplier
+    was added alongside it: `stageRewardMultiplier` already scales hard
+    with the stage number a higher tier unlocks access to, so "better
+    champions unlock higher tiers which pay better rewards" falls out
+    of mechanics that already existed. A capped stage shows "(roster-
+    capped)" in its label (`renderStageLabels`) rather than the plain
+    "(new)" tag, and the Armory's Summon panel shows the current tier/
+    cap directly (`rosterTierDisplay`) — same "the gate is visible, not
+    mysterious" convention as `isContentUnlocked`.
 
 ## Content framework
 
@@ -432,62 +460,38 @@ that exist today" and "Content framework" above.
 The user's full target roster — **Main Boss, Faction Wars, Tower,
 Dungeon, Galactic Challenge/War, Grand Arena** — is now complete.
 
-**New confirmed direction (in progress): a champion-acquisition end
-cycle layered on top of the content framework.** The user's framing:
-unlocking/building better champions should unlock higher tiers of
-existing content, which pay better rewards, which build better
-champions — another turn of the same "push here to unlock pushing
-there" loop the whole game is built on, but at the champion-roster
-level instead of a single mode's material. Confirmed with the user:
-- **This is a deliberate, scoped exception to "No-FOMO... no gacha
-  currency"** at the top of this doc — the user explicitly chose real
-  RNG summons over a deterministic pick-your-champion unlock. Keep it
-  scoped: no stamina/timers, no real-money purchase, no duplicate loss
-  (a summon should never feel wasted) — the "no-FOMO" spirit still
-  applies to everything *around* the RNG, just not to the pull itself.
-- Rarity is a **power tier** (like gear rarity), not just a cost/cosmetic
-  label — a Legendary champion should be meaningfully stronger than a
-  Common one, mirroring how `GEAR_RARITY_MULT`/`GEAR_SUBSTAT_COUNT`
-  raise gear's ceiling by rarity.
-- Factions are champion tags with team-composition bonuses — **built**,
-  see the Champions bullet above (`FACTIONS`/`FACTION_TIERS`/
-  `factionBonusStatsFor`).
+**Champion-acquisition end cycle layered on top of the content
+framework — built.** The user's framing: unlocking/building better
+champions should unlock higher tiers of existing content, which pay
+better rewards, which build better champions — another turn of the
+same "push here to unlock pushing there" loop the whole game is built
+on, but at the champion-roster level instead of a single mode's
+material. All three confirmed pieces are done — see Systems item 13
+and the Champions bullet above for the full mechanism:
+- Real RNG champion summons (`pullChampionSummon`), a deliberate,
+  scoped exception to "No-FOMO... no gacha currency" at the top of this
+  doc — the user explicitly chose this over a deterministic pick-your-
+  champion unlock. Kept scoped: no stamina/timers, no real-money
+  purchase, no wasted pull (a duplicate refunds instead of doing
+  nothing) — the no-FOMO spirit still applies to everything *around*
+  the RNG, just not to the pull itself.
+- Rarity as a **power tier** (like gear rarity) via kit-complexity-
+  scales-with-rarity (Common/Rare/Epic/Legendary), not just a cost/
+  cosmetic label.
+- Factions as champion tags with team-composition bonuses
+  (`FACTIONS`/`FACTION_TIERS`/`factionBonusStatsFor`).
+- Roster Tier (`rosterTier`/`rosterStageCap`/`maxSelectableStage`)
+  connecting "better champions" to "higher stage tiers, better
+  rewards" — keyed off roster *size*, not highest rarity owned, since
+  the starter six being pre-owned Legendaries would have made a
+  rarity-keyed gate a no-op from turn one (see Systems item 13 for the
+  full reasoning).
 
-Still to design/build, in rough order:
-1. ~~New lower-rarity champions~~ **Built**: Zephyr/Squall (Common/Rare
-   Stormcallers), Fang/Vex (Common/Rare Deathmark) — see the Champions
-   bullet above. `active2`/`passive`/`signature` are now genuinely
-   optional (renderActions/slotInfo/parsePassive all guard for
-   presence). Epic-tier champions (to reach faction bonus3, and to
-   round out the rarity ladder before the summon pool goes live) are
-   still open.
-2. ~~Summon currency + Armory action~~ **Built**: Summon Shards
-   (`machineborn_summon_shard_v1`, kept distinct from the pre-existing
-   `machineborn_shards_v1` — that one is Main Boss's level-cap resource)
-   are Main Boss's second reward alongside Gold/XP/Shards
-   (`ENCOUNTER_SUMMON_SHARD_REWARD`) — another documented reward-purity
-   exception, same as Galactic War/Grand Arena each already made one.
-   Spend them in the Armory's Summon panel (`pullChampionSummon`,
-   `SUMMON_PULL_COST` = 10) on a rarity-weighted pull reusing
-   `DROP_RARITY_WEIGHTS` as-is (no stage bump - it's a flat spend, not
-   stage-gated). Only the original 6 (`STARTER_CHAMPION_IDS`) start
-   owned (`machineborn_champion_roster_v1`); everything since must be
-   summoned. Landing on a rarity where every champion is already owned
-   (right now: every Legendary, and every Epic since none exist yet)
-   refunds half the cost (`SUMMON_DUPLICATE_REFUND` = 5) rather than
-   doing nothing - no pull ever feels wasted. An unowned champion's
-   team-select card and Armory Champions-panel row both render as
-   `Locked — Summon to unlock` (disabled, dimmed via the existing
-   `.selectCard:disabled` style) rather than being hidden - same
-   "gate is visible, not mysterious" convention as `isContentUnlocked`.
-3. **Roster-tier gating**: the mechanism connecting "better champions"
-   to "higher tiers, better rewards" is not yet designed. Leading idea:
-   a `ROSTER_UNLOCKS`-style gate (mirroring `CONTENT_UNLOCKS`'s
-   pattern) keyed off highest-rarity champion owned, blocking further
-   stage progress on the existing infinite ladders past some stage
-   until met, with a reward-multiplier bump alongside it - reusing
-   `stageRewardMultiplier`'s slot rather than inventing a parallel one.
-   Needs confirming with the user before building.
+Still open in this cycle: **Epic-tier champions** — needed to round out
+the rarity ladder (right now Epic/Legendary summons always refund as
+duplicates, since no Epic champion exists and every Legendary is a
+pre-owned starter) and to let Stormcallers/Deathmark reach faction
+bonus3. Not yet started.
 
 Note: "Rework node" turned out to mean gear substat/set/stat-value
 rerolls, not a champion build-choice system — champions still have
