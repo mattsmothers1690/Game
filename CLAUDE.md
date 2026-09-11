@@ -602,9 +602,12 @@ Implementation notes:
   — see the leveling bullet above; only Main Boss feeds it now.
 - The Warlord-tier enemy in Main Boss, Dungeon's Warden, and Campaign's
   Chapter 8/10 capstones all set `isBoss: true`, reusing the generic
-  devour-a-debuff-for-Fury mechanic (`hollowKingMechanic` — not
-  actually Hollow-King-specific, it triggers off `actor.isBoss`) rather
-  than a parallel one.
+  devour-a-debuff-for-Fury mechanic (`hollowKingMechanic` — triggers
+  off `actor.isBoss` generically, not literally the Hollow King itself,
+  but the name was never a placeholder: see "Lore & Narrative" below —
+  every `isBoss` unit devouring a debuff for Fury is now canonically
+  the Hollow King's hunger expressing itself through whichever body is
+  currently host to it) rather than a parallel one.
 - Naming history: this framework replaced the original `boss`/`wave`/
   `champion` encounters — Tower *is* the old Boss content (same
   `BOSS_WAVE` squad), Faction Wars *is* the old Wave content
@@ -616,6 +619,91 @@ Implementation notes:
 Manual "Farm Gear" / "Farm Charms" buttons in the Armory remain as a
 testing/manual shortcut alongside real battle drops — not the only
 acquisition path anymore.
+
+## Lore & Narrative
+
+The user asked for backstory explaining why the game's factions are
+"battling and fighting each other," to use in the Campaign. Full text
+lives in a published Artifact ("The Unclaimed Line" —
+https://claude.ai/code/artifact/05ad1907-8c60-4e1a-ac27-995b6b26d66c);
+this section is the canonical summary for future dev work, since
+CLAUDE.md — not an external artifact link — is this project's actual
+source of truth.
+
+- **The four playable factions each have a home, a creed, and an old
+  grudge against at least one other faction** — texture explaining
+  "battling and fighting each other" as history/tension rather than
+  literal Campaign combat (the squad is drawn from all four factions
+  cooperating, never fighting itself):
+  - **Ironclad** (Vara, Wren, Bastian) — the Ashenwall March, a
+    fortified border nation built on "hold the line" as both military
+    doctrine and personality. Old wound: turned away Blightkin plague
+    refugees generations ago under quarantine law; the law was proven
+    right, Blightkin never forgave it anyway.
+  - **Blightkin** (Mire, Nyx, Morwen) — the Rotmire Fens, survivors of
+    a plague they didn't cure but bonded to their own blood as a
+    weapon rather than an affliction. Distrusts Ironclad specifically
+    (see above); trades freely with Stormcallers, warily with
+    Deathmark.
+  - **Stormcallers** (Kestrel, Zephyr, Squall, Talon) — the Skyreach
+    Steppes, a nomadic sky-nation of favor-and-grudge bookkeeping,
+    driven off richer lowland territory generations ago by an
+    Ironclad-Deathmark border dispute neither of those two even
+    remembers clearly. Deals fairly with everyone, trusts no one
+    completely.
+  - **Deathmark** (Rook, Fang, Vex, Raze) — the Marked City, a
+    deliberately unmappable order of bounty-hunters/executioners
+    ("the Ledger") founded to hunt war criminals for the other three
+    factions, never fully answerable to any of them since. Universally
+    hired, universally distrusted.
+- **The antagonist is the Hollow King** — resolves what
+  `hollowKingMechanic` (every `isBoss` unit devouring a stacked debuff
+  for Fury) always implied but never had lore behind: an ancient,
+  possibly-never-human hunger sealed beneath the contested, officially
+  "neutral" borderland none of the four factions will settle — the
+  real reason that land stayed unclaimed for longer than any explained
+  tradition. It feeds on affliction (the literal in-fiction reason for
+  the Fury mechanic) and on the four factions' compounding grudges
+  alike — division is fuel, which is why it surfaced exactly here.
+- **The 22-stage Campaign maps onto a three-act structure**, using
+  existing enemy names/stages as-is (no renaming needed, every one
+  already fit):
+  - **Act I — Chapter 1 (Stages 1-12), "The Unclaimed Line":** the
+    tutorial ladder's own arc — a mixed Stormcaller/Deathmark patrol
+    (Zephyr/Fang/Squall) investigates wrong wildlife and banditry,
+    gains Bastian (Stage 6) and Vara (Stage 8) as Ironclad
+    reinforcements in-fiction, hits Stage 9's wall as the first
+    visibly-corrupted warband, and Stage 12's Chapter Warlord as the
+    first named enemy showing outside direction.
+  - **Act II — Chapters 2-8 (old Ch.1-7), "Four Borders, One Wound":**
+    the same pattern erupts on all four factions' borders
+    simultaneously, forcing the first-ever mixed joint task-forces
+    (the in-fiction reason any 3-champion squad from any faction mix
+    is normal from here on) as the threat escalates from wildlife/
+    banditry into the openly-worshipping Ashen Cult.
+  - **Act III — Chapters 9-11 (old Ch.8-10), "The Mask Comes Off":**
+    Chapter 9's Campaign Warlord unifies the scattered warbands (the
+    real wall); Chapter 10's Void Marauders/Harbinger reveal cultists
+    as conduits rather than people; Chapter 11's Herald is the Hollow
+    King's first direct avatar in the world, not the Hollow King
+    itself — deliberately leaves the actual Hollow King unfought,
+    open for future content.
+  - **After the Herald:** Dungeon = the vaults the Herald's breach
+    uncovered (the hunger's oldest leftovers, a debuff-mitigation test
+    rather than a stat check — ties into Dungeon's existing design
+    identity, not a new one). Galactic War = the bulk mop-up of
+    warbands that don't vanish with one boss fight (ties into its
+    existing "big generic farm, no named villain" identity). Grand
+    Arena = the four factions sparring against each other's best
+    on purpose, non-lethally, because the wartime alliance needs a
+    reason to outlive the war (ties into its existing "vs. AI
+    archetype squads" identity as friendly, not hostile, competition).
+- **Status: narrative canon only, no game-code or copy changes made
+  yet.** Chapter/stage numbers, enemy names, and mode identities above
+  are already accurate to what's shipped — nothing needed renaming to
+  fit. Whether/how to surface any of this in-game (chapter subtitles,
+  a Codex/lore screen, victory-line flavor text) is an open follow-up,
+  not started — see "Next up".
 
 ## Testing methodology
 
@@ -738,6 +826,16 @@ Explicitly still open, per the user's own framing ("only then decide
 whether Chapters 2-10 get the same multi-stage treatment or stay as
 capstone fights between ladders") — do not start that work without
 being asked.
+
+**Faction/Hollow King lore — written, not yet surfaced in-game.** The
+user asked for backstory explaining the factions "battling and
+fighting each other," to use in the Campaign — see "Lore & Narrative"
+above for the canonical summary and the published Artifact for full
+text. Deliberately scoped as narrative-only this pass: no chapter
+subtitles, Codex screen, or victory-line flavor text were added to
+`index.html`. Revisit once the user decides how much of it (if any)
+should actually render in-game, rather than guessing at UI scope for a
+purely creative-writing ask.
 
 Longer-term, deferred until asked for:
 - A **Charm Upgrade** to pair with the new Charm Reforge — gear has
