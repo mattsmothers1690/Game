@@ -78,8 +78,8 @@ dependencies, no server). Served via GitHub Pages at
 | `machineborn_gear_v1` | Gear instance inventory | Persistent |
 | `machineborn_scrap_v1` | Scrap currency (a number) — Tower's gear economy | Persistent |
 | `machineborn_stage_progress_v1` | `{ encounterId: highestStageCleared }` — `campaign` key doubles as the account-wide content-unlock gate | Persistent |
-| `machineborn_gold_v1` | Gold currency (a number) — Main Boss / champion-leveling only | Persistent |
-| `machineborn_shards_v1` | Shard currency (a number) — Main Boss / level-cap only | Persistent |
+| `machineborn_gold_v1` | Gold currency (a number) — Guild Boss chests (Main Boss) / champion-leveling only | Persistent |
+| `machineborn_shards_v1` | Shard currency (a number) — Guild Boss chests (Main Boss) / level-cap only | Persistent |
 | `machineborn_champion_progress_v1` | `{ championId: { level, xp, ascension } }` | Persistent |
 | `machineborn_ascension_core_v1` | Ascension Core currency (a number) — Dungeon's champion-power economy | Persistent |
 | `machineborn_levelcap_v1` | Account-wide level-cap tier (a number) | Persistent |
@@ -91,6 +91,7 @@ dependencies, no server). Served via GitHub Pages at
 | `machineborn_summon_shard_v1` | Summon Shard currency (a number) — Main Boss's second reward, spent on champion Summon pulls | Persistent |
 | `machineborn_champion_roster_v1` | Array of owned champion ids — only `STARTER_CHAMPION_IDS` start owned; everything since must be summoned | Persistent |
 | `machineborn_auto_config_v1` | `{ championId: { active1, active2, active2First } }` — per-champion Auto Battle skill priority/enable config | Persistent |
+| `machineborn_last_squad_v1` | `{ encounterId: [championId, ...] }` — the exact squad last fielded per mode, defaulted back on the next team-select for that mode | Persistent |
 
 Every inventory is a flat array of independent rolled instances keyed
 by a generated `instanceId`; equipping references an instance by ID.
@@ -291,9 +292,10 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
 14. **New Game / reset** (`resetGame`, `allSaveKeys`): battle-in-
     progress save (`machineborn_save_v1`) already existed; this is the
     account-progress counterpart — every persistent key the game
-    writes (all 19: equipment/gear/charm inventories, every currency,
+    writes (all 20: equipment/gear/charm inventories, every currency,
     champion progress/roster, level cap, stage progress, the mid-battle
-    save, the auto-battle skill-priority config) in one list, referenced
+    save, the auto-battle skill-priority config, the last-fielded-squad
+    memory) in one list, referenced
     by each key's own `_KEY` constant
     rather than retyped as a string literal so a future new economy
     can't silently be left out of a reset. `allSaveKeys` is a function
@@ -350,9 +352,9 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
       ally / finish the squishiest foe" heuristic Grand Arena's Stall/
       Aggro archetypes already use, not a new targeting concept.
     - **Deliberately NOT persisted**: `autoBattleOn`/`autoBasicOnly`
-      reset to off on every `newBattle`/`resumeBattle` — same as
-      Raid's own Auto toggle, so a forgotten toggle from a prior fight
-      can never silently burn a real one. Only the skill-priority/
+      reset to off on every `newBattle`/`resumeBattle` by default — same
+      as Raid's own Auto toggle, so a forgotten toggle from a prior
+      fight can never silently burn a real one. Only the skill-priority/
       enable config persists (account-wide, like equipped gear), and
       it's included in `allSaveKeys()` for New Game reset.
     - Manual skill/target clicks are ignored (`if (autoBattleOn)
@@ -360,6 +362,101 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
       click handlers) while Auto is on, rather than letting both
       inputs race — toggle Auto off to act manually again, matching
       Raid's own behavior.
+    - **Team-select AUTO toggle** (`#teamSelectAutoBtn`/
+      `pendingAutoStart`): the one deliberate exception to "reset to off
+      every battle" above — the user asked to be able to start a fight
+      already in Auto mode instead of always having to toggle it on
+      again after Begin Battle. `pendingAutoStart` is a team-select-only
+      flag (reset to `false` every time `openTeamSelect` runs, so it
+      never leaks from one encounter's setup screen into the next) that
+      flows through `beginEncounter`/`newBattle` as a `startInAuto`
+      argument; `newBattle` sets `autoBattleOn = !!startInAuto` instead
+      of unconditionally `false`. `resumeBattle` is untouched (still
+      always starts non-auto) — this toggle is about *starting* a fresh
+      fight in Auto, not resuming one.
+16. **Team-select defaults: highest tier owned + remembers last squad**
+    (`defaultSquadFor`, `machineborn_last_squad_v1`): the user asked for
+    two related things — default to the best champions you actually
+    own, and remember what you fielded last time in that same mode.
+    `openTeamSelect` now calls `defaultSquadFor(encounterId, stage)`
+    instead of blindly pre-selecting `ENCOUNTERS[id].teamIds` filtered
+    by ownership. `defaultSquadFor` first checks
+    `lastSquad[encounterId]` (loaded from `machineborn_last_squad_v1`) —
+    if every member is still owned AND the remembered squad's length
+    still matches the mode's current `squadSizeFor` (a remembered 3v3
+    Chapter 1 squad does NOT carry over onto a 4v4 Chapter 2+ stage), it
+    wins outright. Otherwise it falls back to the highest-tier-owned
+    default: every owned champion sorted by rarity (`RARITY_ORDER`,
+    Legendary first) then by level, taking the top N for the mode's
+    squad size — reusing the same rarity scale gear/champions already
+    share rather than inventing a new "tier" concept. `lastSquad` is
+    written once, in `beginEncounter` (the one choke point every mode's
+    Begin Battle click already funnels through), so it captures the
+    squad that actually fought, not just whatever was clicked and then
+    abandoned. `squadSizeFor` gained a second `stage` argument to make
+    Campaign's per-chapter squad size (see the 4v4/3-wave restructure
+    under "Content framework" below) resolvable at team-select time.
+    `LAST_SQUAD_KEY` is included in `allSaveKeys()` for New Game reset.
+17. **Auto-Equip** (`bestAutoEquipTarget`/`autoEquipGear`, victory-
+    screen `#autoEquipBtn`): offered right after a gear drop, scoped to
+    `currentTeamIds` (the squad that just fought) per the user's own
+    framing — "one of the champs you just used." Prefers an empty slot
+    on one of them first (tie-broken toward whoever already has other
+    pieces of the drop's set equipped, for set-bonus continuity via
+    `equippedSetCounts`); only once every candidate already has that
+    slot filled does it fall back to an upgrade comparison
+    (`gearInstancePower` — main stat + substats, level-adjusted via
+    `effectiveStatValue` — summed as a simple total-roll-value heuristic,
+    not a full simulated-DPS model, consistent with this project's
+    general "the obvious heuristic, not an elaborate one" bias). A
+    reforged/reworked piece never displaces something better: the gain
+    must be strictly positive, with a small bonus weight added only
+    when the swap would newly reach a `SET_TIERS` threshold (2pc/4pc/
+    6pc). Manual Armory equipping is completely unaffected — Auto-Equip
+    is an additional, optional shortcut on the victory screen, not a
+    replacement for `cycleGearSlot`.
+18. **Main Boss: Guild Boss redesign** (`GUILD_BOSS_WAVE`,
+    `checkGuildBossChests`/`grantGuildBossChest`): replaced the old
+    generic 3v3 squad (`CHAMPION_TRIAL`, an infinite ladder like every
+    other mode) with a single, deliberately very tanky boss per level,
+    per the user's explicit "guild boss" framing — the point is a fight
+    nobody one-shots, with a reward chest unlocking at each quarter of
+    its health lost (75%/50%/25%/0%, `GUILD_BOSS_CHEST_FRACTIONS`) and
+    full defeat unlocking the next level. Deliberately reuses the
+    existing infinite-`stageProgress` ladder machinery wholesale rather
+    than inventing a parallel "level" system — for Main Boss specifically,
+    a stage *is* a level; `getSelectedStage`/`setSelectedStage`/
+    `maxSelectableStage`/roster-tier gating all keep working unmodified.
+    `mainbossStageLabel` (`ENCOUNTERS.mainboss.stageLabelFor`) renders it
+    as "Guild Boss — Level N" instead of "Stage N", the same hook
+    pattern Campaign/Grand Arena already use for their own custom
+    labels. Chests are granted the instant their threshold is crossed,
+    mid-fight (checked every `checkBattleEnd`, not held back for a full
+    clear) — a loss still keeps whatever chests were earned that
+    attempt, which is the actual point: farmable progress even on a
+    fight you don't finish. `guildBossChestReward(level, tierIndex)`
+    ramps pay along both axes the user asked for — later chests within
+    one level's fight pay more (`tierWeight` 0.15/0.2/0.25/0.4), and
+    every level's chests all pay more than the last level's
+    (`base = 25 + level*15`) — Gold/XP every chest, Shards only on the
+    4th/defeat chest (keeps the level-cap currency scarce), Summon
+    Shards from the 3rd chest onward. Main Boss's Gold/XP/Shard/Summon
+    Shard identity moved entirely off the generic post-victory
+    `ENCOUNTER_*_REWARD` tables (would double-pay otherwise) onto this
+    chest mechanic — the victory-screen reward line for Main Boss no
+    longer lists these (mid-fight `logLine` calls announce each chest
+    instead), a known, deliberate UX tradeoff (see "Next up"). Resuming
+    a saved Guild Boss fight (`resumeBattle`) infers which chests were
+    already claimed pre-save from the boss's restored hp ratio, so a
+    reload-mid-fight can never re-grant (or under-grant) a threshold.
+    `isBoss: true` on `GUILD_BOSS_WAVE` reuses the existing devour-a-
+    debuff-for-Fury mechanic (`hollowKingMechanic`) like every other
+    named boss in the game — no parallel mechanic invented. Numbers
+    (900 hp base, 40 atk/30 def) are a first pass sized so a fresh
+    starter squad takes many turns rather than either one-shotting or
+    being one-shot — not yet probed across many levels/gear tiers, same
+    "expect iteration" caveat as every other hand-tuned encounter in
+    this file.
 
 ## Content framework
 
@@ -381,13 +478,13 @@ stat axis or an economy shared with other modes.
 
 | Mode (`ENCOUNTERS` id) | Squad | Progression | Unlocks at (Campaign stage) | Rewards |
 |---|---|---|---|---|
-| **Campaign** (`campaign`) | 3v3 | 42 fixed hand-authored stages (`CAMPAIGN_CHAPTERS` = `CAMPAIGN_CH1_STAGES` (12) + Chapters 2-11, each now its own regular/mini-boss/boss trio (3 stages × 10 chapters = 30) — see "New-game onboarding" and "Chapters 2-11 mini-boss/boss expansion" below) — **not** the infinite ladder, no stat compounding, replaying an old stage is always the same fight | Always open | Scrap + Gold only (bootstrap) |
+| **Campaign** (`campaign`) | 3v3 (Chapter 1 only) / 4v4 × 3 waves (Chapters 2-11) | 132 fixed hand-authored stages (`CAMPAIGN_CHAPTERS` = `CAMPAIGN_CH1_STAGES` (12) + 10 chapters × 12 stages each via the `buildChapterArc` generator — see "New-game onboarding" and "Campaign 4v4/3-wave restructure" below) — **not** the infinite ladder, no stat compounding, replaying an old stage is always the same fight | Always open | Scrap + Gold only (bootstrap) |
 | **Tower** (`tower`) | 5v5 | Infinite stage ladder | Stage 7 | Gear (guaranteed) + Gear Rework Catalysts (rare, rides gear drops) + Scrap |
 | **Faction Wars** (`faction`) | 4v4 × 3 waves | Infinite stage ladder | Stage 10 | Charms (rolled chance) + Charm Dust (guaranteed) |
-| **Main Boss** (`mainboss`) | 3v3 | Infinite stage ladder | Stage 4 | Gold + XP (champion leveling) + Shards (level cap) + Summon Shards |
-| **Dungeon** (`dungeon`) | 4v4 | Infinite stage ladder | Stage 42 (Campaign complete) | Ascension Cores only |
-| **Galactic War** (`galactic`) | 5v5 × 5 waves | Infinite stage ladder, no retreat between waves within one attempt | Stage 42 (same threshold as Dungeon — a "you finished Campaign" bonus node, not a fifth step in the unlock sequence) | Bulk Scrap + Gold + XP only — no gear/charms/shards/catalysts/Ascension Cores |
-| **Grand Arena** (`grandarena`) | 3v3 vs. one of 4 AI archetype squads | Infinite stage ladder, stage number cycles through the 4 archetypes (`(stage - 1) % 4`) forever | Stage 42 (alongside Dungeon/Galactic War) | Arena Medals only — spent on Arena Pulls (Vanguard-set gear), never dropped directly |
+| **Main Boss** (`mainboss`) | 3v3 vs. 1 Guild Boss | "Levels" (reuses the infinite-ladder `stageProgress` mechanism — a level IS a stage) | Stage 4 | Gold + XP + Shards + Summon Shards, paid out via 4 chests unlocked at 75%/50%/25%/0% of the boss's health, ramping in value per chest and per level (see "Main Boss: Guild Boss redesign" below) |
+| **Dungeon** (`dungeon`) | 4v4 | Infinite stage ladder | Stage 132 (Campaign complete) | Ascension Cores only |
+| **Galactic War** (`galactic`) | 5v5 × 5 waves | Infinite stage ladder, no retreat between waves within one attempt | Stage 132 (same threshold as Dungeon — a "you finished Campaign" bonus node, not a fifth step in the unlock sequence) | Bulk Scrap + Gold + XP only — no gear/charms/shards/catalysts/Ascension Cores |
+| **Grand Arena** (`grandarena`) | 3v3 vs. one of 4 AI archetype squads | Infinite stage ladder, stage number cycles through the 4 archetypes (`(stage - 1) % 4`) forever | Stage 132 (alongside Dungeon/Galactic War) | Arena Medals only — spent on Arena Pulls (Vanguard-set gear), never dropped directly |
 
 `CONTENT_UNLOCKS = { mainboss: 4, tower: 7, faction: 10, dungeon:
 CAMPAIGN_CHAPTERS.length, galactic: CAMPAIGN_CHAPTERS.length,
@@ -451,8 +548,9 @@ the core farm-and-push loop starting from the very first session
 instead of only after Campaign is fully cleared.
 - `CAMPAIGN_CH1_STAGES` (`CAMPAIGN_C1S1`..`CAMPAIGN_C1S12`) are 12 flat
   `fixedChapters` entries prepended to the `CAMPAIGN_CHAPTERS` array
-  (now 42 stages total, once Chapters 2-11 each became their own
-  regular/mini-boss/boss trio — see "Chapters 2-11 mini-boss/boss
+  (now 132 stages total, once Chapters 2-11 each became their own
+  12-stage 4v4/3-wave arc — see "Campaign 4v4/3-wave restructure" and
+  "Chapters 2-11 mini-boss/boss
   expansion" below) — this needed zero changes to
   the core stage-indexing machinery (`getSelectedStage`/
   `setSelectedStage`/`maxSelectableStage`/`spawnWave` all already
@@ -541,9 +639,11 @@ this doc had flagged as explicitly deferred — now done.
   `campaignClearMessage` (sub-stage-relative "Stage M cleared - Stage
   M+1 unlocked!" within a chapter, "Chapter N cleared - Chapter N+1
   unlocked!" at a chapter boundary) now read off directly. Total
-  Campaign length: 12 + 10×3 = **42 stages** (up from 22) —
+  Campaign length at this point: 12 + 10×3 = 42 stages (up from 22) —
+  later expanded again to 132 by the 4v4/3-wave restructure below;
   `CAMPAIGN_CHAPTERS.length` still drives `CONTENT_UNLOCKS.dungeon/
-  galactic/grandarena` automatically, no separate change needed there.
+  galactic/grandarena` automatically either way, no separate change
+  needed there.
 - **The two chapters that already had a real boss** (Chapter 9's
   Campaign Warlord, Chapter 11's The Herald) keep that exact,
   previously-validated boss stage **completely unchanged** as their new
@@ -603,9 +703,80 @@ this doc had flagged as explicitly deferred — now done.
   file — expect iteration once real playtesting (not a naive
   first-target-click auto-bot) exercises it.
 - `CAMPAIGN_STORY`/`CAMPAIGN_STORY_AFTER` (see "Lore & Narrative"
-  below) were rewritten in full for the new stage range — every
+  below) were rewritten in full for this 42-stage range — every
   mini-boss and boss above gets its own setup line and payoff line,
-  not a reused chapter-level summary.
+  not a reused chapter-level summary. **Now stale/incomplete**: the
+  4v4/3-wave restructure below expanded Campaign again, to 132 stages,
+  and the lore tables were NOT re-extended to match — stages 1-42 still
+  show their blurb, stages 43-132 show none (the same graceful "no
+  blurb" fallback every non-Campaign encounter already uses, so this is
+  a missing-content gap, not a bug). The Lore & Narrative section's own
+  stage-number citations (Act II/III ranges, specific stage numbers)
+  also still describe the OLD 1-42 numbering and have not been
+  re-mapped onto the new 1-132 range. Revisit if the lore beats matter
+  enough to extend — see "Next up".
+
+**Campaign 4v4/3-wave restructure.** The user asked, in one further
+follow-up, for Campaign battles generally to be 4v4 with 3 waves per
+stage, with a mini-boss stage (preceded by warm-up waves) at each
+chapter's Stage 6 and a boss stage (alone, no pre-waves) at Stage 12 -
+applied, per the user's explicit choice between offered scopes, to
+*every* chapter rather than just reformatting the existing single-fight
+stages. This is layered on top of the mini-boss/boss expansion above,
+not a replacement for it: the CAMPAIGN_CH*A/B/C arrays (30 chapters'
+worth of regular/mini-boss/boss templates) stay exactly as documented
+above and are now the *input* to a new generator rather than the final
+stage list themselves.
+- **Chapter 1 is deliberately excluded** and stays 3v3/single-wave,
+  unchanged. Requiring 4 champions before Chapter 1 Stage 6 (the exact
+  stage that grants Bastian, the roster's 4th member) would brick new-
+  game onboarding, since a fresh save owns only the 3 starters until
+  then. `squadSizeFor('campaign', stage)` special-cases this: 3 for
+  stage ≤ `CAMPAIGN_CH1_STAGE_COUNT` (12), 4 above it. By Chapter 2
+  (Stage 13) the roster already has 5 owned champions (3 starters +
+  Bastian + Vara), so 4v4 is always fieldable from there on.
+- **`buildChapterArc(chId, regularArr, miniBossArr, bossArr)`** expands
+  each old chapter's regular(A)/mini-boss(B)/boss(C) trio into a fresh
+  12-stage arc, generated at script-init time rather than hand-authored
+  (120 new stages across 10 chapters would be impractical to author by
+  hand, consistent with the top-down-curve reasoning already used for
+  the mini-boss/boss numbers themselves): Stages 1-5 are a regular ramp
+  (4v4, 3 waves/stage, `regular` unit scaled 1.0x-1.35x via
+  `scaleUnitStats`); Stage 6 is the mini-boss (4v4, 3 waves - 2 warm-up
+  waves plus a finale wave where the named mini-boss joins 3 regulars,
+  the "pre-waves" the user asked for); Stages 7-11 are an elite ramp
+  (4v4, 3 waves/stage, `elite` unit scaled further up); Stage 12 is the
+  boss alone (4v4, a single wave with no pre-waves - 3 elite escorts
+  plus the named boss, stats untouched from the original CH*C arrays,
+  including both already-validated real bosses, Campaign Warlord and
+  The Herald). `waveOf4` produces 4 slightly speed-staggered copies of
+  a template per wave. Every named unit/number is reused verbatim from
+  the CAMPAIGN_CH*A/B/C arrays - only the ramp stages and the
+  wave/squad-count reshaping are generated.
+- **`wavesForBattle` now supports multi-wave `fixedChapters` entries**:
+  a stage entry is either a flat template array (one wave, still true
+  for all of Chapter 1 and every chapter's Stage 12) or `{ waves: [...] }`
+  (Stages 1-11 of Chapters 2-11) - resolved generically, no per-mode
+  branching needed since the underlying wave-advance loop in
+  `checkBattleEnd` was already generic (the same mechanism Faction
+  Wars/Tower/Galactic War already use for their own multi-wave configs).
+- **`CAMPAIGN_CHAPTER_LENGTHS`** is now `[12, 12, 12, ..., 12]` (Chapter
+  1's 12 plus 12 for each of the 10 chapters after it) instead of
+  `[12, 3, 3, ..., 3]` - `campaignChapterInfo`/`campaignStageLabel`/
+  `campaignClearMessage` needed zero code changes, since they already
+  read chapter boundaries generically off this array. Total Campaign
+  length: 12 + 10×12 = **132 stages** (up from 42).
+  `CAMPAIGN_CHAPTERS.length` still drives `CONTENT_UNLOCKS.dungeon/
+  galactic/grandarena` automatically - they now unlock at Stage 132.
+- **Verified via `test_five_features.js`** (scratchpad, not committed):
+  confirms `CAMPAIGN_CHAPTER_LENGTHS`/total stage count, that Chapter 1
+  stays 3v3 while Chapter 2+ is 4v4, that a Chapter 2 regular stage is a
+  3-wave/4-enemy fight, that Chapter 2's boss stage (global Stage 24) is
+  a single wave with Grunt Warchief present and `isBoss:true`, and that
+  Chapter 2's mini-boss stage (global Stage 18) is 3 waves with Grunt
+  Brute in the finale wave without `isBoss`. Not an exhaustive sweep of
+  all 120 new stages, matching this file's established testing
+  philosophy for large generated content batches.
 
 Implementation notes:
 - **Fixed vs. infinite vs. cycling**: `ENCOUNTERS[id].fixedChapters`
@@ -613,7 +784,7 @@ Implementation notes:
   `spawnWave` passes stage `1` to `scaledEnemyTemplate` for such
   encounters instead of the real stage, so a chapter's authored numbers
   ARE its difficulty, forever. `getSelectedStage`/`setSelectedStage`
-  both cap at `fixedChapters.length` (now 42) so there's no "Stage 43"
+  both cap at `fixedChapters.length` (now 132) so there's no "Stage 133"
   once every stage is cleared. `ENCOUNTERS[id].archetypeCycle` is
   Grand Arena's equivalent for picking *which* opponent squad a stage
   fights (`archetypeForStage`), while still scaling stats and rewards
@@ -679,6 +850,21 @@ https://claude.ai/code/artifact/05ad1907-8c60-4e1a-ac27-995b6b26d66c);
 this section is the canonical summary for future dev work, since
 CLAUDE.md — not an external artifact link — is this project's actual
 source of truth.
+
+**Stage-number staleness note**: everything below (the three-act
+structure, `CAMPAIGN_STORY`/`CAMPAIGN_STORY_AFTER`, specific stage
+citations like "Stage 42") was written when Campaign was 42 stages
+total. The Campaign 4v4/3-wave restructure (see "Content framework"
+above) later expanded Campaign to 132 stages by giving Chapters 2-11
+12 stages each instead of 3 - the narrative beats and named enemies
+below are all still accurate and still occur in the same order, but
+their specific stage-number citations now describe the OLD 1-42
+numbering, not the current 1-132 one, and the in-game story blurbs
+(`CAMPAIGN_STORY`) stop showing entirely past (old) Stage 42 - i.e.
+roughly a quarter of the way into the new Campaign. Not re-mapped as
+part of that restructure since it was scoped to battle format, not
+lore; revisit if the lore beats matter enough to extend across the
+full 132 stages.
 
 - **The four playable factions each have a home, a creed, and an old
   grudge against at least one other faction** — texture explaining
@@ -891,8 +1077,9 @@ champions along the way, hits a real plateau that forces a detour into
 whichever mode just unlocked, and that farm-and-push cycle repeats for
 every subsequent plateau — see "New-game onboarding" under Content
 framework above for the full mechanism (`CAMPAIGN_CH1_STAGES`,
-`CAMPAIGN_STAGE_CHAMPION_REWARDS`, the retuned `CHAMPION_TRIAL`
-baseline, the new `CONTENT_UNLOCKS` sequencing).
+`CAMPAIGN_STAGE_CHAMPION_REWARDS`, the then-current `CHAMPION_TRIAL`
+baseline — since replaced by the Guild Boss redesign, see Systems item
+18 — and the new `CONTENT_UNLOCKS` sequencing).
 
 **Chapters 2-11 mini-boss/boss expansion — built.** Follow-up to the
 Chapter 1 rework above, in two steps: first a straight difficulty
@@ -904,8 +1091,9 @@ each chapter from 1 fight into its own 3-stage regular/mini-boss/boss
 mini-ladder, the exact "give Chapters 2-10 the multi-stage treatment"
 decision this doc had previously flagged as deferred. See "Chapters
 2-11 mini-boss/boss expansion" under Content framework above for the
-full mechanism, naming, and probe history. Campaign is now 42 stages
-total (was 22).
+full mechanism, naming, and probe history. Campaign was 42 stages
+total at this point (was 22) — later expanded again to 132 by the
+4v4/3-wave restructure below.
 
 **Faction/Hollow King lore — written and now walked through in the
 Campaign.** The user asked for backstory explaining the factions
@@ -917,6 +1105,53 @@ the full-length version. A dedicated Codex/lore screen for the full
 faction dossiers is still not built — revisit only if asked for a
 deeper in-game reference than the current one-line-per-stage treatment
 plus the Artifact.
+
+**Five-item follow-up request — built.** In one message the user asked
+for: (1) team-select defaulting to the highest-tier champions owned and
+remembering the last squad used per mode; (2) an Auto-Equip button on a
+gear drop; (3) an Auto Battle toggle at the team-select/setup screen so
+a fight can start already in Auto; (4) Main Boss redesigned into a
+"guild boss" — one tough boss, not a 1-shot, with a reward chest per
+quarter of its health and a "level" that unlocks on full defeat,
+ramping rewards per chest and per level; (5) Campaign battles generally
+restructured to 4v4 with 3 waves, a mini-boss stage with pre-waves at
+each chapter's Stage 6, and the boss alone (no pre-waves) at Stage 12.
+All five are built — see Systems items 16-18 and the Campaign
+4v4/3-wave restructure under "Content framework" above for the full
+mechanisms. Two scope calls made along the way, both surfaced to the
+user rather than assumed silently:
+- Item 5 was confirmed, via `AskUserQuestion`, to mean restructuring
+  *every* chapter (not just Chapter 1, and not just a battle-format
+  swap on the existing 3-stage-per-chapter shape) — the larger of three
+  offered scopes.
+- Chapter 1 itself was deliberately kept OUT of that restructure and
+  stays 3v3/single-wave — requiring 4 champions before Chapter 1 Stage
+  6 (the stage that grants Bastian, the roster's 4th member) would
+  brick new-game onboarding for a fresh save that only owns 3 starters.
+  This is a judgment call made during implementation, not something the
+  user was asked about directly — flagged here for visibility.
+
+Known gaps/tradeoffs from this pass, left for a future iteration:
+- `CAMPAIGN_STORY`/`CAMPAIGN_STORY_AFTER` and the Lore & Narrative
+  section's own stage-number citations were NOT re-extended/re-mapped
+  onto the new 132-stage Campaign (they still reflect the old 1-42
+  range) — see the staleness note at the top of "Lore & Narrative".
+- Main Boss's victory-screen reward line no longer lists Gold/XP/
+  Shards/Summon Shards (those are announced via mid-fight `logLine`
+  chest messages instead, not surfaced in the final summary) — a
+  deliberate but not fully polished consequence of moving that reward
+  identity onto the chest mechanic.
+- `GUILD_BOSS_WAVE`'s stats (900 hp, 40 atk/30 def) and
+  `guildBossChestReward`'s payout curve are a first pass, probed only
+  at Level 1 — expect retuning once real play exercises higher levels
+  against leveled/geared squads.
+- Several pre-existing scratchpad Playwright tests (not committed —
+  see "Testing methodology") hardcode the old 42-stage Campaign total
+  for unlock-gating seeds (`galactic_war`, `grand_arena`,
+  `roster_tier`, `dungeon_ascension`, `ch1_rework`,
+  `campaign_expand_basic`) and are now stale, not failing due to a real
+  regression — same "stale test, not a regression" convention as
+  always, just not all individually fixed in this pass.
 
 Longer-term, deferred until asked for:
 - A **Charm Upgrade** to pair with the new Charm Reforge — gear has

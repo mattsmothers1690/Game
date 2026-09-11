@@ -496,6 +496,7 @@
   <div id="teamSelectGrid"></div>
   <div id="teamSelectActions">
     <button id="teamSelectBackBtn" class="overlayBtn">BACK</button>
+    <button id="teamSelectAutoBtn" class="overlayBtn autoBtn">AUTO: OFF</button>
     <button id="teamSelectBeginBtn" class="overlayBtn">BEGIN BATTLE</button>
   </div>
 </div>
@@ -533,6 +534,9 @@
   <h2 id="resultText"></h2>
   <div id="resultReward" style="text-align:center;color:#fbbf24;font-size:0.9rem;"></div>
   <div id="resultStory"></div>
+  <div id="resultAutoEquip" style="text-align:center;margin-top:6px;display:none;">
+    <button class="overlayBtn" id="autoEquipBtn" style="margin:0;">AUTO-EQUIP</button>
+  </div>
   <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
     <button class="overlayBtn" id="restartBtn" style="margin:0;">RETRY</button>
     <button class="overlayBtn" id="nextStageBtn" style="margin:0;">NEXT STAGE</button>
@@ -1757,6 +1761,57 @@
     return bonus;
   }
 
+  // AUTO-EQUIP: offered on the victory screen right after a gear drop.
+  // Targets the just-fielded squad (currentTeamIds) specifically, per
+  // the user's own framing - "one of the champs you just used". Prefers
+  // an empty slot on one of them (breaking ties toward whoever already
+  // has other pieces of the drop's set, for set-bonus continuity) and
+  // only falls back to an upgrade comparison once every candidate
+  // already has that slot filled - a positive gain is required, so a
+  // strictly worse roll never gets auto-equipped over something better.
+  function gearInstancePower(inst) {
+    var level = inst.level || 0;
+    var total = effectiveStatValue(inst.mainValue, level);
+    inst.substats.forEach(function (s) { total += effectiveStatValue(s.value, level); });
+    return total;
+  }
+
+  function bestAutoEquipTarget(inst) {
+    var candidates = (currentTeamIds || []).filter(isChampionOwned);
+    if (!candidates.length) return null;
+    var slot = inst.slot;
+
+    var missing = candidates.filter(function (id) { return !getEquippedGearInstance(id, slot); });
+    if (missing.length) {
+      missing.sort(function (a, b) {
+        return (equippedSetCounts(b)[inst.set] || 0) - (equippedSetCounts(a)[inst.set] || 0);
+      });
+      return missing[0];
+    }
+
+    var newPower = gearInstancePower(inst);
+    var best = null, bestScore = 0;
+    candidates.forEach(function (id) {
+      var current = getEquippedGearInstance(id, slot);
+      var oldPower = current ? gearInstancePower(current) : 0;
+      var gain = newPower - oldPower;
+      var nextSetCount = (equippedSetCounts(id)[inst.set] || 0) + 1;
+      var reachesSetTier = SET_TIERS.some(function (t) { return t[1] === nextSetCount; });
+      var score = gain + (reachesSetTier ? 5 : 0);
+      if (gain > 0 && score > bestScore) { bestScore = score; best = id; }
+    });
+    return best;
+  }
+
+  function autoEquipGear(inst) {
+    var championId = bestAutoEquipTarget(inst);
+    if (!championId) return null;
+    if (!equipment[championId]) equipment[championId] = {};
+    equipment[championId][inst.slot] = inst.instanceId;
+    saveEquipment();
+    return championId;
+  }
+
   function highestRarityFor(championId) {
     var best = -1, bestRarity = null;
     GEAR_SLOTS.forEach(function (slot) {
@@ -1948,28 +2003,83 @@
       basic: { name: 'Rend', coeff: 0.9, aoe: false, applyDebuff: { type: 'Bleed', chance: 50 } } }
   ];
 
-  // 3v3, single wave - Main Boss's own arena squad (variable name kept
-  // as CHAMPION_TRIAL - it predates the mode's rename, no functional
-  // meaning either way). `isBoss: true` on the Warlord reuses the
-  // existing devour-a-debuff-for-Fury mechanic (hollowKingMechanic isn't
-  // actually Hollow-King-specific, it triggers off `actor.isBoss`
-  // generically) rather than inventing a parallel one - punishes
-  // leaning on debuff-stacking to clear this node.
-  // Stage-1 numbers retuned down from the mode's old late-game-unlock
-  // baseline (hp150/120/260) to fit Main Boss's new unlock point at
-  // Campaign Chapter 1 Stage 4 - the exact moment the roster is still
-  // just the 3 level-1 starters with no gear. Verified via probe at
-  // ~1/8 wins before this pass; the numbers below are tuned for a
-  // real, winnable (not trivial) first clear at that power level.
-  var CHAMPION_TRIAL = [
-    { id: 'sentinel1', name: 'Arena Sentinel', hp: 70, atk: 26, def: 20, spd: 92, critChance: 10, critDamage: 150, acc: 10, res: 20,
-      basic: { name: 'Guard Strike', coeff: 0.85, aoe: false, applyDebuff: { type: 'Defense Down', chance: 40 } } },
-    { id: 'adept1', name: 'Arena Adept', hp: 55, atk: 30, def: 16, spd: 100, critChance: 15, critDamage: 160, acc: 15, res: 15,
-      basic: { name: 'Focused Bolt', coeff: 1.0, aoe: false } },
-    { id: 'warlord1', name: 'Trial Warlord', hp: 105, atk: 33, def: 22, spd: 90, critChance: 15, critDamage: 165, acc: 20, res: 25,
+  // ---------------------------------------------------------------
+  // GUILD BOSS (Main Boss) - redesigned per explicit request from a
+  // generic 3v3 squad (the old CHAMPION_TRIAL) into a single, very
+  // tanky boss: the point is a fight nobody one-shots, with a reward
+  // chest unlocking at each quarter of its health lost and full defeat
+  // unlocking the next level - see checkGuildBossChests/
+  // grantGuildBossChest below for the reward mechanic, and
+  // GUILD_BOSS_CHEST_FRACTIONS/guildBossChestReward for the
+  // ramps-per-level payout curve. High HP relative to a fresh squad's
+  // per-turn damage is what actually produces "many turns, several
+  // chest moments" rather than a burst kill. Still the plain infinite
+  // stageStatMultiplier ladder underneath (stage IS level here - reuses
+  // stageProgress/getSelectedStage/maxSelectableStage exactly as every
+  // other infinite-ladder mode does, no parallel progression system).
+  // isBoss:true reuses the existing devour-a-debuff-for-Fury mechanic
+  // (hollowKingMechanic) same as every other named boss in the game.
+  // ---------------------------------------------------------------
+  var GUILD_BOSS_WAVE = [
+    { id: 'guildboss', name: 'Guild Boss', hp: 900, atk: 40, def: 30, spd: 85, critChance: 12, critDamage: 160, acc: 16, res: 22,
       isBoss: true,
-      basic: { name: "Champion's Wrath", coeff: 1.1, aoe: false } }
+      basic: { name: "Warlord's Onslaught", coeff: 0.85, aoe: false, applyDebuff: { type: 'Defense Down', chance: 30 } } }
   ];
+
+  function mainbossStageLabel(stage) { return 'Guild Boss — Level ' + stage; }
+
+  // Chest thresholds are checked as the boss's OWN hp ratio drops past
+  // each fraction (1.0 -> 0 as it takes damage), granted the instant
+  // they're crossed mid-fight (not held back for a full clear) - so a
+  // loss still keeps whatever chests were earned that attempt, exactly
+  // "not defeating him in 1 shot but a chest at each quarter" asks for.
+  var GUILD_BOSS_CHEST_FRACTIONS = [0.75, 0.5, 0.25, 0];
+  var mainbossChestsClaimed = [false, false, false, false];
+
+  function guildBossChestReward(level, tierIndex) {
+    // Ramps both across a level's 4 chests (later chests pay more) and
+    // across levels (a higher level's chests all pay more) - the two
+    // "ramp up" axes the user asked for.
+    var base = 25 + level * 15;
+    var tierWeight = [0.15, 0.2, 0.25, 0.4][tierIndex];
+    return {
+      gold: Math.round(base * tierWeight * 4),
+      xp: Math.round(base * tierWeight * 3),
+      shards: tierIndex === 3 ? Math.max(1, Math.round(level / 3)) : 0,
+      summonShards: tierIndex >= 2 ? 1 : 0
+    };
+  }
+
+  function grantGuildBossChest(tierIndex) {
+    var r = guildBossChestReward(currentStage, tierIndex);
+    var lines = [];
+    if (r.gold > 0) { gold += r.gold; saveGold(); lines.push('+' + r.gold + ' Gold'); }
+    if (r.xp > 0) {
+      currentTeamIds.forEach(function (id) {
+        var prog = championProgress[id] || { level: 1, xp: 0 };
+        prog.xp += r.xp;
+        championProgress[id] = prog;
+      });
+      saveChampionProgress();
+      lines.push('+' + r.xp + ' XP to your squad');
+    }
+    if (r.shards > 0) { shards += r.shards; saveShards(); lines.push('+' + r.shards + ' Shard' + (r.shards === 1 ? '' : 's')); }
+    if (r.summonShards > 0) { summonShard += r.summonShards; saveSummonShard(); lines.push('+' + r.summonShards + ' Summon Shard' + (r.summonShards === 1 ? '' : 's')); }
+    var label = tierIndex < 3 ? 'Chest ' + (tierIndex + 1) + '/4 unlocked!' : 'Final chest unlocked!';
+    logLine('logSys', label + ' ' + lines.join(', '));
+  }
+
+  function checkGuildBossChests() {
+    var boss = enemies[0];
+    if (!boss) return;
+    var ratio = boss.hp / boss.maxHp;
+    GUILD_BOSS_CHEST_FRACTIONS.forEach(function (frac, i) {
+      if (!mainbossChestsClaimed[i] && ratio <= frac) {
+        mainbossChestsClaimed[i] = true;
+        grantGuildBossChest(i);
+      }
+    });
+  }
 
   // ---------------------------------------------------------------
   // CAMPAIGN CHAPTER 1 - the new-game tutorial/onboarding ladder. Unlike
@@ -2599,21 +2709,104 @@
       basic: { name: "Herald's Reckoning", coeff: 0.97, aoe: false } }
   ];
 
-  // Each old chapter is now 3 stages (regular/mini-boss/boss); the
-  // Chapter-1 tutorial ladder stays its own 12 flat stages up front.
-  var CAMPAIGN_CHAPTER_LENGTHS = [CAMPAIGN_CH1_STAGE_COUNT, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3];
-  var CAMPAIGN_CHAPTERS = CAMPAIGN_CH1_STAGES.concat([
-    CAMPAIGN_CH1A, CAMPAIGN_CH1B, CAMPAIGN_CH1C,
-    CAMPAIGN_CH2A, CAMPAIGN_CH2B, CAMPAIGN_CH2C,
-    CAMPAIGN_CH3A, CAMPAIGN_CH3B, CAMPAIGN_CH3C,
-    CAMPAIGN_CH4A, CAMPAIGN_CH4B, CAMPAIGN_CH4C,
-    CAMPAIGN_CH5A, CAMPAIGN_CH5B, CAMPAIGN_CH5C,
-    CAMPAIGN_CH6A, CAMPAIGN_CH6B, CAMPAIGN_CH6C,
-    CAMPAIGN_CH7A, CAMPAIGN_CH7B, CAMPAIGN_CH7C,
-    CAMPAIGN_CH8A, CAMPAIGN_CH8B, CAMPAIGN_CH8C,
-    CAMPAIGN_CH9A, CAMPAIGN_CH9B, CAMPAIGN_CH9C,
-    CAMPAIGN_CH10A, CAMPAIGN_CH10B, CAMPAIGN_CH10C
-  ]);
+  // ---------------------------------------------------------------
+  // CHAPTER ARC GENERATOR (Chapters 2-11) - expands each old chapter's
+  // regular(A)/mini-boss(B)/boss(C) trio above into a 12-stage arc:
+  // Stages 1-5 regular ramp, Stage 6 mini-boss (with pre-waves), Stages
+  // 7-11 elite ramp, Stage 12 boss alone (no pre-waves) - all 4v4, 3
+  // waves per stage except the single-wave boss stage. This is the
+  // exact format the user asked for explicitly, applied to every
+  // chapter. Chapter 1 (Stages 1-12) is deliberately EXCLUDED - it
+  // stays 3v3/single-wave to match the exact 3-champion starter roster
+  // a new save opens with (squadSizeFor keys off CAMPAIGN_CH1_STAGE_COUNT
+  // for this reason) - requiring 4 champions before Stage 6 (when
+  // Bastian, the 4th, is earned) would brick the tutorial ladder. Every
+  // named unit/number below is reused VERBATIM from the already-probed
+  // CAMPAIGN_CH*A/B/C arrays above (both untouched real bosses, Campaign
+  // Warlord and The Herald, included) - only the ramp stages and the
+  // wave/squad-count reshaping are generated, not hand-authored, given
+  // the sheer scale (10 chapters x 12 stages = 120 new stages).
+  // ---------------------------------------------------------------
+  function scaleUnitStats(u, mult) {
+    return Object.assign({}, u, {
+      hp: Math.round(u.hp * mult), atk: Math.round(u.atk * mult), def: Math.round(u.def * mult)
+    });
+  }
+
+  function waveOf4(unit, idPrefix) {
+    var out = [];
+    for (var i = 0; i < 4; i++) {
+      out.push(Object.assign({}, unit, { id: idPrefix + '_' + i, spd: unit.spd - i * 2 }));
+    }
+    return out;
+  }
+
+  function buildChapterArc(chId, regularArr, miniBossArr, bossArr) {
+    var regular = regularArr[0];
+    var miniBoss = miniBossArr[miniBossArr.length - 1];
+    var elite = bossArr[0];
+    var boss = bossArr[bossArr.length - 1];
+    var stages = [];
+
+    // Stages 1-5: regular ramp, 4v4, 3 waves/stage.
+    for (var s = 1; s <= 5; s++) {
+      var base = 1 + (s - 1) * 0.09;
+      (function (base) {
+        var waves = [0, 1, 2].map(function (w) {
+          return waveOf4(scaleUnitStats(regular, base + w * 0.03), chId + 's' + s + 'w' + w);
+        });
+        stages.push({ waves: waves });
+      })(base);
+    }
+
+    // Stage 6: mini-boss - 2 warm-up waves (the "pre-waves"), then the
+    // named mini-boss joins 3 regulars for the finale wave.
+    var mb1 = waveOf4(scaleUnitStats(regular, 1.5), chId + 's6w0');
+    var mb2 = waveOf4(scaleUnitStats(regular, 1.6), chId + 's6w1');
+    var mb3 = waveOf4(scaleUnitStats(regular, 1.45), chId + 's6w2').slice(0, 3)
+      .concat([Object.assign({}, miniBoss, { id: chId + '_miniboss' })]);
+    stages.push({ waves: [mb1, mb2, mb3] });
+
+    // Stages 7-11: elite ramp, 4v4, 3 waves/stage - climbing back up
+    // toward the boss's own numbers.
+    for (var s2 = 7; s2 <= 11; s2++) {
+      var base2 = 0.68 + (s2 - 7) * 0.06;
+      (function (base2, s2) {
+        var waves2 = [0, 1, 2].map(function (w) {
+          return waveOf4(scaleUnitStats(elite, base2 + w * 0.02), chId + 's' + s2 + 'w' + w);
+        });
+        stages.push({ waves: waves2 });
+      })(base2, s2);
+    }
+
+    // Stage 12: the boss alone - single wave, no pre-waves - 3 elite
+    // escorts plus the named boss, stats untouched from the original,
+    // already-validated CAMPAIGN_CH*C arrays.
+    var bossWave = waveOf4(elite, chId + 's12w0').slice(0, 3)
+      .concat([Object.assign({}, boss, { id: chId + '_boss' })]);
+    stages.push(bossWave);
+
+    return stages;
+  }
+
+  var CAMPAIGN_CHAPTER_ARCS = [
+    buildChapterArc('c2', CAMPAIGN_CH1A, CAMPAIGN_CH1B, CAMPAIGN_CH1C),
+    buildChapterArc('c3', CAMPAIGN_CH2A, CAMPAIGN_CH2B, CAMPAIGN_CH2C),
+    buildChapterArc('c4', CAMPAIGN_CH3A, CAMPAIGN_CH3B, CAMPAIGN_CH3C),
+    buildChapterArc('c5', CAMPAIGN_CH4A, CAMPAIGN_CH4B, CAMPAIGN_CH4C),
+    buildChapterArc('c6', CAMPAIGN_CH5A, CAMPAIGN_CH5B, CAMPAIGN_CH5C),
+    buildChapterArc('c7', CAMPAIGN_CH6A, CAMPAIGN_CH6B, CAMPAIGN_CH6C),
+    buildChapterArc('c8', CAMPAIGN_CH7A, CAMPAIGN_CH7B, CAMPAIGN_CH7C),
+    buildChapterArc('c9', CAMPAIGN_CH8A, CAMPAIGN_CH8B, CAMPAIGN_CH8C),
+    buildChapterArc('c10', CAMPAIGN_CH9A, CAMPAIGN_CH9B, CAMPAIGN_CH9C),
+    buildChapterArc('c11', CAMPAIGN_CH10A, CAMPAIGN_CH10B, CAMPAIGN_CH10C)
+  ];
+
+  // Chapter 1 keeps its own 12 flat single-wave stages; Chapters 2-11
+  // are now each a 12-stage arc from the generator above - every
+  // chapter is 12 stages long, uniformly.
+  var CAMPAIGN_CHAPTER_LENGTHS = [CAMPAIGN_CH1_STAGE_COUNT].concat(CAMPAIGN_CHAPTER_ARCS.map(function () { return 12; }));
+  var CAMPAIGN_CHAPTERS = CAMPAIGN_CH1_STAGES.concat.apply(CAMPAIGN_CH1_STAGES, CAMPAIGN_CHAPTER_ARCS);
 
   // Dungeon: 4v4, single wave - the strategy-over-stats mode. Every
   // enemy here leads with a debuff instead of raw damage (Stun/Poison/
@@ -2837,17 +3030,21 @@
 
   // ---------------------------------------------------------------
   // ENCOUNTERS
-  // Squad size follows content type: 3v3 for Campaign and Main Boss,
-  // 5v5 for Tower and Galactic War, 4v4 for Faction Wars and Dungeon
-  // (per design direction - not a change to the combat engine's
-  // default, just a per-encounter squad size). `fixedChapters` marks
-  // Campaign as non-scaling (see spawnWave).
+  // Squad size follows content type: 3v3 for Main Boss (vs. its single
+  // Guild Boss), 5v5 for Tower and Galactic War, 4v4 for Faction Wars
+  // and Dungeon (per design direction - not a change to the combat
+  // engine's default, just a per-encounter squad size). Campaign's own
+  // squad size is stage-dependent - see squadSizeFor: 3v3 for Chapter 1
+  // (Stages 1-12, to match the exact 3-champion starter roster), 4v4
+  // for Chapter 2+ (Stage 13+, via the buildChapterArc-generated 4v4/
+  // 3-wave arcs). `fixedChapters` marks Campaign as non-scaling (see
+  // spawnWave) regardless of squad size.
   // ---------------------------------------------------------------
   var ENCOUNTERS = {
     campaign: { label: 'Campaign', teamIds: ['zephyr', 'fang', 'squall'], fixedChapters: CAMPAIGN_CHAPTERS, stageLabelFor: campaignStageLabel },
     tower: { label: 'Tower', teamIds: ['zephyr', 'fang', 'squall', 'bastian', 'vara'], waves: [BOSS_WAVE] },
     faction: { label: 'Faction Wars', teamIds: ['fang', 'squall', 'bastian', 'vara'], waves: [WAVE_1, WAVE_2, WAVE_3] },
-    mainboss: { label: 'Main Boss', teamIds: ['zephyr', 'fang', 'squall'], waves: [CHAMPION_TRIAL] },
+    mainboss: { label: 'Main Boss', teamIds: ['zephyr', 'fang', 'squall'], waves: [GUILD_BOSS_WAVE], stageLabelFor: mainbossStageLabel },
     dungeon: { label: 'Dungeon', teamIds: ['vara', 'wren', 'mire', 'nyx'], waves: [DUNGEON_WAVE_1] },
     galactic: { label: 'Galactic War', teamIds: ['vara', 'mire', 'kestrel', 'rook', 'nyx'], waves: GALACTIC_WAVES, stackingBuffPerWave: true },
     grandarena: { label: 'Grand Arena', teamIds: ['vara', 'kestrel', 'rook'], archetypeCycle: GRAND_ARENA_ARCHETYPES }
@@ -2878,15 +3075,17 @@
   }
 
   var ENCOUNTER_SCRAP_REWARD = { campaign: 10, tower: 40, galactic: 90 };
-  var ENCOUNTER_GOLD_REWARD = { campaign: 10, mainboss: 50, galactic: 90 };
-  var ENCOUNTER_XP_REWARD = { mainboss: 40, galactic: 70 };
+  // Main Boss's Gold/XP/Shard/Summon Shard identity moved OFF the
+  // generic post-victory table entirely once it became the Guild Boss
+  // chest system (see GUILD_BOSS_WAVE/grantGuildBossChest above) - those
+  // currencies are granted per-chest, mid-fight, as the boss's health
+  // crosses each quarter, not as a flat reward on full clear. A mainboss
+  // entry here would double-pay on top of the chests.
+  var ENCOUNTER_GOLD_REWARD = { campaign: 10, galactic: 90 };
+  var ENCOUNTER_XP_REWARD = { galactic: 70 };
   var ENCOUNTER_ARENA_MEDAL_REWARD = { grandarena: 4 };
-  var ENCOUNTER_SHARD_REWARD = { mainboss: 3 };
-  // Main Boss is already the account's "grow your champions" mode
-  // (Gold/XP/Shards) - Summon Shards ride alongside those as a second
-  // documented reward-purity exception (Galactic War/Grand Arena each
-  // already made one of their own), rather than inventing a mode.
-  var ENCOUNTER_SUMMON_SHARD_REWARD = { mainboss: 4 };
+  var ENCOUNTER_SHARD_REWARD = {};
+  var ENCOUNTER_SUMMON_SHARD_REWARD = {};
   var ENCOUNTER_CHARMDUST_REWARD = { faction: 60 };
   var ENCOUNTER_ASCENSION_REWARD = { dungeon: 2 };
 
@@ -3022,6 +3221,7 @@
   var extraTurnPending = null; // set by a gear effect mid-action; consumed right after that action resolves (avoids granting a turn while still inside the current one)
   var highlightedSlot = 'basic'; // which of basic/active1/active2/passive/signature is previewed in the detail panel
   var currentEncounterId, currentWaves, currentTeamIds, waveIndex, currentStage;
+  var lastGearDrop = null; // the most recent victory-screen gear drop, offered to Auto-Equip
 
   // ---------------------------------------------------------------
   // AUTO BATTLE (player side): a toggleable auto-play mode that reuses
@@ -3102,12 +3302,18 @@
   }
 
   function wavesForBattle(config, stage) {
-    if (config.fixedChapters) return [config.fixedChapters[stage - 1]];
+    if (config.fixedChapters) {
+      var entry = config.fixedChapters[stage - 1];
+      // Most fixedChapters stages are still one flat template array (one
+      // wave). Chapter 2-11's restructured arcs (see buildChapterArc)
+      // instead store { waves: [tpl1, tpl2, tpl3] } for a multi-wave stage.
+      return (entry && entry.waves) ? entry.waves : [entry];
+    }
     if (config.archetypeCycle) return [archetypeForStage(config, stage).squad];
     return config.waves;
   }
 
-  function newBattle(encounterId, teamIds, stage) {
+  function newBattle(encounterId, teamIds, stage, startInAuto) {
     var config = ENCOUNTERS[encounterId];
     currentEncounterId = encounterId;
     currentStage = stage || 1;
@@ -3128,8 +3334,9 @@
     pendingAction = null;
     extraTurnChain = 0;
     extraTurnPending = null;
-    autoBattleOn = false;
+    autoBattleOn = !!startInAuto;
     autoBasicOnly = false;
+    mainbossChestsClaimed = [false, false, false, false];
     clearLog();
     logLine('logSys', 'A new encounter begins. (Stage ' + currentStage + ')');
     wireEventHooks();
@@ -3219,7 +3426,7 @@
       SCRAP_KEY, CHARM_DUST_KEY, GOLD_KEY, SHARDS_KEY, SUMMON_SHARD_KEY, ARENA_MEDAL_KEY, ASCENSION_CORE_KEY,
       SET_CATALYST_KEY, STAT_CATALYST_KEY, SUBSTAT_CATALYST_KEY,
       CHAMPION_PROGRESS_KEY, CHAMPION_ROSTER_KEY, LEVEL_CAP_KEY,
-      STAGE_PROGRESS_KEY, SAVE_KEY, AUTO_CONFIG_KEY
+      STAGE_PROGRESS_KEY, SAVE_KEY, AUTO_CONFIG_KEY, LAST_SQUAD_KEY
     ];
   }
 
@@ -3258,6 +3465,16 @@
     spawnWave(currentWaves[waveIndex], currentStage);
     applySavedUnitState(team, saved.team);
     applySavedUnitState(enemies, saved.enemies);
+    // Restore which Guild Boss chests were already claimed pre-save,
+    // inferred from the boss's restored hp ratio - any threshold at or
+    // below that ratio was necessarily already crossed (and its reward
+    // already granted) before the save happened, so it must not fire
+    // again on resume.
+    mainbossChestsClaimed = [false, false, false, false];
+    if (saved.encounterId === 'mainboss' && enemies[0]) {
+      var savedRatio = enemies[0].hp / enemies[0].maxHp;
+      mainbossChestsClaimed = GUILD_BOSS_CHEST_FRACTIONS.map(function (f) { return savedRatio <= f; });
+    }
     battleOver = false;
     extraTurnChain = 0;
     extraTurnPending = null;
@@ -3632,6 +3849,7 @@
 
   function checkBattleEnd() {
     if (battleOver) return true;
+    if (currentEncounterId === 'mainboss') checkGuildBossChests();
     if (aliveTeam().length === 0) { endBattle(false); return true; }
     if (aliveEnemies().length === 0) {
       if (waveIndex < currentWaves.length - 1) {
@@ -3653,6 +3871,7 @@
     document.getElementById('resultText').textContent = won ? 'VICTORY' : 'DEFEAT';
     var rewardEl = document.getElementById('resultReward');
     var nextStageAvailable = false;
+    lastGearDrop = null;
     if (won) {
       var reward = Math.round((ENCOUNTER_SCRAP_REWARD[currentEncounterId] || 0) * stageRewardMultiplier(currentStage));
       var rewardLines = [];
@@ -3727,6 +3946,7 @@
       if (dropCfg) {
         if (Math.random() < dropCfg.gearChance) {
           var gearDrop = rollGearDrop(currentStage);
+          lastGearDrop = gearDrop;
           logLine('logSys', 'Gear drop: ' + gearInstanceLabel(gearDrop));
           rewardLines.push('Gear: ' + gearInstanceLabel(gearDrop));
 
@@ -3756,9 +3976,11 @@
       if (currentStage > prevCleared) {
         rewardLines.push(currentEncounterId === 'campaign'
           ? campaignClearMessage(currentStage, maxChapter)
-          : (currentStage < maxChapter
-              ? stageNoun + ' ' + currentStage + ' cleared — ' + stageNoun + ' ' + (currentStage + 1) + ' unlocked!'
-              : stageNoun + ' ' + currentStage + ' cleared — Campaign complete!'));
+          : (currentEncounterId === 'mainboss'
+              ? 'Guild Boss Level ' + currentStage + ' cleared — Level ' + (currentStage + 1) + ' unlocked!'
+              : (currentStage < maxChapter
+                  ? stageNoun + ' ' + currentStage + ' cleared — ' + stageNoun + ' ' + (currentStage + 1) + ' unlocked!'
+                  : stageNoun + ' ' + currentStage + ' cleared — Campaign complete!')));
         if (selectedStage[currentEncounterId] === currentStage && currentStage < maxChapter) selectedStage[currentEncounterId] = currentStage + 1;
         if (currentEncounterId === 'campaign') {
           Object.keys(CONTENT_UNLOCKS).forEach(function (id) {
@@ -3778,6 +4000,12 @@
     } else {
       rewardEl.textContent = '';
     }
+    var autoEquipEl = document.getElementById('resultAutoEquip');
+    var autoEquipBtn = document.getElementById('autoEquipBtn');
+    var autoEquipTarget = lastGearDrop ? bestAutoEquipTarget(lastGearDrop) : null;
+    autoEquipEl.style.display = autoEquipTarget ? 'block' : 'none';
+    autoEquipBtn.textContent = 'AUTO-EQUIP';
+    autoEquipBtn.disabled = false;
     var storyEl = document.getElementById('resultStory');
     var afterStory = (won && currentEncounterId === 'campaign') ? CAMPAIGN_STORY_AFTER[currentStage] : null;
     storyEl.textContent = afterStory || '';
@@ -4246,32 +4474,71 @@
     renderAutoPriorityList();
   });
 
-  function beginEncounter(encounterId, teamIds, stage) {
+  function beginEncounter(encounterId, teamIds, stage, startInAuto) {
     clearSave();
     document.getElementById('teamSelectScreen').style.display = 'none';
     document.getElementById('startScreen').style.display = 'none';
     document.body.classList.add('battleActive');
     document.getElementById('battle').classList.add('active');
-    newBattle(encounterId, teamIds, stage);
+    lastSquad[encounterId] = teamIds.slice();
+    saveLastSquad();
+    newBattle(encounterId, teamIds, stage, startInAuto);
     runUntilPlayerInput();
   }
 
   // ---------------------------------------------------------------
   // TEAM SELECT
   // ---------------------------------------------------------------
-  var pendingEncounterId, pendingStage, selectedTeamIds;
+  var pendingEncounterId, pendingStage, selectedTeamIds, pendingAutoStart = false;
 
-  function squadSizeFor(encounterId) { return ENCOUNTERS[encounterId].teamIds.length; }
+  // Campaign's squad size varies by chapter: Chapter 1 (stages 1-12)
+  // stays 3v3 to match the exact 3-starter roster a new save opens
+  // with (see "New-game onboarding" in CLAUDE.md - the 4th roster slot,
+  // Bastian, isn't earned until Stage 6, so requiring 4 champions any
+  // earlier would brick onboarding). Chapters 2-11 (stage 13+) are 4v4,
+  // per the restructured arcs in buildChapterArc - by Stage 13 the
+  // roster already has 5 owned champions, so 4v4 is always fieldable.
+  function squadSizeFor(encounterId, stage) {
+    if (encounterId === 'campaign') {
+      return (stage || getSelectedStage('campaign')) <= CAMPAIGN_CH1_STAGE_COUNT ? 3 : 4;
+    }
+    return ENCOUNTERS[encounterId].teamIds.length;
+  }
+
+  var LAST_SQUAD_KEY = 'machineborn_last_squad_v1';
+  function loadLastSquad() {
+    try { var raw = localStorage.getItem(LAST_SQUAD_KEY); return raw ? JSON.parse(raw) : {}; } catch (e) { return {}; }
+  }
+  function saveLastSquad() {
+    try { localStorage.setItem(LAST_SQUAD_KEY, JSON.stringify(lastSquad)); } catch (e) { /* private mode / quota */ }
+  }
+  var lastSquad = loadLastSquad(); // { encounterId: [championId, ...] } - the squad actually fielded last time
+
+  // Default squad for a fresh team-select: prefer the exact squad last
+  // fielded in this same mode (if every member is still owned and the
+  // size still matches - a remembered 3-member Chapter 1 squad doesn't
+  // carry over to a 4v4 Chapter 2+ stage). Otherwise default to the
+  // highest-tier champions currently owned (rarity, then level) rather
+  // than a fixed hardcoded roster - "push here, get better champions,
+  // they show up by default everywhere" is the whole point of Roster
+  // Tier (see CLAUDE.md Systems #13).
+  function defaultSquadFor(encounterId, stage) {
+    var size = squadSizeFor(encounterId, stage);
+    var remembered = (lastSquad[encounterId] || []).filter(isChampionOwned);
+    if (remembered.length === size) return remembered.slice();
+    var owned = CHAMPIONS.filter(function (c) { return isChampionOwned(c.id); });
+    owned.sort(function (a, b) {
+      var byRarity = RARITY_ORDER.indexOf(b.rarity) - RARITY_ORDER.indexOf(a.rarity);
+      return byRarity !== 0 ? byRarity : championLevel(b.id) - championLevel(a.id);
+    });
+    return owned.slice(0, size).map(function (c) { return c.id; });
+  }
 
   function openTeamSelect(encounterId) {
     pendingEncounterId = encounterId;
     pendingStage = getSelectedStage(encounterId);
-    // Pre-select the encounter's default squad, but only whichever
-    // members are actually owned - a default that assumes champions
-    // the player hasn't summoned/unlocked yet must never silently
-    // pre-fill "selected" behind a locked, unclickable card (that would
-    // let Begin Battle enable with an unowned champion in the squad).
-    selectedTeamIds = ENCOUNTERS[encounterId].teamIds.filter(isChampionOwned);
+    pendingAutoStart = false;
+    selectedTeamIds = defaultSquadFor(encounterId, pendingStage);
     document.getElementById('startScreen').style.display = 'none';
     document.getElementById('teamSelectScreen').style.display = 'block';
     renderTeamSelect();
@@ -4281,7 +4548,7 @@
     var idx = selectedTeamIds.indexOf(id);
     if (idx !== -1) {
       selectedTeamIds.splice(idx, 1);
-    } else if (selectedTeamIds.length < squadSizeFor(pendingEncounterId)) {
+    } else if (selectedTeamIds.length < squadSizeFor(pendingEncounterId, pendingStage)) {
       selectedTeamIds.push(id);
     }
     renderTeamSelect();
@@ -4299,7 +4566,7 @@
         '</button>';
     }
     var selected = selectedTeamIds.indexOf(champ.id) !== -1;
-    var full = selectedTeamIds.length >= squadSizeFor(pendingEncounterId);
+    var full = selectedTeamIds.length >= squadSizeFor(pendingEncounterId, pendingStage);
     var disabled = !selected && full;
     var bonus = gearBonusFor(champ.id);
     var geared = Object.keys(bonus).length > 0;
@@ -4321,7 +4588,7 @@
 
   function renderTeamSelect() {
     var config = ENCOUNTERS[pendingEncounterId];
-    var squadSize = squadSizeFor(pendingEncounterId);
+    var squadSize = squadSizeFor(pendingEncounterId, pendingStage);
     var title = config.label.toUpperCase() + ' — ' + (config.stageLabelFor ? config.stageLabelFor(pendingStage).toUpperCase() : ('STAGE ' + pendingStage));
     if (config.archetypeCycle) title += ' — VS ' + archetypeForStage(config, pendingStage).name.toUpperCase();
     document.getElementById('teamSelectTitle').textContent = title;
@@ -4332,7 +4599,15 @@
     storyEl.style.display = story ? 'block' : 'none';
     document.getElementById('teamSelectGrid').innerHTML = CHAMPIONS.map(teamSelectCardHtml).join('');
     document.getElementById('teamSelectBeginBtn').disabled = selectedTeamIds.length !== squadSize;
+    var autoBtn = document.getElementById('teamSelectAutoBtn');
+    autoBtn.textContent = 'AUTO: ' + (pendingAutoStart ? 'ON' : 'OFF');
+    autoBtn.classList.toggle('active', pendingAutoStart);
   }
+
+  document.getElementById('teamSelectAutoBtn').addEventListener('click', function () {
+    pendingAutoStart = !pendingAutoStart;
+    renderTeamSelect();
+  });
 
   document.getElementById('teamSelectGrid').addEventListener('click', function (e) {
     var btn = e.target.closest('.selectCard');
@@ -4346,8 +4621,8 @@
   });
 
   document.getElementById('teamSelectBeginBtn').addEventListener('click', function () {
-    if (selectedTeamIds.length !== squadSizeFor(pendingEncounterId)) return;
-    beginEncounter(pendingEncounterId, selectedTeamIds.slice(), pendingStage);
+    if (selectedTeamIds.length !== squadSizeFor(pendingEncounterId, pendingStage)) return;
+    beginEncounter(pendingEncounterId, selectedTeamIds.slice(), pendingStage, pendingAutoStart);
   });
 
   function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
@@ -4730,6 +5005,18 @@
     var saved = loadSavedBattle();
     if (!saved) return;
     resumeBattle(saved);
+  });
+
+  document.getElementById('autoEquipBtn').addEventListener('click', function () {
+    if (!lastGearDrop) return;
+    var championId = autoEquipGear(lastGearDrop);
+    var btn = document.getElementById('autoEquipBtn');
+    if (championId) {
+      var champ = CHAMPIONS.find(function (c) { return c.id === championId; });
+      btn.textContent = 'EQUIPPED ON ' + champ.name.toUpperCase();
+      btn.disabled = true;
+      lastGearDrop = null;
+    }
   });
 
   document.getElementById('restartBtn').addEventListener('click', function () {
