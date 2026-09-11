@@ -454,10 +454,57 @@ instead of only after Campaign is fully cleared.
   starters stopped being "whichever 3-6 champions a mode's `teamIds`
   names," since an unowned default member would otherwise silently
   count toward a "full" squad.
-- Chapters 2-11 (the old Chapters 1-10) are byte-for-byte unchanged —
-  whether they also get the multi-stage tutorial-ladder treatment, or
-  stay single capstone fights between the other modes' ladders, is an
-  explicitly open decision the user has not yet made (see "Next up").
+- Chapters 2-11 (the old Chapters 1-10) keep their original structure
+  (one hand-authored fight per chapter, no multi-stage sub-ladder) but
+  their **numbers were retuned** — see "Chapters 2-11 difficulty seam"
+  below. Whether they also get the multi-stage tutorial-ladder
+  treatment Chapter 1 got, or stay single capstone fights between the
+  other modes' ladders, is still an explicitly open decision the user
+  has not yet made (see "Next up").
+
+**Chapters 2-11 difficulty seam — retuned.** The original CH1-CH10
+numbers were hand-tuned for a level-1, all-Legendary 3-champion squad
+(~200 total atk). Once Chapter 1 flipped the starters to a weak
+Common/Rare trio, the squad actually arriving at Chapter 2 is whichever
+3 of the 5 post-Chapter-1 champions (3 starters + Bastian + Vara) the
+player picks — best case Vara+Bastian+Squall, ~163 total atk,
+meaningfully less burst than the original baseline despite similar
+HP/DEF. Probed (`probe_ch2_11.js`, 8 trials/stage, that exact squad, no
+extra gear/levels — the same pessimistic-floor methodology Chapter 1
+used) before touching anything: the original numbers came back 8/8 for
+Chapters 2-8 (no climb at all) then fell off a cliff to 3/8 at Chapter
+9's boss and 1/8 at both Chapter 10 (a plain chapter, not even a
+capstone) and Chapter 11's finale — backwards pacing where a non-boss
+chapter was harder than the boss before it.
+- First retune pass overshot hard in the other direction — an
+  aggressive ~8-15%/chapter exponential climb hit a wall as early as
+  Chapter 5 (0/8) and stayed at 0/8 through Chapter 11, because this
+  engine's naive-auto-battle combat has a narrow, fairly binary
+  win/loss threshold in raw stat space (small stat bumps can flip a
+  matchup from ~100% to ~0%), not a gradual slope — a lesson worth
+  keeping in mind for any future difficulty tuning here: move in small
+  increments and re-probe, don't extrapolate a whole curve from theory.
+- Landed on (verified via repeated probes, accepting normal 8-trial
+  sample noise): Chapters 2-6 easy/warm-up (~8/8), Chapter 7 a real dip
+  (~4-7/8, texture rather than a flat floor), Chapter 8 building up,
+  Chapter 9's boss a genuine wall (~0-1/8, comparable to Chapter 1's
+  own Stage 9), Chapter 10 a real relief step (~5-8/8, still noticeably
+  harder than 2-6 thanks to a Bleed-heavy enemy kit that punishes lack
+  of cleanse/Resistance even at lower raw stats than the finale), and
+  Chapter 11's finale the hardest overall (~2-3/8) — the same
+  wall/relief/wall/capstone shape Chapter 1's own plateau established,
+  now recurring one tier up. `test_content_framework.js`/
+  `test_galactic_war.js` (which clear the Chapter 11 finale with a
+  stronger Vara+Mire+Kestrel squad to test the dual Dungeon/Galactic
+  War unlock) still pass — the retune only pulled numbers down/up
+  within a narrow band, it didn't change the finale's role.
+- Exact numbers live in the `CAMPAIGN_CH1`-`CAMPAIGN_CH10` blocks'
+  own comments (note: these old variable names now display as Chapter
+  2-11 — see the naming-history bullet under Implementation notes).
+  Treat this as a second pass, not final — same as Chapter 1's own
+  numbers, expect further iteration once Tower gear and Main Boss
+  levels are actually in the loop when a real player reaches this
+  point instead of the zero-farming floor this probe assumes.
 
 Implementation notes:
 - **Fixed vs. infinite vs. cycling**: `ENCOUNTERS[id].fixedChapters`
@@ -627,10 +674,19 @@ whichever mode just unlocked, and that farm-and-push cycle repeats for
 every subsequent plateau — see "New-game onboarding" under Content
 framework above for the full mechanism (`CAMPAIGN_CH1_STAGES`,
 `CAMPAIGN_STAGE_CHAMPION_REWARDS`, the retuned `CHAMPION_TRIAL`
-baseline, the new `CONTENT_UNLOCKS` sequencing). Explicitly still
-open, per the user's own framing ("only then decide whether Chapters
-2-10 get the same multi-stage treatment or stay as capstone fights
-between ladders") — do not start that work without being asked.
+baseline, the new `CONTENT_UNLOCKS` sequencing).
+
+**Chapters 2-11 difficulty seam — retuned.** Follow-up to the Chapter 1
+rework above: the old Chapters 1-10 (now displaying as 2-11) were still
+tuned for the pre-rework all-Legendary squad and had gone flat-trivial
+for 7 straight chapters before falling off a cliff — see "Chapters
+2-11 difficulty seam — retuned" under Content framework above for the
+full probe history and final numbers.
+
+Explicitly still open, per the user's own framing ("only then decide
+whether Chapters 2-10 get the same multi-stage treatment or stay as
+capstone fights between ladders") — do not start that work without
+being asked.
 
 Longer-term, deferred until asked for:
 - A **Charm Upgrade** to pair with the new Charm Reforge — gear has
