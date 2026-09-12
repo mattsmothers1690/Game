@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Gridiron Dynasty</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #0d1117;
+    color: #e6edf3;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 14px;
+    padding-bottom: 24px;
+  }
+  #app { max-width: 720px; margin: 0 auto; padding: 8px; }
+  h1, h2, h3 { margin: 8px 0; }
+  h1 { font-size: 1.2rem; }
+  h2 { font-size: 1.05rem; color: #7ee787; }
+  h3 { font-size: 0.95rem; color: #79c0ff; }
+  .card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+  }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .muted { color: #8b949e; font-size: 0.85em; }
+  button {
+    background: #238636;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 0.9em;
+    cursor: pointer;
+    margin: 2px 0;
+  }
+  button:disabled { background: #30363d; color: #6e7681; cursor: not-allowed; }
+  button.secondary { background: #21262d; border: 1px solid #30363d; }
+  button.danger { background: #8b2635; }
+  select, input[type=number] {
+    background: #0d1117; color: #e6edf3; border: 1px solid #30363d;
+    border-radius: 6px; padding: 6px; font-size: 0.9em;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #21262d; }
+  th { color: #8b949e; font-weight: 600; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; position: sticky; top: 0; background: #0d1117; padding: 6px 0; z-index: 5; }
+  .tab {
+    background: #161b22; border: 1px solid #30363d; color: #c9d1d9;
+    border-radius: 6px; padding: 6px 10px; font-size: 0.85em; cursor: pointer;
+  }
+  .tab.active { background: #1f6feb; border-color: #1f6feb; color: white; }
+  .badge {
+    display: inline-block; background: #21262d; border-radius: 4px;
+    padding: 1px 6px; font-size: 0.78em; margin-left: 4px;
+  }
+  .pill-user { background: #1f6feb; }
+  .pill-good { background: #238636; }
+  .pill-bad { background: #8b2635; }
+  .plist { max-height: 420px; overflow-y: auto; }
+  .prow { display: flex; justify-content: space-between; align-items: center; padding: 6px 4px; border-bottom: 1px solid #21262d; gap: 6px; }
+  .prow:last-child { border-bottom: none; }
+  .pname { font-weight: 600; }
+  .log { font-size: 0.82em; color: #c9d1d9; line-height: 1.5; max-height: 260px; overflow-y: auto; }
+  .startscreen { text-align: center; padding: 40px 12px; }
+  .teamgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 12px; }
+  .teamopt {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 10px; cursor: pointer;
+  }
+  .teamopt.sel { border-color: #1f6feb; background: #12233f; }
+  .flexgap { display: flex; gap: 6px; flex-wrap: wrap; }
+  input[type=number] { width: 64px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+(function () {
+  'use strict';
+
+  var SAVE_KEY = 'gridiron_save_v1';
+
+  var POSITIONS = ['QB','RB','WR','TE','OL','DL','LB','CB','S','K'];
+  var STARTER_NEEDS = { QB:1, RB:1, WR:2, TE:1, OL:3, DL:3, LB:2, CB:2, S:1, K:1 };
+  var OFF_WEIGHTS = { QB:0.30, RB:0.10, WR:0.20, TE:0.10, OL:0.30 };
+  var DEF_WEIGHTS = { DL:0.30, LB:0.30, CB:0.30, S:0.10 };
+  var ROSTER_TARGET = 34;
+  var ROSTER_MAX = 45;
+  var STARTING_CAP = 150;
+  var CAP_GROWTH_PER_YEAR = 5;
+
+  var TEAMS_SEED = [
+    { city: 'Boulder City', mascot: 'Marauders', abbr: 'BCM' },
+    { city: 'Port Haven', mascot: 'Wolves', abbr: 'PHW' },
+    { city: 'Steel Valley', mascot: 'Ironhawks', abbr: 'SVI' },
+    { city: 'Redrock', mascot: 'Vipers', abbr: 'RRV' },
+    { city: 'Frostline', mascot: 'Bears', abbr: 'FLB' },
+    { city: 'Bay Area', mascot: 'Tide', abbr: 'BAT' },
+    { city: 'Sable Ridge', mascot: 'Outlaws', abbr: 'SRO' },
+    { city: 'Crescent City', mascot: 'Comets', abbr: 'CCC' }
+  ];
+
+  var FIRST_NAMES = ['Marcus','Jalen','Trevor','Deshaun','Cole','Ezra','Malik','Grant','Xavier','Reid',
+    'Tyrell','Jaxon','Bryce','Dominic','Isiah','Landon','Nasir','Corbin','Elias','Rashad',
+    'Miles','Tanner','Amari','Jace','Wesley','Kobe','Aiden','Devon','Cyrus','Holden'];
+  var LAST_NAMES = ['Carter','Whitfield','Boone','Mercer','Ashford','Dalton','Vance','Reyes','Holloway','Sinclair',
+    'Pruitt','Kessler','Hargrove','Winslow','Beaumont','Castellan','Marsh','Ellison','Trask','Nunez',
+    'Ferro','Odom','Bledsoe','Quintero','Hatch','Larkin','Stroud','Vega','Kilgore','Rourke'];
+
+  var $ = { rand: rand, choice: choice, clamp: clamp };
+
+  function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+  function choice(arr) { return arr[rand(0, arr.length - 1)]; }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function round1(v) { return Math.round(v * 10) / 10; }
+  function randomName() { return choice(FIRST_NAMES) + ' ' + choice(LAST_NAMES); }
+
+  var state = null;
+
+  // ---------- persistence ----------
+  function save() {
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (e) {}
+  }
+  function load() {
+    try {
+      var raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (e) { return null; }
+  }
+  function resetGame() {
+    if (!confirm('Delete this franchise and start over?')) return;
+    localStorage.removeItem(SAVE_KEY);
+    state = null;
+    render();
+  }
+
+  // ---------- player model ----------
+  function makePlayer(position, age, overall, potential) {
+    state.nextPlayerId += 1;
+    return {
+      id: state.nextPlayerId,
+      name: randomName(),
+      position: position,
+      age: age,
+      overall: clamp(overall, 35, 99),
+      potential: clamp(potential, overall, 99),
+      salary: 0,
+      yearsLeft: 0,
+      teamId: null,
+      scoutLevel: 3,
+      isRookie: false
+    };
+  }
+
+  function salaryFor(overall, age) {
+    var base = 0.4 + Math.max(0, overall - 50) * 0.12;
+    if (age >= 31) base *= 1.15;
+    if (age <= 23) base *= 0.85;
+    return Math.max(0.4, round1(base));
+  }
+
+  function rookieSalary(pickNumber) {
+    return Math.max(0.4, round1(3.0 - pickNumber * 0.08));
+  }
+
+  function generateVeteran() {
+    var pos = choice(POSITIONS);
+    var age = rand(22, 34);
+    var roll = Math.random();
+    var overall;
+    if (roll < 0.06) overall = rand(85, 92);
+    else if (roll < 0.30) overall = rand(72, 84);
+    else if (roll < 0.70) overall = rand(58, 71);
+    else overall = rand(42, 57);
+    var potential = overall + rand(0, 5);
+    var p = makePlayer(pos, age, overall, potential);
+    p.salary = salaryFor(p.overall, p.age);
+    p.yearsLeft = rand(1, 4);
+    return p;
+  }
+
+  function generateProspect() {
+    var pos = choice(POSITIONS);
+    var age = rand(21, 23);
+    var overall = rand(48, 88);
+    var potential = overall + rand(5, 25);
+    var p = makePlayer(pos, age, overall, potential);
+    p.isRookie = true;
+    p.scoutLevel = 0;
+    return p;
+  }
+
+  function scoutedRange(p) {
+    if (!p.isRookie || p.scoutLevel >= 3) return { lo: p.overall, hi: p.overall, exact: true };
+    var spread = p.scoutLevel === 0 ? 15 : (p.scoutLevel === 1 ? 8 : 3);
+    return { lo: clamp(p.overall - spread, 35, 99), hi: clamp(p.overall + spread, 35, 99), exact: false };
+  }
+  var SCOUT_COST = [3, 5, 8];
+
+  // ---------- team model ----------
+  function makeTeam(id, seed, isUser) {
+    return {
+      id: id, city: seed.city, mascot: seed.mascot, abbr: seed.abbr, name: seed.city + ' ' + seed.mascot,
+      isUser: !!isUser, roster: [], cap: STARTING_CAP,
+      record: { w: 0, l: 0, t: 0 }, pf: 0, pa: 0
+    };
+  }
+
+  function playersAt(team, pos) {
+    return team.roster.map(function (id) { return state.players[id]; }).filter(function (p) { return p.position === pos; });
+  }
+
+  function topNAvg(list, n) {
+    var sorted = list.slice().sort(function (a, b) { return b.overall - a.overall; });
+    var sum = 0;
+    for (var i = 0; i < n; i++) sum += sorted[i] ? sorted[i].overall : 40;
+    return sum / n;
+  }
+
+  function offenseRating(team) {
+    var total = 0;
+    Object.keys(OFF_WEIGHTS).forEach(function (pos) {
+      total += topNAvg(playersAt(team, pos), STARTER_NEEDS[pos]) * OFF_WEIGHTS[pos];
+    });
+    return total;
+  }
+  function defenseRating(team) {
+    var total = 0;
+    Object.keys(DEF_WEIGHTS).forEach(function (pos) {
+      total += topNAvg(playersAt(team, pos), STARTER_NEEDS[pos]) * DEF_WEIGHTS[pos];
+    });
+    return total;
+  }
+  function kickerRating(team) { return topNAvg(playersAt(team, 'K'), 1); }
+
+  function capSpace(team) {
+    var used = team.roster.reduce(function (sum, id) { return sum + state.players[id].salary; }, 0);
+    return round1(team.cap - used);
+  }
+
+  function weakestNeed(team) {
+    var worstPos = null, worstVal = 999;
+    Object.keys(STARTER_NEEDS).forEach(function (pos) {
+      var v = topNAvg(playersAt(team, pos), STARTER_NEEDS[pos]);
+      if (v < worstVal) { worstVal = v; worstPos = pos; }
+    });
+    return worstPos;
+  }
+
+  function addToRoster(team, player) {
+    player.teamId = team.id;
+    team.roster.push(player.id);
+  }
+  function removeFromRoster(team, playerId) {
+    var idx = team.roster.indexOf(playerId);
+    if (idx >= 0) team.roster.splice(idx, 1);
+  }
+
+  function log(msg) {
+    state.log.unshift(msg);
+    if (state.log.length > 60) state.log.length = 60;
+  }
+
+  // ---------- league setup ----------
+  function newGame(userTeamIndex) {
+    state = {
+      year: 1, week: 0, phase: 'draft', screen: 'hub',
+      nextPlayerId: 0, userTeamId: userTeamIndex,
+      teams: [], players: {}, schedule: [], playoffs: null,
+      draft: null, freeAgents: [], trainingPoints: 0,
+      history: [], log: []
+    };
+    TEAMS_SEED.forEach(function (seed, i) { state.teams.push(makeTeam(i, seed, i === userTeamIndex)); });
+    startDraft(6);
+    for (var i = 0; i < 70; i++) {
+      var fa = generateVeteran();
+      state.freeAgents.push(fa.id);
+      state.players[fa.id] = fa;
+    }
+    log('Welcome, GM of the ' + state.teams[userTeamIndex].name + '! The inaugural draft is underway.');
+    save();
+  }
+
+  function startDraft(rounds) {
+    var order;
+    if (state.year === 1) {
+      order = state.teams.map(function (t) { return t.id; });
+      shuffle(order);
+    } else {
+      order = state.teams.slice().sort(function (a, b) {
+        if (a.record.w !== b.record.w) return a.record.w - b.record.w;
+        return (a.pf - a.pa) - (b.pf - b.pa);
+      }).map(function (t) { return t.id; });
+    }
+    var fullOrder = [];
+    for (var r = 0; r < rounds; r++) fullOrder = fullOrder.concat(order);
+    var cls = [];
+    for (var i = 0; i < order.length * rounds; i++) {
+      var p = generateProspect();
+      state.players[p.id] = p;
+      cls.push(p.id);
+    }
+    state.draft = { order: fullOrder, pickIndex: 0, class: cls, scoutBudget: 40 };
+    state.phase = 'draft';
+    state.screen = 'draft';
+  }
+
+  function shuffle(arr) {
+    for (var i = arr.length - 1; i > 0; i--) {
+      var j = rand(0, i);
+      var t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    }
+  }
+
+  function currentPickTeamId() {
+    var d = state.draft;
+    if (!d || d.pickIndex >= d.order.length) return null;
+    return d.order[d.pickIndex];
+  }
+
+  function draftPickTo(teamId, prospectId) {
+    var d = state.draft;
+    var pickNumber = d.pickIndex + 1;
+    var team = state.teams[teamId];
+    var p = state.players[prospectId];
+    p.salary = rookieSalary(pickNumber);
+    p.yearsLeft = 3;
+    p.scoutLevel = 3;
+    addToRoster(team, p);
+    var idx = d.class.indexOf(prospectId);
+    if (idx >= 0) d.class.splice(idx, 1);
+    d.pickIndex += 1;
+    log('Pick ' + pickNumber + ': ' + team.abbr + ' select ' + p.name + ' (' + p.position + ', ' + p.overall + ' OVR)' + (team.isUser ? '' : ''));
+  }
+
+  function aiPickFor(teamId) {
+    var d = state.draft;
+    var team = state.teams[teamId];
+    if (d.class.length === 0) return;
+    var need = weakestNeed(team);
+    var best = null, bestScore = -1;
+    d.class.forEach(function (pid) {
+      var p = state.players[pid];
+      var score = p.overall + (p.position === need ? 10 : 0) + rand(0, 5);
+      if (score > bestScore) { bestScore = score; best = pid; }
+    });
+    draftPickTo(teamId, best);
+  }
+
+  function advanceDraft() {
+    var d = state.draft;
+    while (d.pickIndex < d.order.length) {
+      var tid = d.order[d.pickIndex];
+      if (tid === state.userTeamId) return;
+      aiPickFor(tid);
+    }
+    finishDraft();
+  }
+
+  function simRestOfDraft() {
+    var d = state.draft;
+    while (d.pickIndex < d.order.length) {
+      var tid = d.order[d.pickIndex];
+      aiPickFor(tid);
+    }
+    finishDraft();
+  }
+
+  function finishDraft() {
+    state.phase = 'freeagency';
+    state.screen = 'freeagency';
+    var count = state.year === 1 ? 0 : 26;
+    for (var i = 0; i < count; i++) {
+      var fa = generateVeteran();
+      state.players[fa.id] = fa;
+      state.freeAgents.push(fa.id);
+    }
+    log('The draft has concluded. Free agency is open.');
+    save();
+  }
+
+  // ---------- free agency ----------
+  function signFreeAgent(playerId, years) {
+    var team = state.teams[state.userTeamId];
+    var p = state.players[playerId];
+    var salary = salaryFor(p.overall, p.age);
+    if (salary > capSpace(team)) return false;
+    if (team.roster.length >= ROSTER_MAX) return false;
+    p.salary = salary;
+    p.yearsLeft = years;
+    addToRoster(team, p);
+    var idx = state.freeAgents.indexOf(playerId);
+    if (idx >= 0) state.freeAgents.splice(idx, 1);
+    log(team.abbr + ' sign FA ' + p.name + ' (' + p.position + ', ' + p.overall + ' OVR) - ' + salary + 'M x' + years + 'yr');
+    save();
+    return true;
+  }
+
+  function advanceFAPeriod() {
+    var signings = 0, attempts = 0;
+    while (signings < 3 && attempts < 40 && state.freeAgents.length > 0) {
+      attempts++;
+      var teamsWithRoom = state.teams.filter(function (t) {
+        return !t.isUser && t.roster.length < ROSTER_TARGET;
+      });
+      if (teamsWithRoom.length === 0) break;
+      var team = choice(teamsWithRoom);
+      var need = weakestNeed(team);
+      var candidates = state.freeAgents.map(function (id) { return state.players[id]; })
+        .filter(function (p) { return salaryFor(p.overall, p.age) <= capSpace(team); });
+      if (candidates.length === 0) continue;
+      candidates.sort(function (a, b) {
+        var sa = a.overall + (a.position === need ? 8 : 0);
+        var sb = b.overall + (b.position === need ? 8 : 0);
+        return sb - sa;
+      });
+      var pick = candidates[0];
+      var salary = salaryFor(pick.overall, pick.age);
+      pick.salary = salary;
+      pick.yearsLeft = rand(1, 3);
+      addToRoster(team, pick);
+      var idx = state.freeAgents.indexOf(pick.id);
+      if (idx >= 0) state.freeAgents.splice(idx, 1);
+      log(team.abbr + ' sign FA ' + pick.name + ' (' + pick.position + ', ' + pick.overall + ' OVR)');
+      signings++;
+    }
+    save();
+  }
+
+  function startSeason() {
+    state.schedule = buildSchedule();
+    state.week = 1;
+    state.phase = 'season';
+    state.screen = 'hub';
+    log('Year ' + state.year + ' regular season begins!');
+    save();
+  }
+
+  function buildSchedule() {
+    var ids = state.teams.map(function (t) { return t.id; });
+    var n = ids.length;
+    var rounds = [];
+    var arr = ids.slice();
+    for (var r = 0; r < n - 1; r++) {
+      var weekGames = [];
+      for (var i = 0; i < n / 2; i++) {
+        var home = arr[i], away = arr[n - 1 - i];
+        weekGames.push({ week: r + 1, homeId: home, awayId: away, played: false, homeScore: 0, awayScore: 0, log: [] });
+      }
+      rounds.push(weekGames);
+      var fixed = arr[0];
+      var rest = arr.slice(1);
+      rest.unshift(rest.pop());
+      arr = [fixed].concat(rest);
+    }
+    var flat = [];
+    rounds.forEach(function (wg) { flat = flat.concat(wg); });
+    return flat;
+  }
+
+  // ---------- game simulation ----------
+  function simulateGame(homeTeam, awayTeam) {
+    var offH = offenseRating(homeTeam), defH = defenseRating(homeTeam), kH = kickerRating(homeTeam);
+    var offA = offenseRating(awayTeam), defA = defenseRating(awayTeam), kA = kickerRating(awayTeam);
+    var homeScore = 0, awayScore = 0;
+    var gameLog = [];
+    var possessions = 9;
+
+    function possession(offTeam, defTeam, offR, defR, kR, isHome, half) {
+      if (Math.random() < 0.05) {
+        var defender = choice(playersAt(defTeam, choice(['DL','LB','CB','S'])).concat([{ name: 'The defense' }]));
+        gameLog.push(defender.name + ' takes it back for ' + defTeam.abbr + '! Defensive touchdown.');
+        return { scorer: defTeam, points: 7 };
+      }
+      var diff = offR - defR + (isHome ? 2 : 0);
+      var pTD = clamp(0.22 + diff * 0.008, 0.04, 0.55);
+      var roll = Math.random();
+      if (roll < pTD) {
+        var skillPos = choice(['QB','RB','WR','TE']);
+        var scorer = choice(playersAt(offTeam, skillPos).concat([{ name: offTeam.abbr + ' offense' }]));
+        gameLog.push(scorer.name + ' punches it in for ' + offTeam.abbr + '. Touchdown!');
+        return { scorer: offTeam, points: 7 };
+      }
+      var pFG = clamp(0.35 - diff * 0.003, 0.1, 0.5);
+      if (roll < pTD + pFG) {
+        var fgChance = clamp(0.6 + (kR - 70) * 0.01, 0.4, 0.95);
+        if (Math.random() < fgChance) {
+          var kicker = playersAt(offTeam, 'K')[0];
+          gameLog.push((kicker ? kicker.name : offTeam.abbr + ' K') + ' nails the field goal.');
+          return { scorer: offTeam, points: 3 };
+        }
+        gameLog.push(offTeam.abbr + ' field goal attempt is no good.');
+        return { scorer: null, points: 0 };
+      }
+      gameLog.push(offTeam.abbr + ' drive stalls; punt.');
+      return { scorer: null, points: 0 };
+    }
+
+    for (var i = 0; i < possessions; i++) {
+      var r1 = possession(homeTeam, awayTeam, offH, defA, kH, true);
+      if (r1.scorer === homeTeam) homeScore += r1.points; else if (r1.scorer === awayTeam) awayScore += r1.points;
+      var r2 = possession(awayTeam, homeTeam, offA, defH, kA, false);
+      if (r2.scorer === homeTeam) homeScore += r2.points; else if (r2.scorer === awayTeam) awayScore += r2.points;
+    }
+    var extra = 0;
+    while (homeScore === awayScore && extra < 4) {
+      var rh = possession(homeTeam, awayTeam, offH, defA, kH, true);
+      if (rh.scorer === homeTeam) homeScore += rh.points; else if (rh.scorer === awayTeam) awayScore += rh.points;
+      var ra = possession(awayTeam, homeTeam, offA, defH, kA, false);
+      if (ra.scorer === homeTeam) homeScore += ra.points; else if (ra.scorer === awayTeam) awayScore += ra.points;
+      extra++;
+    }
+    gameLog.push('FINAL: ' + homeTeam.abbr + ' ' + homeScore + ' - ' + awayTeam.abbr + ' ' + awayScore);
+    return { homeScore: homeScore, awayScore: awayScore, log: gameLog };
+  }
+
+  function applyResult(team, forScore, againstScore) {
+    team.pf += forScore; team.pa += againstScore;
+    if (forScore > againstScore) team.record.w++;
+    else if (forScore < againstScore) team.record.l++;
+    else team.record.t++;
+  }
+
+  function simWeek() {
+    var games = state.schedule.filter(function (g) { return g.week === state.week && !g.played; });
+    games.forEach(function (g) {
+      var home = state.teams[g.homeId], away = state.teams[g.awayId];
+      var result = simulateGame(home, away);
+      g.homeScore = result.homeScore; g.awayScore = result.awayScore; g.log = result.log; g.played = true;
+      applyResult(home, result.homeScore, result.awayScore);
+      applyResult(away, result.awayScore, result.homeScore);
+      if (g.homeId === state.userTeamId || g.awayId === state.userTeamId) {
+        log('Week ' + state.week + ': ' + home.abbr + ' ' + result.homeScore + ' - ' + away.abbr + ' ' + result.awayScore);
+      }
+    });
+    state.trainingPoints = Math.min(40, state.trainingPoints + 5);
+    var totalWeeks = state.teams.length - 1;
+    if (state.week >= totalWeeks) {
+      startPlayoffs();
+    } else {
+      state.week++;
+    }
+    save();
+  }
+
+  function standings() {
+    return state.teams.slice().sort(function (a, b) {
+      if (b.record.w !== a.record.w) return b.record.w - a.record.w;
+      return (b.pf - b.pa) - (a.pf - a.pa);
+    });
+  }
+
+  function startPlayoffs() {
+    var seeds = standings().slice(0, 4).map(function (t) { return t.id; });
+    state.playoffs = {
+      round: 'semis',
+      semis: [
+        { homeId: seeds[0], awayId: seeds[3], played: false, homeScore: 0, awayScore: 0, log: [] },
+        { homeId: seeds[1], awayId: seeds[2], played: false, homeScore: 0, awayScore: 0, log: [] }
+      ],
+      final: null, champion: null
+    };
+    state.phase = 'playoffs';
+    state.screen = 'playoffs';
+    log('Regular season complete! Playoffs begin: seeds ' + seeds.map(function (id) { return state.teams[id].abbr; }).join(', '));
+    save();
+  }
+
+  function simPlayoffRound() {
+    var po = state.playoffs;
+    if (po.round === 'semis') {
+      po.semis.forEach(function (g) {
+        var home = state.teams[g.homeId], away = state.teams[g.awayId];
+        var r = simulateGame(home, away);
+        g.homeScore = r.homeScore; g.awayScore = r.awayScore; g.log = r.log; g.played = true;
+      });
+      var w1 = po.semis[0].homeScore > po.semis[0].awayScore ? po.semis[0].homeId : po.semis[0].awayId;
+      var w2 = po.semis[1].homeScore > po.semis[1].awayScore ? po.semis[1].homeId : po.semis[1].awayId;
+      po.final = { homeId: w1, awayId: w2, played: false, homeScore: 0, awayScore: 0, log: [] };
+      po.round = 'final';
+      log('Semifinal results are in. The championship matchup is set.');
+    } else if (po.round === 'final') {
+      var home = state.teams[po.final.homeId], away = state.teams[po.final.awayId];
+      var rf = simulateGame(home, away);
+      po.final.homeScore = rf.homeScore; po.final.awayScore = rf.awayScore; po.final.log = rf.log; po.final.played = true;
+      var champId = rf.homeScore > rf.awayScore ? po.final.homeId : po.final.awayId;
+      po.champion = champId;
+      po.round = 'done';
+      state.history.unshift({ year: state.year, champion: champId });
+      log(state.teams[champId].name + ' win the Year ' + state.year + ' Championship!');
+      startOffseason();
+    }
+    save();
+  }
+
+  // ---------- offseason ----------
+  function startOffseason() {
+    state.phase = 'offseason';
+    state.screen = 'offseason';
+    save();
+  }
+
+  function resignPlayer(playerId, years) {
+    var team = state.teams[state.userTeamId];
+    var p = state.players[playerId];
+    var salary = salaryFor(p.overall, p.age);
+    if (salary > capSpace(team) + p.salary) return false;
+    p.salary = salary; p.yearsLeft = years;
+    log('Re-signed ' + p.name + ' for ' + salary + 'M x' + years + 'yr.');
+    save();
+    return true;
+  }
+
+  function letWalk(playerId) {
+    var team = state.teams[state.userTeamId];
+    var p = state.players[playerId];
+    removeFromRoster(team, playerId);
+    p.teamId = null; p.yearsLeft = 0; p.salary = 0;
+    state.freeAgents.push(playerId);
+    log(p.name + ' departs in free agency.');
+    save();
+  }
+
+  function releasePlayer(playerId) {
+    var team = state.teams[state.userTeamId];
+    var p = state.players[playerId];
+    removeFromRoster(team, playerId);
+    p.teamId = null; p.yearsLeft = 0; p.salary = 0;
+    state.freeAgents.push(playerId);
+    log('Released ' + p.name + '.');
+    save();
+  }
+
+  function expiringUserPlayers() {
+    var team = state.teams[state.userTeamId];
+    return team.roster.map(function (id) { return state.players[id]; }).filter(function (p) { return p.yearsLeft <= 1; });
+  }
+
+  function proceedToNewYear() {
+    state.teams.forEach(function (team) {
+      team.roster.slice().forEach(function (pid) {
+        var p = state.players[pid];
+        p.yearsLeft -= 1;
+        if (p.yearsLeft <= 0) {
+          if (team.isUser) {
+            removeFromRoster(team, pid);
+            p.teamId = null; p.salary = 0;
+            state.freeAgents.push(pid);
+          } else {
+            var keepChance = clamp(0.4 + (p.overall - 60) * 0.01, 0.1, 0.85);
+            var newSalary = salaryFor(p.overall, p.age);
+            if (Math.random() < keepChance && newSalary <= capSpace(team) + p.salary) {
+              p.salary = newSalary; p.yearsLeft = rand(1, 3);
+            } else {
+              removeFromRoster(team, pid);
+              p.teamId = null; p.salary = 0;
+              state.freeAgents.push(pid);
+            }
+          }
+        }
+      });
+    });
+
+    state.teams.forEach(function (team) {
+      team.roster.forEach(function (pid) {
+        var p = state.players[pid];
+        p.age += 1;
+        if (p.age <= 24) {
+          if (Math.random() < 0.6) p.overall = clamp(p.overall + rand(1, 3), 35, p.potential);
+        } else if (p.age <= 29) {
+          if (Math.random() < 0.3) p.overall = clamp(p.overall + rand(-1, 1), 35, p.potential);
+        } else {
+          var declineChance = clamp((p.age - 29) * 0.12, 0.1, 0.7);
+          if (Math.random() < declineChance) p.overall = clamp(p.overall - rand(1, 3), 35, 99);
+        }
+      });
+      while (team.roster.length > ROSTER_MAX) {
+        var worst = team.roster.map(function (id) { return state.players[id]; })
+          .sort(function (a, b) { return a.overall - b.overall; })[0];
+        removeFromRoster(team, worst.id);
+        worst.teamId = null; worst.salary = 0; worst.yearsLeft = 0;
+        if (team.isUser) state.freeAgents.push(worst.id);
+      }
+      team.cap += CAP_GROWTH_PER_YEAR;
+      team.record = { w: 0, l: 0, t: 0 }; team.pf = 0; team.pa = 0;
+    });
+
+    state.year += 1;
+    startDraft(4);
+    var fresh = [];
+    for (var i = 0; i < 20; i++) {
+      var fa = generateVeteran();
+      state.players[fa.id] = fa;
+      fresh.push(fa.id);
+    }
+    state.freeAgents = state.freeAgents.concat(fresh);
+    log('Year ' + state.year + ' begins. The draft is underway.');
+    save();
+  }
+
+  // ---------- training ----------
+  function trainPlayer(playerId) {
+    var team = state.teams[state.userTeamId];
+    var p = state.players[playerId];
+    if (state.trainingPoints < 3) return false;
+    if (p.overall >= p.potential) return false;
+    state.trainingPoints -= 3;
+    var chance = 0.5;
+    if (p.age <= 24) chance += 0.2;
+    if (p.age >= 30) chance -= 0.2;
+    if (Math.random() < chance) {
+      p.overall = clamp(p.overall + 1, 35, p.potential);
+      log('Training session paid off: ' + p.name + ' improves to ' + p.overall + ' OVR.');
+    } else {
+      log('Training session with ' + p.name + ' showed no gains this time.');
+    }
+    save();
+    return true;
+  }
+
+  // ---------- rendering ----------
+  function h(str) { var d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
+
+  function render() {
+    var app = document.getElementById('app');
+    if (!state) { app.innerHTML = startScreenHtml(); wireStartScreen(); return; }
+    app.innerHTML = tabsHtml() + screenHtml();
+    wireGlobal();
+  }
+
+  var pendingTeamSel = 0;
+  function startScreenHtml() {
+    var opts = TEAMS_SEED.map(function (seed, i) {
+      return '<div class="teamopt' + (i === pendingTeamSel ? ' sel' : '') + '" data-team="' + i + '">' +
+        '<div style="font-weight:600">' + seed.city + '</div><div class="muted">' + seed.mascot + '</div></div>';
+    }).join('');
+    return '<div class="startscreen">' +
+      '<h1>GRIDIRON DYNASTY</h1>' +
+      '<p class="muted">Draft. Scout. Sign. Build a dynasty from nothing.</p>' +
+      '<h3>Choose your franchise</h3>' +
+      '<div class="teamgrid">' + opts + '</div>' +
+      '<button id="startBtn" style="margin-top:16px">Start Franchise</button>' +
+      '</div>';
+  }
+
+  function wireStartScreen() {
+    document.querySelectorAll('.teamopt').forEach(function (el) {
+      el.onclick = function () { pendingTeamSel = parseInt(el.getAttribute('data-team'), 10); render(); };
+    });
+    document.getElementById('startBtn').onclick = function () { newGame(pendingTeamSel); render(); };
+  }
+
+  var TAB_DEFS = [
+    { id: 'hub', label: 'Hub', phases: null },
+    { id: 'roster', label: 'Roster', phases: null },
+    { id: 'standings', label: 'Standings', phases: null },
+    { id: 'draft', label: 'Draft', phases: ['draft'] },
+    { id: 'freeagency', label: 'Free Agency', phases: ['freeagency'] },
+    { id: 'training', label: 'Training', phases: ['season'] },
+    { id: 'playoffs', label: 'Playoffs', phases: ['playoffs'] },
+    { id: 'offseason', label: 'Offseason', phases: ['offseason'] }
+  ];
+
+  function tabsHtml() {
+    var team = state.teams[state.userTeamId];
+    var tabs = TAB_DEFS.filter(function (t) { return !t.phases || t.phases.indexOf(state.phase) >= 0; })
+      .map(function (t) {
+        return '<div class="tab' + (state.screen === t.id ? ' active' : '') + '" data-tab="' + t.id + '">' + t.label + '</div>';
+      }).join('');
+    return '<div class="row"><div><strong>' + team.name + '</strong> <span class="badge">Year ' + state.year + '</span>' +
+      (state.phase === 'season' ? ' <span class="badge">Week ' + state.week + '/' + (state.teams.length - 1) + '</span>' : '') +
+      '</div><div class="muted">Cap: ' + capSpace(team) + 'M / ' + team.cap + 'M</div></div>' +
+      '<div class="tabs">' + tabs + '</div>';
+  }
+
+  function screenHtml() {
+    switch (state.screen) {
+      case 'roster': return rosterHtml();
+      case 'standings': return standingsHtml();
+      case 'draft': return draftHtml();
+      case 'freeagency': return freeAgencyHtml();
+      case 'training': return trainingHtml();
+      case 'playoffs': return playoffsHtml();
+      case 'offseason': return offseasonHtml();
+      default: return hubHtml();
+    }
+  }
+
+  function hubHtml() {
+    var team = state.teams[state.userTeamId];
+    var off = offenseRating(team).toFixed(1), def = defenseRating(team).toFixed(1);
+    var nextGame = state.schedule.filter(function (g) { return g.week === state.week && !g.played && (g.homeId === team.id || g.awayId === team.id); })[0];
+    var gameCard = '';
+    if (state.phase === 'season' && nextGame) {
+      var oppId = nextGame.homeId === team.id ? nextGame.awayId : nextGame.homeId;
+      var opp = state.teams[oppId];
+      var isHome = nextGame.homeId === team.id;
+      gameCard = '<div class="card"><h3>This Week</h3><div class="row"><div>' + (isHome ? 'vs' : '@') + ' ' + opp.name + '</div>' +
+        '<button id="simWeekBtn">Simulate Week</button></div></div>';
+    } else if (state.phase === 'season') {
+      gameCard = '<div class="card"><div class="row"><div>Week ' + state.week + ' games ready.</div><button id="simWeekBtn">Simulate Week</button></div></div>';
+    }
+    var histHtml = state.history.length ? state.history.slice(0, 5).map(function (hh) {
+      return '<div class="row"><span>Year ' + hh.year + '</span><span>' + state.teams[hh.champion].name + '</span></div>';
+    }).join('') : '<div class="muted">No champions yet.</div>';
+    return gameCard +
+      '<div class="card"><h3>Team Strength</h3><div class="row"><span>Offense</span><span>' + off + '</span></div>' +
+      '<div class="row"><span>Defense</span><span>' + def + '</span></div>' +
+      '<div class="row"><span>Roster Size</span><span>' + team.roster.length + ' / ' + ROSTER_MAX + '</span></div></div>' +
+      '<div class="card"><h3>Recent News</h3><div class="log">' + state.log.slice(0, 12).map(h).join('<br>') + '</div></div>' +
+      '<div class="card"><h3>Championship History</h3>' + histHtml + '</div>' +
+      '<div class="card"><button class="danger" id="resetBtn">New Game (reset all progress)</button></div>';
+  }
+
+  function playerRow(p, actionsHtml, showTeam, overallText) {
+    var teamTag = showTeam && p.teamId !== null ? ' <span class="muted">' + state.teams[p.teamId].abbr + '</span>' : '';
+    var ovrText = overallText || ('OVR ' + p.overall);
+    return '<div class="prow"><div><span class="pname">' + h(p.name) + '</span>' +
+      ' <span class="badge">' + p.position + '</span> <span class="muted">Age ' + p.age + '</span>' + teamTag +
+      '<div class="muted">' + ovrText + (p.salary ? ' &middot; ' + p.salary + 'M x' + p.yearsLeft + 'yr' : '') + '</div></div>' +
+      '<div>' + (actionsHtml || '') + '</div></div>';
+  }
+
+  function rosterHtml() {
+    var team = state.teams[state.userTeamId];
+    var players = team.roster.map(function (id) { return state.players[id]; })
+      .sort(function (a, b) { return POSITIONS.indexOf(a.position) - POSITIONS.indexOf(b.position) || b.overall - a.overall; });
+    var rows = players.map(function (p) {
+      return playerRow(p, '<button class="secondary" data-release="' + p.id + '">Release</button>');
+    }).join('');
+    return '<div class="card"><h2>Roster (' + players.length + ')</h2><div class="plist">' + (rows || '<div class="muted">Empty roster.</div>') + '</div></div>';
+  }
+
+  function standingsHtml() {
+    var rows = standings().map(function (t, i) {
+      return '<tr><td>' + (i + 1) + '</td><td>' + (t.isUser ? '<strong>' + t.name + '</strong>' : t.name) + '</td>' +
+        '<td>' + t.record.w + '-' + t.record.l + (t.record.t ? '-' + t.record.t : '') + '</td>' +
+        '<td>' + t.pf + '</td><td>' + t.pa + '</td></tr>';
+    }).join('');
+    var upcoming = state.schedule.filter(function (g) { return !g.played; }).slice(0, 8).map(function (g) {
+      return '<div class="row"><span>Wk ' + g.week + '</span><span>' + state.teams[g.homeId].abbr + ' vs ' + state.teams[g.awayId].abbr + '</span></div>';
+    }).join('');
+    var played = state.schedule.filter(function (g) { return g.played; }).slice(-8).reverse().map(function (g) {
+      return '<div class="row"><span>Wk ' + g.week + '</span><span>' + state.teams[g.homeId].abbr + ' ' + g.homeScore + ' - ' + g.awayScore + ' ' + state.teams[g.awayId].abbr + '</span></div>';
+    }).join('');
+    return '<div class="card"><h2>Standings</h2><table><tr><th>#</th><th>Team</th><th>Rec</th><th>PF</th><th>PA</th></tr>' + rows + '</table></div>' +
+      (state.schedule.length ? '<div class="card"><h3>Recent Results</h3>' + (played || '<div class="muted">No games yet.</div>') + '</div>' +
+      '<div class="card"><h3>Upcoming</h3>' + (upcoming || '<div class="muted">Season complete.</div>') + '</div>' : '');
+  }
+
+  function draftHtml() {
+    var d = state.draft;
+    if (!d) return '<div class="card">No draft in progress.</div>';
+    var onClock = currentPickTeamId();
+    var team = onClock !== null ? state.teams[onClock] : null;
+    var pickInfo = onClock === null ? '<div class="muted">Draft complete.</div>' :
+      '<div class="row"><span>On the clock: <strong>' + team.name + '</strong> (Pick ' + (d.pickIndex + 1) + '/' + d.order.length + ')</span>' +
+      (team.isUser ? '' : '<button id="advanceDraftBtn">Advance</button>') + '</div>';
+    var isUserTurn = onClock === state.userTeamId;
+    var list = '';
+    if (isUserTurn) {
+      var sorted = d.class.map(function (id) { return state.players[id]; }).sort(function (a, b) {
+        return POSITIONS.indexOf(a.position) - POSITIONS.indexOf(b.position) || a.name.localeCompare(b.name);
+      });
+      list = sorted.map(function (p) {
+        var r = scoutedRange(p);
+        var rangeText = r.exact ? ('OVR ' + p.overall) : ('OVR ' + r.lo + '-' + r.hi);
+        var cost = p.scoutLevel < 3 ? SCOUT_COST[p.scoutLevel] : null;
+        var scoutBtn = cost !== null ? '<button class="secondary" data-scout="' + p.id + '" ' + (d.scoutBudget < cost ? 'disabled' : '') + '>Scout (' + cost + ')</button>' : '';
+        return playerRow(p, scoutBtn + ' <button data-draft="' + p.id + '">Draft</button>', false, rangeText);
+      }).join('');
+    }
+    return '<div class="card"><h2>Draft — Year ' + state.year + '</h2>' + pickInfo +
+      (onClock !== null ? '<div class="muted">Scouting budget: ' + d.scoutBudget + ' &middot; <button class="secondary" id="simRestDraftBtn">Sim Rest of Draft</button></div>' : '') +
+      '</div>' +
+      (isUserTurn ? '<div class="card"><h3>Available Prospects (' + d.class.length + ')</h3><div class="plist">' + list + '</div></div>' : '');
+  }
+
+  function freeAgencyHtml() {
+    var team = state.teams[state.userTeamId];
+    var list = state.freeAgents.map(function (id) { return state.players[id]; })
+      .sort(function (a, b) { return b.overall - a.overall; });
+    var rows = list.map(function (p) {
+      var salary = salaryFor(p.overall, p.age);
+      var afford = salary <= capSpace(team) && team.roster.length < ROSTER_MAX;
+      return '<div class="prow"><div><span class="pname">' + h(p.name) + '</span> <span class="badge">' + p.position + '</span>' +
+        ' <span class="muted">Age ' + p.age + '</span><div class="muted">OVR ' + p.overall + ' &middot; ~' + salary + 'M/yr</div></div>' +
+        '<div><select id="yrs-' + p.id + '"><option value="1">1yr</option><option value="2" selected>2yr</option><option value="3">3yr</option></select> ' +
+        '<button data-sign="' + p.id + '" ' + (afford ? '' : 'disabled') + '>Sign</button></div></div>';
+    }).join('');
+    return '<div class="card"><h2>Free Agency</h2><div class="row"><span class="muted">' + list.length + ' available</span>' +
+      '<div><button class="secondary" id="advanceFABtn">Advance FA Period</button> <button id="startSeasonBtn">Start Season</button></div></div></div>' +
+      '<div class="card"><div class="plist">' + (rows || '<div class="muted">No free agents remain.</div>') + '</div></div>';
+  }
+
+  function trainingHtml() {
+    var team = state.teams[state.userTeamId];
+    var players = team.roster.map(function (id) { return state.players[id]; })
+      .filter(function (p) { return p.overall < p.potential; })
+      .sort(function (a, b) { return (b.potential - b.overall) - (a.potential - a.overall); });
+    var rows = players.map(function (p) {
+      return playerRow(p, '<button data-train="' + p.id + '" ' + (state.trainingPoints < 3 ? 'disabled' : '') + '>Train (3 pts)</button>');
+    }).join('');
+    return '<div class="card"><h2>Training</h2><div class="row"><span>Banked Points: <strong>' + state.trainingPoints + '</strong></span></div>' +
+      '<p class="muted">Spend 3 points on a session for a chance to raise a player toward their potential.</p></div>' +
+      '<div class="card"><div class="plist">' + (rows || '<div class="muted">Every player is at their ceiling.</div>') + '</div></div>';
+  }
+
+  function playoffsHtml() {
+    var po = state.playoffs;
+    if (!po) return '<div class="card">No playoff data.</div>';
+    function gameRow(g, label) {
+      if (!g) return '';
+      var home = state.teams[g.homeId], away = state.teams[g.awayId];
+      var scoreTxt = g.played ? (home.abbr + ' ' + g.homeScore + ' - ' + g.awayScore + ' ' + away.abbr) : (home.abbr + ' vs ' + away.abbr);
+      return '<div class="row"><span>' + label + '</span><span>' + scoreTxt + '</span></div>';
+    }
+    var actionBtn = po.round === 'done' ? '' : '<button id="simPlayoffBtn">Simulate ' + (po.round === 'semis' ? 'Semifinals' : 'Championship') + '</button>';
+    var champHtml = po.champion !== null ? '<div class="card"><h2>' + state.teams[po.champion].name + ' are Champions!</h2></div>' : '';
+    return '<div class="card"><h2>Playoffs</h2>' +
+      gameRow(po.semis[0], 'Semifinal 1') + gameRow(po.semis[1], 'Semifinal 2') +
+      (po.final ? gameRow(po.final, 'Championship') : '') +
+      '<div style="margin-top:8px">' + actionBtn + '</div></div>' + champHtml;
+  }
+
+  function offseasonHtml() {
+    var expiring = expiringUserPlayers();
+    var rows = expiring.map(function (p) {
+      var salary = salaryFor(p.overall, p.age);
+      return '<div class="prow"><div><span class="pname">' + h(p.name) + '</span> <span class="badge">' + p.position + '</span>' +
+        ' <span class="muted">Age ' + p.age + '</span><div class="muted">OVR ' + p.overall + ' &middot; re-sign ~' + salary + 'M</div></div>' +
+        '<div><select id="ryrs-' + p.id + '"><option value="1">1yr</option><option value="2" selected>2yr</option><option value="3">3yr</option></select> ' +
+        '<button data-resign="' + p.id + '">Re-sign</button> <button class="secondary" data-walk="' + p.id + '">Let Walk</button></div></div>';
+    }).join('');
+    return '<div class="card"><h2>Offseason — Year ' + state.year + ' Complete</h2>' +
+      '<p class="muted">Handle expiring contracts, then advance to next year\'s draft.</p>' +
+      '<button id="proceedYearBtn">Proceed to Year ' + (state.year + 1) + '</button></div>' +
+      '<div class="card"><h3>Expiring Contracts (' + expiring.length + ')</h3><div class="plist">' + (rows || '<div class="muted">No expiring contracts.</div>') + '</div></div>';
+  }
+
+  // ---------- event wiring ----------
+  function wireGlobal() {
+    document.querySelectorAll('[data-tab]').forEach(function (el) {
+      el.onclick = function () { state.screen = el.getAttribute('data-tab'); render(); };
+    });
+    var resetBtn = document.getElementById('resetBtn');
+    if (resetBtn) resetBtn.onclick = resetGame;
+
+    var simWeekBtn = document.getElementById('simWeekBtn');
+    if (simWeekBtn) simWeekBtn.onclick = function () { simWeek(); render(); };
+
+    document.querySelectorAll('[data-release]').forEach(function (el) {
+      el.onclick = function () { releasePlayer(parseInt(el.getAttribute('data-release'), 10)); render(); };
+    });
+
+    var advanceDraftBtn = document.getElementById('advanceDraftBtn');
+    if (advanceDraftBtn) advanceDraftBtn.onclick = function () { advanceDraft(); render(); };
+    var simRestDraftBtn = document.getElementById('simRestDraftBtn');
+    if (simRestDraftBtn) simRestDraftBtn.onclick = function () { simRestOfDraft(); render(); };
+    document.querySelectorAll('[data-scout]').forEach(function (el) {
+      el.onclick = function () {
+        var id = parseInt(el.getAttribute('data-scout'), 10);
+        var p = state.players[id];
+        var cost = SCOUT_COST[p.scoutLevel];
+        if (state.draft.scoutBudget >= cost) { state.draft.scoutBudget -= cost; p.scoutLevel += 1; save(); render(); }
+      };
+    });
+    document.querySelectorAll('[data-draft]').forEach(function (el) {
+      el.onclick = function () {
+        var id = parseInt(el.getAttribute('data-draft'), 10);
+        draftPickTo(state.userTeamId, id);
+        advanceDraft();
+        if (state.draft && currentPickTeamId() === null) finishDraft();
+        render();
+      };
+    });
+
+    document.querySelectorAll('[data-sign]').forEach(function (el) {
+      el.onclick = function () {
+        var id = parseInt(el.getAttribute('data-sign'), 10);
+        var sel = document.getElementById('yrs-' + id);
+        signFreeAgent(id, parseInt(sel.value, 10));
+        render();
+      };
+    });
+    var advanceFABtn = document.getElementById('advanceFABtn');
+    if (advanceFABtn) advanceFABtn.onclick = function () { advanceFAPeriod(); render(); };
+    var startSeasonBtn = document.getElementById('startSeasonBtn');
+    if (startSeasonBtn) startSeasonBtn.onclick = function () { startSeason(); render(); };
+
+    document.querySelectorAll('[data-train]').forEach(function (el) {
+      el.onclick = function () { trainPlayer(parseInt(el.getAttribute('data-train'), 10)); render(); };
+    });
+
+    var simPlayoffBtn = document.getElementById('simPlayoffBtn');
+    if (simPlayoffBtn) simPlayoffBtn.onclick = function () { simPlayoffRound(); render(); };
+
+    document.querySelectorAll('[data-resign]').forEach(function (el) {
+      el.onclick = function () {
+        var id = parseInt(el.getAttribute('data-resign'), 10);
+        var sel = document.getElementById('ryrs-' + id);
+        resignPlayer(id, parseInt(sel.value, 10));
+        render();
+      };
+    });
+    document.querySelectorAll('[data-walk]').forEach(function (el) {
+      el.onclick = function () { letWalk(parseInt(el.getAttribute('data-walk'), 10)); render(); };
+    });
+    var proceedYearBtn = document.getElementById('proceedYearBtn');
+    if (proceedYearBtn) proceedYearBtn.onclick = function () { proceedToNewYear(); render(); };
+  }
+
+  // ---------- boot ----------
+  state = load();
+  render();
+})();
+</script>
+</body>
+</html>
