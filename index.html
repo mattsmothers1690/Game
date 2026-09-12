@@ -2825,11 +2825,12 @@
     return out;
   }
 
-  function buildChapterArc(chId, regularArr, miniBossArr, bossArr) {
-    var regular = regularArr[0];
-    var miniBoss = miniBossArr[miniBossArr.length - 1];
-    var elite = bossArr[0];
-    var boss = bossArr[bossArr.length - 1];
+  function buildChapterArc(chId, regularArr, miniBossArr, bossArr, chapterMult) {
+    var mult = chapterMult || 1;
+    var regular = scaleUnitStats(regularArr[0], mult);
+    var miniBoss = scaleUnitStats(miniBossArr[miniBossArr.length - 1], mult);
+    var elite = scaleUnitStats(bossArr[0], mult);
+    var boss = scaleUnitStats(bossArr[bossArr.length - 1], mult);
     var stages = [];
 
     // Stages 1-5: regular ramp, 4v4, 3 waves/stage.
@@ -2873,17 +2874,40 @@
     return stages;
   }
 
+  // Chapters 2-8 (indices 0-6 below) were originally tuned for the OLD
+  // all-Legendary 3-champion starter squad (see CLAUDE.md "Next up" -
+  // this seam was flagged and explicitly deferred, not forgotten). Once
+  // Chapter 1 became the tutorial ladder with its own, much weaker
+  // starter squad, that old curve's floor (Chapter 2's Grunt Warchief
+  // at 110hp) ended up far BELOW Chapter 1's own finale (Chapter
+  // Warlord, 220hp) - Chapter 2 read as trivially easy immediately
+  // after Chapter 1's capstone, the opposite of a plateau. This
+  // multiplier re-bases that curve to start meaningfully above Chapter
+  // 1's finale and keep climbing chapter to chapter - a real, repeating
+  // "plateau, go farm Tower/Faction Wars/Main Boss, come back stronger"
+  // gate at Chapter 2 and beyond, not just once at the very end of
+  // Campaign. Chapter 9 (index 7, Campaign Warlord) and Chapter 11
+  // (index 9, The Herald) keep mult 1 - both are already-validated,
+  // previously-probed landmark walls (the historical top-down curve's
+  // own peaks) and stay byte-for-byte untouched. Chapter 10 (index 8,
+  // The Devourer) also keeps mult 1 - it was already a relief dip below
+  // Chapter 9 and still reads that way once Chapters 2-8 climb toward
+  // (but stay under) Chapter 9's fixed 300hp ceiling. Untested past the
+  // one Chapter 2 probe below (`probe_ch2_plateau.js`) given the sheer
+  // scope (70 more re-scaled stages) - first pass, expect iteration.
+  var CAMPAIGN_ARC_DIFFICULTY_MULT = [2.364, 1.950, 1.665, 1.706, 1.508, 1.320, 1.196, 1, 1, 1];
+
   var CAMPAIGN_CHAPTER_ARCS = [
-    buildChapterArc('c2', CAMPAIGN_CH1A, CAMPAIGN_CH1B, CAMPAIGN_CH1C),
-    buildChapterArc('c3', CAMPAIGN_CH2A, CAMPAIGN_CH2B, CAMPAIGN_CH2C),
-    buildChapterArc('c4', CAMPAIGN_CH3A, CAMPAIGN_CH3B, CAMPAIGN_CH3C),
-    buildChapterArc('c5', CAMPAIGN_CH4A, CAMPAIGN_CH4B, CAMPAIGN_CH4C),
-    buildChapterArc('c6', CAMPAIGN_CH5A, CAMPAIGN_CH5B, CAMPAIGN_CH5C),
-    buildChapterArc('c7', CAMPAIGN_CH6A, CAMPAIGN_CH6B, CAMPAIGN_CH6C),
-    buildChapterArc('c8', CAMPAIGN_CH7A, CAMPAIGN_CH7B, CAMPAIGN_CH7C),
-    buildChapterArc('c9', CAMPAIGN_CH8A, CAMPAIGN_CH8B, CAMPAIGN_CH8C),
-    buildChapterArc('c10', CAMPAIGN_CH9A, CAMPAIGN_CH9B, CAMPAIGN_CH9C),
-    buildChapterArc('c11', CAMPAIGN_CH10A, CAMPAIGN_CH10B, CAMPAIGN_CH10C)
+    buildChapterArc('c2', CAMPAIGN_CH1A, CAMPAIGN_CH1B, CAMPAIGN_CH1C, CAMPAIGN_ARC_DIFFICULTY_MULT[0]),
+    buildChapterArc('c3', CAMPAIGN_CH2A, CAMPAIGN_CH2B, CAMPAIGN_CH2C, CAMPAIGN_ARC_DIFFICULTY_MULT[1]),
+    buildChapterArc('c4', CAMPAIGN_CH3A, CAMPAIGN_CH3B, CAMPAIGN_CH3C, CAMPAIGN_ARC_DIFFICULTY_MULT[2]),
+    buildChapterArc('c5', CAMPAIGN_CH4A, CAMPAIGN_CH4B, CAMPAIGN_CH4C, CAMPAIGN_ARC_DIFFICULTY_MULT[3]),
+    buildChapterArc('c6', CAMPAIGN_CH5A, CAMPAIGN_CH5B, CAMPAIGN_CH5C, CAMPAIGN_ARC_DIFFICULTY_MULT[4]),
+    buildChapterArc('c7', CAMPAIGN_CH6A, CAMPAIGN_CH6B, CAMPAIGN_CH6C, CAMPAIGN_ARC_DIFFICULTY_MULT[5]),
+    buildChapterArc('c8', CAMPAIGN_CH7A, CAMPAIGN_CH7B, CAMPAIGN_CH7C, CAMPAIGN_ARC_DIFFICULTY_MULT[6]),
+    buildChapterArc('c9', CAMPAIGN_CH8A, CAMPAIGN_CH8B, CAMPAIGN_CH8C, CAMPAIGN_ARC_DIFFICULTY_MULT[7]),
+    buildChapterArc('c10', CAMPAIGN_CH9A, CAMPAIGN_CH9B, CAMPAIGN_CH9C, CAMPAIGN_ARC_DIFFICULTY_MULT[8]),
+    buildChapterArc('c11', CAMPAIGN_CH10A, CAMPAIGN_CH10B, CAMPAIGN_CH10C, CAMPAIGN_ARC_DIFFICULTY_MULT[9])
   ];
 
   // Chapter 1 keeps its own 12 flat single-wave stages; Chapters 2-11

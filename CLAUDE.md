@@ -1023,6 +1023,74 @@ wall) than by one stage nobody can beat on arrival. Not an exhaustive
 sweep - only Stages 9-12 were re-probed, matching this file's "first
 pass, expect iteration" convention for hand-tuned content.
 
+**Chapters 2-8 difficulty re-basing (the Chapter 2 plateau).** A later
+explicit follow-up: "Campaign needs to scale a bit harder now. I want
+the flow to gain be plateau around ch2 then you need to go farm
+gear/charms/shards to improve your team... it needs a constant shift
+between all the content plateau then move to the next." Investigating
+surfaced the actual, previously-flagged-and-deferred cause (see
+"Chapters 2-11 mini-boss/boss expansion"'s own note, and "Next up"):
+Chapters 2-11's top-down target curve (`CAMPAIGN_CH1A/B/C` through
+`CAMPAIGN_CH10A/B/C`, feeding `buildChapterArc`) was designed against
+the OLD all-Legendary 3-champion starter squad, long before Chapter 1
+became the tutorial ladder. Chapter 1's own finale (Chapter Warlord,
+220/58/40 hp/atk/def after the Stages 9-12 retune above) had since
+climbed well past Chapter 2's untouched floor (Grunt Warchief, only
+110/38/26) - Chapter 2 was reading as *trivially easier* than the
+fight the player had just cleared, the opposite of a plateau.
+- **`CAMPAIGN_ARC_DIFFICULTY_MULT`**: a 10-entry array (one per
+  generated arc, Chapters 2-11) of scalar multipliers applied to every
+  unit template (`regular`/`miniBoss`/`elite`/`boss`) via
+  `scaleUnitStats` at the *top* of `buildChapterArc`, before its
+  existing internal per-stage ramp math runs - so the ramp shape within
+  each chapter (5-stage regular ramp, mini-boss at 6, 5-stage elite
+  ramp, boss alone at 12) is completely unchanged, only the floor it
+  ramps from is re-based. Values: `[2.364, 1.950, 1.665, 1.706, 1.508,
+  1.320, 1.196, 1, 1, 1]` - Chapter 2 (index 0) gets the biggest jump
+  (its boss, Grunt Warchief, moves from 110 to 260 hp - now a clear
+  step above Chapter 1's 220), then the multiplier tapers down through
+  Chapters 3-8 as each chapter's own unscaled boss template already sat
+  higher up the original curve (Bramble Ancient 140hp, Fen Matriarch
+  170hp, ... Dusk Reaver 250hp), landing every chapter's boss on a
+  smoothly climbing 260→299hp curve that approaches but never reaches
+  Chapter 9's fixed peak.
+- **Chapter 9 (index 7, Campaign Warlord) and Chapter 11 (index 9, The
+  Herald) keep multiplier 1 - untouched, byte-for-byte.** Both are
+  already-validated, previously-probed landmark walls (the *original*
+  top-down curve's own two peaks, referenced as "do not touch" in the
+  mini-boss/boss expansion notes above) - raising Chapters 2-8 toward,
+  but never past, their fixed values preserves "Chapter 9 is the real
+  wall, Chapter 11 is the hardest fight in the game" exactly as before.
+  Chapter 10 (index 8, The Devourer, 260hp) also keeps multiplier 1 -
+  it was already a relief dip sitting between Chapter 9's peak and
+  Chapter 11's finale, and stays legible as one now that Chapters 2-8
+  climb toward (not past) 300 rather than sitting flat near 110-250.
+- **Verified via `probe_ch2_plateau.js`** (scratchpad): a squad that
+  just finished Chapter 1 (the 6 owned champions - 4 starters + Bastian
+  + Vara - all Level 1, no gear/charms invested) goes 3/3 at Chapter
+  2's opening stage (13), 2/3 at its mid-chapter mini-boss (18), and
+  only 1/4 at its boss stage (24) - a genuine, immediate wall right
+  after Chapter 1, not the previous "reads as easy/building territory"
+  behavior. The same roster leveled to ~20 purely via Main Boss's
+  Gold/XP (no gear, no charms - `levelUpChampion` spent directly
+  through the debug hook) clears Chapter 2's boss 4/4 - confirming the
+  wall is real but passable once the player actually detours into
+  Main Boss (already unlocked at Campaign Stage 4, well before Chapter
+  2) to level up, exactly the "plateau, then farm, then push through"
+  loop asked for. A `probe_ch8_ch9_check.js` spot-check confirmed a
+  fully Level-40 squad (unlimited Gold, still no gear/charms) can clear
+  both Chapter 8's boss (stage 96) and Chapter 9's untouched wall
+  (stage 108) 3/3 each - the curve stays clearable with enough raw
+  investment, it doesn't turn into a hard stop.
+- **Not an exhaustive probe of Chapters 3-8** individually (only
+  Chapters 2, 8, and 9 were spot-checked) - same "first pass, expect
+  iteration" convention as every other large hand-tuned batch in this
+  file. The multiplier curve for Chapters 3-8 is derived from the same
+  top-down reasoning as Chapter 2's (each chapter's own already-higher
+  boss floor needs proportionally less of a boost to keep climbing
+  toward Chapter 9's fixed peak) but hasn't been individually
+  playtested stage-by-stage.
+
 Implementation notes:
 - **Fixed vs. infinite vs. cycling**: `ENCOUNTERS[id].fixedChapters`
   (an array of chapter template arrays) marks Campaign as non-scaling —
@@ -1485,6 +1553,21 @@ addressed:
    system was needed since the existing one already covers it once the
    grant is a genuine instance.
 
+**Sixth follow-up round — built.** A direct follow-up on the standing
+design mandate itself: "Campaign needs to scale a bit harder now. I
+want the flow to gain be plateau around ch2 then you need to go farm
+gear/charms/shards to improve your team. Again it needs a constant
+shift between all the content plateau then move to the next." This
+was the exact "Chapters 2-11... still assume a full Legendary squad -
+reconciling that difficulty seam is explicitly deferred, not
+forgotten" gap this doc had flagged since the Chapter 1 tutorial
+rework, now finally addressed - see "Chapters 2-8 difficulty
+re-basing (the Chapter 2 plateau)" under "Content framework" above for
+the full mechanism (`CAMPAIGN_ARC_DIFFICULTY_MULT`), the two
+untouched landmark chapters (9 and 11), and the probe results (fresh
+Level-1 squad: 1/4 at Chapter 2's boss; ~Level-20 squad: 4/4; Level-40
+squad still clears both Chapter 8 and the untouched Chapter 9 wall).
+
 Known gaps/tradeoffs from this pass, left for a future iteration:
 - `CAMPAIGN_STORY`/`CAMPAIGN_STORY_AFTER` and the Lore & Narrative
   section's own stage-number citations were NOT re-extended/re-mapped
@@ -1505,9 +1588,13 @@ Known gaps/tradeoffs from this pass, left for a future iteration:
   see "Testing methodology") hardcode the old 42-stage Campaign total
   for unlock-gating seeds (`galactic_war`, `grand_arena`,
   `roster_tier`, `dungeon_ascension`, `ch1_rework`,
-  `campaign_expand_basic`, and — newly confirmed while regression-
-  testing the Chapter 1 gear bootstrap/Unequip round below,
-  `TOTAL_STAGES = 42` still hardcoded — `test_content_framework.js`)
+  `campaign_expand_basic`, `test_content_framework.js`'s
+  `TOTAL_STAGES = 42`, and — newly confirmed while regression-testing
+  the Chapter 2 plateau round below — `test_boss_flags.js` and
+  `test_chapter_expansion.js`, both of which assume the even OLDER
+  pre-4v4/3-wave-restructure layout where each chapter after 1 was
+  only 3 stages (e.g. expecting Chapter 2's boss at global stage 15,
+  when it's stage 24 now that every chapter is 12 stages)
   and are now stale, not failing due to a real regression — same
   "stale test, not a regression" convention as always, just not all
   individually fixed in this pass. (Several other
