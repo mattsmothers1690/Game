@@ -570,6 +570,54 @@ a time roster-wide) is enforced by `unclaimedGearInstances` /
       for the "stage cleared" messaging) so every reward calculation in
       between can read `isFirstClear` - a reordering, not a new
       persistence mechanism.
+22. **Campaign Chapter 1 gear bootstrap**: a further explicit ask after
+    the First-Clear Bonus above - "campaign chapter 1 grants 1x random
+    gear piece on each 1st clear to speed up the process of getting
+    gear on your initial champs." Campaign has no `ENCOUNTER_DROPS`
+    entry at all (reward purity - it's Scrap+Gold-only, see Content
+    framework below), so the generic First-Clear Bonus's guaranteed-
+    drop bypass never touches it. Rather than giving Campaign a real
+    `gearChance` (which would guarantee gear on every future chapter's
+    first clear too, contradicting its documented "no farmable
+    specialty" role), `endBattle` has a small Chapter-1-only carve-out:
+    `if (currentEncounterId === 'campaign' && isFirstClear &&
+    currentStage <= 12)` calls the exact same `rollGearDrop(currentStage)`
+    Tower's own drops use (which itself calls `farmGear` under the
+    hood) - so the granted piece is a real rolled instance (random
+    slot/rarity/main stat/substats/set), landing in `gearInventory` and
+    immediately eligible for Upgrade/Reforge/Rework/Salvage like
+    anything farmed, not a fixed freebie with its own parallel
+    machinery. Also sets `lastGearDrop` so the victory-screen Auto-Equip
+    button offers it, same as any other gear drop. Scoped strictly to
+    `currentStage <= 12` (Chapter 1) - Chapters 2-11 and beyond keep
+    Campaign's existing no-gear reward purity untouched. Verified via
+    `test_ch1_gear_and_unequip.js`: Stage 1's first clear grants exactly
+    one rolled instance (confirmed via `mainStat`/`set`/`substats`
+    fields), a replay of Stage 1 grants none, and a forced-win at Stage
+    13 (Chapter 2) grants none.
+23. **Direct gear Unequip**: the user asked to be able to "remove gear
+    and swap onto another champ." This was already *possible* via
+    `cycleGearSlot` (clicking a champion's own Armory slot button cycles
+    forward through `[null, ...unclaimed instances]`, so cycling all the
+    way around eventually reaches `null` and frees the piece) but
+    clunky - freeing a specific piece meant clicking through however
+    many other unclaimed items shared that slot first. The gear
+    inventory list (`gearInventoryList`, alongside Upgrade/Reforge/
+    Rework/Salvage) already showed which champion owned each equipped
+    instance (`findGearOwner`) but had no direct way to detach it -
+    Salvage was simply `disabled` while owned. Added `unequipGear
+    (instanceId)`: walks every champion's `equipment` record and clears
+    any slot pointing at that instance, in one click, from the same row
+    that already displays the owner. A new "Unequip" button on each gear
+    inventory row is enabled exactly when `findGearOwner` returns an
+    owner (mirroring Salvage's existing disabled condition, inverted) -
+    click it, then cycle the now-unclaimed instance onto a different
+    champion's Armory row same as before. `cycleGearSlot` itself is
+    unchanged - this adds a direct detach action alongside it rather
+    than replacing the cycle-to-equip mechanism. Verified via
+    `test_ch1_gear_and_unequip.js`: farm a piece, equip it on Zephyr,
+    confirm Unequip is enabled and clicking it clears Zephyr's slot,
+    then confirm the freed piece can be cycled onto Fang.
 
 ## Content framework
 
@@ -591,7 +639,7 @@ stat axis or an economy shared with other modes.
 
 | Mode (`ENCOUNTERS` id) | Squad | Progression | Unlocks at (Campaign stage) | Rewards |
 |---|---|---|---|---|
-| **Campaign** (`campaign`) | 4v4 × 3 waves, every chapter including Chapter 1 | 132 fixed hand-authored stages (`CAMPAIGN_CHAPTERS` = `CAMPAIGN_CH1_STAGES` (12) + 10 chapters × 12 stages each via the `buildChapterArc` generator — see "New-game onboarding" and "Campaign 4v4/3-wave restructure" below) — **not** the infinite ladder, no stat compounding, replaying an old stage is always the same fight | Always open | Scrap + Gold only (bootstrap) |
+| **Campaign** (`campaign`) | 4v4 × 3 waves, every chapter including Chapter 1 | 132 fixed hand-authored stages (`CAMPAIGN_CHAPTERS` = `CAMPAIGN_CH1_STAGES` (12) + 10 chapters × 12 stages each via the `buildChapterArc` generator — see "New-game onboarding" and "Campaign 4v4/3-wave restructure" below) — **not** the infinite ladder, no stat compounding, replaying an old stage is always the same fight | Always open | Scrap + Gold only (bootstrap), plus 1 rolled gear piece on each of Chapter 1's 12 first clears only (see Systems item 22) |
 | **Tower** (`tower`) | 5v5 | Infinite stage ladder | Stage 7 | Gear (guaranteed) + Gear Rework Catalysts (rare, rides gear drops) + Scrap |
 | **Faction Wars** (`faction`) | 4v4 × 3 waves | Infinite stage ladder | Stage 10 | Charms (rolled chance) + Charm Dust (guaranteed) |
 | **Main Boss** (`mainboss`) | 5v5 vs. 1 Guild Boss (AoE basic, Attack ramps every own turn) | "Levels" (reuses the infinite-ladder `stageProgress` mechanism — a level IS a stage) | Stage 4 | Gold + XP + Shards + Summon Shards, paid out via 4 chests unlocked at 75%/50%/25%/0% of the boss's health, ramping in value per chest and per level (see "Main Boss: Guild Boss redesign" below) |
@@ -1020,6 +1068,11 @@ Implementation notes:
   mode that doesn't grant something never shows a useless "+0 X" line.
   The First-Clear Bonus (Systems item 21) respects this same purity
   rule for its guaranteed-drop bypass - see that item for how.
+  Campaign's own Chapter 1 gear bootstrap (Systems item 22) is the one
+  deliberate, narrowly-scoped exception to Campaign's own "no gear"
+  purity - a special-cased `currentStage <= 12` check in `endBattle`,
+  not an `ENCOUNTER_DROPS.campaign` entry (which would have applied to
+  all 132 stages, not just Chapter 1's 12).
 - Champion leveling itself (Gold/XP spend, level curve, Shard-gated
   cap) is unchanged from when it was Boss/Wave/Champion-Trial-agnostic
   — see the leveling bullet above; only Main Boss feeds it now.
@@ -1404,6 +1457,34 @@ increase power to get through the next content's plateau." Both built:
    from the bonus tag (its rewards already live entirely on the Guild
    Boss chest mechanic, untouched by this multiplier).
 
+**Fifth follow-up round — built.** Three more asks, continuing the same
+"speed up the early gear/power loop" thread as the Fourth round above:
+"I would suggest campaign chapter 1 grants 1x random gear piece on each
+1st clear to speed up the process of getting gear on your initial
+champs. Also we should be able to remove gear and swap onto another
+champ. Also we need the roll/upgrade progression from gear." All three
+addressed:
+1. **Campaign Chapter 1 gear bootstrap** - Chapter 1's 12 first-clears
+   each now guarantee one gear piece, via the same `rollGearDrop`/
+   `farmGear` path Tower's own drops use - see Systems item 22.
+2. **Direct gear Unequip** - a one-click "Unequip" button on the gear
+   inventory list detaches a piece from whichever champion has it
+   equipped, so it can be cycled onto a different champion without
+   hunting through `cycleGearSlot`'s cycle order to free it first - see
+   Systems item 23.
+3. **"Roll/upgrade progression from gear"** - read as: the Chapter 1
+   grant above needed to be a real rolled instance that feeds the
+   existing Scrap Upgrade/Reforge/Rework economy (levels 0-12, substat
+   rerolls, etc. - see Systems items 6/8), not a fixed freebie outside
+   that system. Satisfied for free by reusing `rollGearDrop`/`farmGear`
+   for item 1 above rather than building a separate reward path - the
+   granted piece has a real main stat/substats/set roll and a `level`
+   field from the moment it's granted, so it immediately shows up in
+   the gear inventory list with working Upgrade/Reforge/Unequip/Salvage
+   buttons like anything farmed. No separate "upgrade progression"
+   system was needed since the existing one already covers it once the
+   grant is a genuine instance.
+
 Known gaps/tradeoffs from this pass, left for a future iteration:
 - `CAMPAIGN_STORY`/`CAMPAIGN_STORY_AFTER` and the Lore & Narrative
   section's own stage-number citations were NOT re-extended/re-mapped
@@ -1424,9 +1505,12 @@ Known gaps/tradeoffs from this pass, left for a future iteration:
   see "Testing methodology") hardcode the old 42-stage Campaign total
   for unlock-gating seeds (`galactic_war`, `grand_arena`,
   `roster_tier`, `dungeon_ascension`, `ch1_rework`,
-  `campaign_expand_basic`) and are now stale, not failing due to a real
-  regression — same "stale test, not a regression" convention as
-  always, just not all individually fixed in this pass. (Several other
+  `campaign_expand_basic`, and — newly confirmed while regression-
+  testing the Chapter 1 gear bootstrap/Unequip round below,
+  `TOTAL_STAGES = 42` still hardcoded — `test_content_framework.js`)
+  and are now stale, not failing due to a real regression — same
+  "stale test, not a regression" convention as always, just not all
+  individually fixed in this pass. (Several other
   scratchpad tests that manually built a 3-champion Campaign squad -
   `test_factions.js`, `test_auto_priority.js`, `test_new_champions.js`,
   `test_content_framework.js`, `test_galactic_war.js` - WERE fixed this

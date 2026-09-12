@@ -1561,6 +1561,25 @@
     return true;
   }
 
+  // Direct unequip from the gear inventory list - previously the only way
+  // to free an instance was to cycle it off via cycleGearSlot on its
+  // owning champion's Armory row (clunky when several pieces share a
+  // slot). Clears the instance from whichever champion currently has it
+  // equipped in one click, so it immediately shows as unclaimed and can
+  // be cycled onto a different champion, or Salvaged.
+  function unequipGear(instanceId) {
+    var found = false;
+    CHAMPIONS.forEach(function (c) {
+      var eq = equipment[c.id];
+      if (!eq) return;
+      GEAR_SLOTS.forEach(function (slot) {
+        if (eq[slot] === instanceId) { eq[slot] = null; found = true; }
+      });
+    });
+    if (found) saveEquipment();
+    return found;
+  }
+
   function salvageCharm(instanceId) {
     if (findCharmOwner(instanceId)) return false;
     var idx = charmInventory.findIndex(function (c) { return c.instanceId === instanceId; });
@@ -4084,6 +4103,23 @@
         }
       }
 
+      // Campaign Chapter 1 gear bootstrap: Campaign otherwise stays
+      // Scrap+Gold only (reward purity - see CONTENT framework), but the
+      // starter squad has no other route into the gear economy until
+      // Tower unlocks at Stage 7. Chapter 1's own 12 first-clears each
+      // guarantee one gear piece via the same rollGearDrop/farmGear path
+      // Tower's drops use, so it's a real rolled instance (main
+      // stat/substats/set) that enters the normal Upgrade/Reforge/Rework
+      // progression, not a fixed freebie. Deliberately scoped to
+      // currentStage <= 12 (Chapter 1 only) - Chapters 2-11 and beyond
+      // keep Campaign's existing no-gear reward purity.
+      if (currentEncounterId === 'campaign' && isFirstClear && currentStage <= 12) {
+        var campaignGearDrop = rollGearDrop(currentStage);
+        lastGearDrop = campaignGearDrop;
+        logLine('logSys', 'Gear drop: ' + gearInstanceLabel(campaignGearDrop));
+        rewardLines.push('Gear: ' + gearInstanceLabel(campaignGearDrop));
+      }
+
       var thisConfig = ENCOUNTERS[currentEncounterId];
       var stageNoun = thisConfig.fixedChapters ? 'Chapter' : 'Stage';
       var maxChapter = thisConfig.fixedChapters ? thisConfig.fixedChapters.length : Infinity;
@@ -5006,6 +5042,7 @@
             '<div class="invActions">' +
               '<button class="invActionBtn" data-action="upgrade-gear" data-id="' + inst.instanceId + '"' + (maxed || scrap < upgradeCost ? ' disabled' : '') + '>' + (maxed ? 'MAX' : 'Upgrade (' + upgradeCost + ')') + '</button>' +
               '<button class="invActionBtn" data-action="reforge-gear" data-id="' + inst.instanceId + '"' + (scrap < reforgeCost ? ' disabled' : '') + '>Reforge (' + reforgeCost + ')</button>' +
+              '<button class="invActionBtn" data-action="unequip-gear" data-id="' + inst.instanceId + '"' + (owner ? '' : ' disabled') + '>Unequip</button>' +
               '<button class="invActionBtn" data-action="salvage-gear" data-id="' + inst.instanceId + '"' + (owner ? ' disabled' : '') + '>Salvage (+' + salvageValue + ')</button>' +
               '<button class="invActionBtn" data-action="rework-set" data-id="' + inst.instanceId + '"' + (setCatalyst < GEAR_REWORK_COST.set ? ' disabled' : '') + '>Rework Set (' + GEAR_REWORK_COST.set + ')</button>' +
               '<button class="invActionBtn" data-action="rework-stat" data-id="' + inst.instanceId + '"' + (statCatalyst < GEAR_REWORK_COST.mainStat ? ' disabled' : '') + '>Rework Stat (' + GEAR_REWORK_COST.mainStat + ')</button>' +
@@ -5022,6 +5059,7 @@
     var action = btn.getAttribute('data-action');
     if (action === 'upgrade-gear') upgradeGear(id);
     else if (action === 'reforge-gear') reforgeGear(id);
+    else if (action === 'unequip-gear') unequipGear(id);
     else if (action === 'salvage-gear') salvageGear(id);
     else if (action === 'rework-set') reworkGearSet(id);
     else if (action === 'rework-stat') reworkGearMainStat(id);
