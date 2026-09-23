@@ -89,6 +89,30 @@
   var STARTER_NEEDS = { QB:1, RB:1, WR:2, TE:1, OL:3, DL:3, LB:2, CB:2, S:1, K:1 };
   var OFF_WEIGHTS = { QB:0.30, RB:0.10, WR:0.20, TE:0.10, OL:0.30 };
   var DEF_WEIGHTS = { DL:0.30, LB:0.30, CB:0.30, S:0.10 };
+
+  var POSITION_ATTRS = {
+    QB: ['ARM','ACC','MOB'], RB: ['SPD','POW','VIS'], WR: ['SPD','SIZE','HANDS'],
+    TE: ['SIZE','HANDS','RBLK'], OL: ['RBLK','PBLK'], DL: ['RSTOP','PRUSH'],
+    LB: ['RSTOP','COV'], CB: ['SPD','SIZE','COV'], S: ['RANGE','RSUP','COV'], K: ['POW','ACC']
+  };
+  var ATTR_LABELS = {
+    ARM:'ARM', ACC:'ACC', MOB:'MOB', SPD:'SPD', POW:'POW', VIS:'VIS', SIZE:'SIZE',
+    HANDS:'HND', RBLK:'RBK', PBLK:'PBK', RSTOP:'RST', PRUSH:'PRS', COV:'COV', RANGE:'RNG', RSUP:'RSP'
+  };
+  var BALANCED_TYPE = { id: 'balanced', label: 'Balanced', bias: {} };
+  var PLAYER_TYPES = {
+    QB: [{ id:'gunslinger', label:'Gunslinger', bias:{ARM:10,ACC:-6} }, { id:'fieldgeneral', label:'Field General', bias:{ACC:10,ARM:-6} }, { id:'dualthreat', label:'Dual-Threat', bias:{MOB:14,ARM:-4,ACC:-4} }, BALANCED_TYPE],
+    RB: [{ id:'burner', label:'Burner', bias:{SPD:12,POW:-10} }, { id:'bruiser', label:'Bruiser', bias:{POW:12,SPD:-10} }, { id:'workhorse', label:'Workhorse', bias:{VIS:10,SPD:-5,POW:-5} }, BALANCED_TYPE],
+    WR: [{ id:'burner', label:'Burner', bias:{SPD:12,SIZE:-10} }, { id:'possession', label:'Possession', bias:{SIZE:12,SPD:-10} }, { id:'technician', label:'Technician', bias:{HANDS:10,SPD:-4,SIZE:-4} }, BALANCED_TYPE],
+    TE: [{ id:'receiving', label:'Receiving', bias:{HANDS:10,RBLK:-10} }, { id:'blocking', label:'Blocking', bias:{RBLK:10,HANDS:-10} }, BALANCED_TYPE],
+    OL: [{ id:'roadgrader', label:'Road Grader', bias:{RBLK:10,PBLK:-8} }, { id:'protector', label:'Protector', bias:{PBLK:10,RBLK:-8} }, BALANCED_TYPE],
+    DL: [{ id:'rusher', label:'Pass Rusher', bias:{PRUSH:10,RSTOP:-8} }, { id:'stopper', label:'Run Stopper', bias:{RSTOP:10,PRUSH:-8} }, BALANCED_TYPE],
+    LB: [{ id:'coverlb', label:'Coverage LB', bias:{COV:10,RSTOP:-8} }, { id:'thumper', label:'Thumper', bias:{RSTOP:10,COV:-8} }, BALANCED_TYPE],
+    CB: [{ id:'press', label:'Press/Physical', bias:{SIZE:10,SPD:-8} }, { id:'coverage', label:'Coverage', bias:{SPD:10,SIZE:-8} }, BALANCED_TYPE],
+    S: [{ id:'ballhawk', label:'Ball Hawk', bias:{RANGE:10,RSUP:-8} }, { id:'enforcer', label:'Enforcer', bias:{RSUP:10,RANGE:-8} }, BALANCED_TYPE],
+    K: [{ id:'kicker', label:'Kicker', bias:{} }]
+  };
+
   var ROSTER_TARGET = 34;
   var ROSTER_MAX = 45;
   var STARTING_CAP = 150;
@@ -141,21 +165,48 @@
   }
 
   // ---------- player model ----------
-  function makePlayer(position, age, overall, potential) {
+  function makePlayer(position, age, overallTarget) {
     state.nextPlayerId += 1;
+    var type = choice(PLAYER_TYPES[position]);
+    var keys = POSITION_ATTRS[position];
+    var attrs = {};
+    keys.forEach(function (key) {
+      var bias = type.bias[key] || 0;
+      attrs[key] = clamp(overallTarget + bias + rand(-4, 4), 35, 99);
+    });
+    var overall = Math.round(keys.reduce(function (s, k) { return s + attrs[k]; }, 0) / keys.length);
     return {
       id: state.nextPlayerId,
       name: randomName(),
       position: position,
       age: age,
-      overall: clamp(overall, 35, 99),
-      potential: clamp(potential, overall, 99),
+      attrs: attrs,
+      overall: overall,
+      potential: overall,
+      typeId: type.id,
+      typeLabel: type.label,
       salary: 0,
       yearsLeft: 0,
       teamId: null,
       scoutLevel: 3,
       isRookie: false
     };
+  }
+
+  function recomputeOverall(p) {
+    var keys = POSITION_ATTRS[p.position];
+    p.overall = Math.round(keys.reduce(function (s, k) { return s + p.attrs[k]; }, 0) / keys.length);
+  }
+
+  function bumpAttr(p, key, delta) {
+    p.attrs[key] = clamp(p.attrs[key] + delta, 35, 99);
+    recomputeOverall(p);
+    if (p.overall > p.potential) {
+      var keys = POSITION_ATTRS[p.position];
+      var over = (p.overall - p.potential) * keys.length;
+      p.attrs[key] = clamp(p.attrs[key] - over, 35, 99);
+      recomputeOverall(p);
+    }
   }
 
   function salaryFor(overall, age) {
@@ -173,13 +224,13 @@
     var pos = choice(POSITIONS);
     var age = rand(22, 34);
     var roll = Math.random();
-    var overall;
-    if (roll < 0.06) overall = rand(85, 92);
-    else if (roll < 0.30) overall = rand(72, 84);
-    else if (roll < 0.70) overall = rand(58, 71);
-    else overall = rand(42, 57);
-    var potential = overall + rand(0, 5);
-    var p = makePlayer(pos, age, overall, potential);
+    var overallTarget;
+    if (roll < 0.06) overallTarget = rand(85, 92);
+    else if (roll < 0.30) overallTarget = rand(72, 84);
+    else if (roll < 0.70) overallTarget = rand(58, 71);
+    else overallTarget = rand(42, 57);
+    var p = makePlayer(pos, age, overallTarget);
+    p.potential = clamp(p.overall + rand(0, 5), p.overall, 99);
     p.salary = salaryFor(p.overall, p.age);
     p.yearsLeft = rand(1, 4);
     return p;
@@ -188,9 +239,9 @@
   function generateProspect() {
     var pos = choice(POSITIONS);
     var age = rand(21, 23);
-    var overall = rand(48, 88);
-    var potential = overall + rand(5, 25);
-    var p = makePlayer(pos, age, overall, potential);
+    var overallTarget = rand(48, 88);
+    var p = makePlayer(pos, age, overallTarget);
+    p.potential = clamp(p.overall + rand(5, 25), p.overall, 99);
     p.isRookie = true;
     p.scoutLevel = 0;
     return p;
@@ -201,7 +252,29 @@
     var spread = p.scoutLevel === 0 ? 15 : (p.scoutLevel === 1 ? 8 : 3);
     return { lo: clamp(p.overall - spread, 35, 99), hi: clamp(p.overall + spread, 35, 99), exact: false };
   }
+  function scoutedAttrRange(p, key) {
+    if (!p.isRookie || p.scoutLevel >= 3) return { lo: p.attrs[key], hi: p.attrs[key] };
+    var spread = p.scoutLevel === 0 ? 15 : (p.scoutLevel === 1 ? 8 : 3);
+    return { lo: clamp(p.attrs[key] - spread, 35, 99), hi: clamp(p.attrs[key] + spread, 35, 99) };
+  }
   var SCOUT_COST = [3, 5, 8];
+
+  function formatStats(p) {
+    var keys = POSITION_ATTRS[p.position];
+    var attrStr = keys.map(function (k) { return ATTR_LABELS[k] + ' ' + p.attrs[k]; }).join(' &middot; ');
+    return 'OVR ' + p.overall + ' (' + p.typeLabel + ') &middot; ' + attrStr;
+  }
+  function formatScoutedStats(p) {
+    if (p.scoutLevel >= 3) return formatStats(p);
+    var keys = POSITION_ATTRS[p.position];
+    var typeTxt = p.scoutLevel >= 1 ? p.typeLabel : '???';
+    var r = scoutedRange(p);
+    var attrStr = keys.map(function (k) {
+      var rr = scoutedAttrRange(p, k);
+      return ATTR_LABELS[k] + ' ' + rr.lo + '-' + rr.hi;
+    }).join(' &middot; ');
+    return 'OVR ' + r.lo + '-' + r.hi + ' (' + typeTxt + ') &middot; ' + attrStr;
+  }
 
   // ---------- team model ----------
   function makeTeam(id, seed, isUser) {
@@ -221,6 +294,19 @@
     var sum = 0;
     for (var i = 0; i < n; i++) sum += sorted[i] ? sorted[i].overall : 40;
     return sum / n;
+  }
+
+  function bestAt(team, pos, n) {
+    return playersAt(team, pos).sort(function (a, b) { return b.overall - a.overall; }).slice(0, n);
+  }
+
+  function personnel(team) {
+    return {
+      QB: bestAt(team, 'QB', 1)[0], RB: bestAt(team, 'RB', 1)[0],
+      WRs: bestAt(team, 'WR', 2), TE: bestAt(team, 'TE', 1)[0], OLs: bestAt(team, 'OL', 3),
+      DLs: bestAt(team, 'DL', 2), LBs: bestAt(team, 'LB', 2),
+      CBs: bestAt(team, 'CB', 2), Ss: bestAt(team, 'S', 1), K: bestAt(team, 'K', 1)[0]
+    };
   }
 
   function offenseRating(team) {
@@ -466,53 +552,130 @@
 
   // ---------- game simulation ----------
   function simulateGame(homeTeam, awayTeam) {
-    var offH = offenseRating(homeTeam), defH = defenseRating(homeTeam), kH = kickerRating(homeTeam);
-    var offA = offenseRating(awayTeam), defA = defenseRating(awayTeam), kA = kickerRating(awayTeam);
+    var homeP = personnel(homeTeam), awayP = personnel(awayTeam);
     var homeScore = 0, awayScore = 0;
     var gameLog = [];
     var possessions = 9;
 
-    function possession(offTeam, defTeam, offR, defR, kR, isHome, half) {
-      if (Math.random() < 0.05) {
-        var defender = choice(playersAt(defTeam, choice(['DL','LB','CB','S'])).concat([{ name: 'The defense' }]));
-        gameLog.push(defender.name + ' takes it back for ' + defTeam.abbr + '! Defensive touchdown.');
-        return { scorer: defTeam, points: 7 };
+    function av(p, key, def) { return (p && p.attrs && p.attrs[key] !== undefined) ? p.attrs[key] : (def || 45); }
+    function avgAttr(list, key, fallback) {
+      if (!list || list.length === 0) return fallback;
+      var sum = 0;
+      for (var i = 0; i < list.length; i++) sum += av(list[i], key, fallback);
+      return sum / list.length;
+    }
+
+    function checkFG(offTeam, offP) {
+      var kicker = offP.K;
+      var acc = av(kicker, 'ACC', 65);
+      var fgChance = clamp(0.55 + (acc - 70) * 0.01, 0.35, 0.95);
+      if (Math.random() < fgChance) {
+        gameLog.push((kicker ? kicker.name : offTeam.abbr + ' K') + ' nails the field goal.');
+        return { scorer: offTeam, points: 3 };
       }
-      var diff = offR - defR + (isHome ? 2 : 0);
-      var pTD = clamp(0.22 + diff * 0.008, 0.04, 0.55);
-      var roll = Math.random();
-      if (roll < pTD) {
-        var skillPos = choice(['QB','RB','WR','TE']);
-        var scorer = choice(playersAt(offTeam, skillPos).concat([{ name: offTeam.abbr + ' offense' }]));
-        gameLog.push(scorer.name + ' punches it in for ' + offTeam.abbr + '. Touchdown!');
-        return { scorer: offTeam, points: 7 };
-      }
-      var pFG = clamp(0.35 - diff * 0.003, 0.1, 0.5);
-      if (roll < pTD + pFG) {
-        var fgChance = clamp(0.6 + (kR - 70) * 0.01, 0.4, 0.95);
-        if (Math.random() < fgChance) {
-          var kicker = playersAt(offTeam, 'K')[0];
-          gameLog.push((kicker ? kicker.name : offTeam.abbr + ' K') + ' nails the field goal.');
-          return { scorer: offTeam, points: 3 };
-        }
-        gameLog.push(offTeam.abbr + ' field goal attempt is no good.');
-        return { scorer: null, points: 0 };
-      }
-      gameLog.push(offTeam.abbr + ' drive stalls; punt.');
+      gameLog.push('Field goal attempt is no good.');
       return { scorer: null, points: 0 };
     }
 
+    function possession(offTeam, defTeam, offP, defP, isHome) {
+      if (Math.random() < 0.05) {
+        var dPlayer = choice((defP.DLs || []).concat(defP.LBs || [], defP.CBs || [], defP.Ss || [])) || { name: defTeam.abbr + ' defense' };
+        gameLog.push(dPlayer.name + ' takes it back for ' + defTeam.abbr + '! Defensive touchdown.');
+        return { scorer: defTeam, points: 7 };
+      }
+      var homeBonus = isHome ? 2 : 0;
+      var qb = offP.QB;
+      var qbArm = av(qb, 'ARM', 60), qbAcc = av(qb, 'ACC', 60);
+
+      if (Math.random() < 0.55) {
+        var pDeep = clamp(0.18 + (qbArm - 70) * 0.006, 0.08, 0.45);
+        var isDeep = Math.random() < pDeep;
+        var targets = offP.WRs.concat(offP.TE ? [offP.TE] : []);
+        if (targets.length === 0) targets = [{ name: offTeam.abbr + ' receiver', attrs: { SPD: 50, SIZE: 50, HANDS: 50 } }];
+        var target;
+        if (isDeep) {
+          target = targets.slice().sort(function (a, b) { return Math.max(av(b, 'SPD', 50), av(b, 'SIZE', 50)) - Math.max(av(a, 'SPD', 50), av(a, 'SIZE', 50)); })[0];
+        } else {
+          target = targets.slice().sort(function (a, b) { return av(b, 'HANDS', 50) - av(a, 'HANDS', 50); })[0];
+        }
+        var isBigTarget = av(target, 'SIZE', 50) >= av(target, 'SPD', 50);
+        var defender;
+        if (target === offP.TE) {
+          defender = (defP.LBs || []).concat(defP.Ss || []).sort(function (a, b) { return av(b, 'COV', 50) - av(a, 'COV', 50); })[0];
+        } else {
+          defender = defP.CBs && defP.CBs.length ? choice(defP.CBs) : null;
+        }
+        var defPhys = av(defender, 'SIZE', av(defender, 'RSUP', 55));
+        var defSpd = av(defender, 'SPD', av(defender, 'RANGE', 55));
+        var defCov = av(defender, 'COV', 55);
+        var edge = isBigTarget ? (av(target, 'SIZE', 50) - defPhys) : (av(target, 'SPD', 50) - defSpd);
+        edge += (qbAcc - 70) * 0.15;
+        edge -= (defCov - 70) * 0.1;
+        edge += homeBonus;
+        var pblkAssist = (avgAttr(offP.OLs, 'PBLK', 55) - 55) * 0.4;
+        var rushPressure = (avgAttr(defP.DLs, 'PRUSH', 55) - 55) * 0.4;
+        edge -= (rushPressure - pblkAssist) * 0.5;
+        if (isDeep) {
+          var bestS = defP.Ss && defP.Ss[0];
+          edge -= clamp((av(bestS, 'RANGE', 55) - 70) * 0.05, 0, 4);
+        }
+        var success = Math.random() < clamp(0.5 + edge * 0.012, 0.15, 0.85);
+        var targetName = target.name || (offTeam.abbr + ' receiver');
+        var defName = defender ? defender.name : (defTeam.abbr + ' coverage');
+        if (success) {
+          var pScore = isDeep ? clamp(0.55 + edge * 0.01, 0.3, 0.85) : clamp(0.22 + edge * 0.01, 0.1, 0.5);
+          if (Math.random() < pScore) {
+            var verb = isBigTarget ? (' out-muscles ' + defName + ' for the score!') : (' blows past ' + defName + ' for the touchdown!');
+            gameLog.push(targetName + verb);
+            return { scorer: offTeam, points: 7 };
+          }
+          gameLog.push(targetName + ' hauls it in against ' + defName + ', but the drive stalls short.');
+          return checkFG(offTeam, offP);
+        }
+        var flavor = Math.random() < 0.15 ? (' - intercepted by ' + defName + '!') : (' - defended by ' + defName + '.');
+        gameLog.push('Pass intended for ' + targetName + flavor);
+        return { scorer: null, points: 0 };
+      }
+
+      var rb = offP.RB || { name: offTeam.abbr + ' RB', attrs: { SPD: 50, POW: 50, VIS: 50 } };
+      var rbSpd = av(rb, 'SPD', 50), rbPow = av(rb, 'POW', 50);
+      var runBlockAssist = (avgAttr(offP.OLs, 'RBLK', 55) - 55) * 0.4;
+      var front = (avgAttr(defP.DLs, 'RSTOP', 55) + avgAttr(defP.LBs, 'RSTOP', 55)) / 2 - runBlockAssist;
+      var contain = (avgAttr(defP.Ss, 'RANGE', 55) + avgAttr(defP.LBs, 'RSTOP', 55)) / 2 - runBlockAssist * 0.5;
+      if (rbSpd > rbPow) {
+        var pBreak = clamp((rbSpd - contain) * 0.01, 0, 0.18);
+        if (Math.random() < pBreak) {
+          gameLog.push(rb.name + ' breaks free down the sideline - touchdown!');
+          return { scorer: offTeam, points: 7 };
+        }
+        var pTD = clamp(0.10 + (rbSpd - front) * 0.006 + homeBonus * 0.01, 0.03, 0.4);
+        if (Math.random() < pTD) {
+          gameLog.push(rb.name + ' finds a crease for the score.');
+          return { scorer: offTeam, points: 7 };
+        }
+        gameLog.push(rb.name + ' is dropped short of the end zone; drive stalls.');
+        return checkFG(offTeam, offP);
+      }
+      var pTD2 = clamp(0.16 + (rbPow - front) * 0.01 + homeBonus * 0.01, 0.05, 0.5);
+      if (Math.random() < pTD2) {
+        gameLog.push(rb.name + ' powers through arm tackles into the end zone.');
+        return { scorer: offTeam, points: 7 };
+      }
+      gameLog.push(rb.name + ' grinds out yardage but the drive stalls.');
+      return checkFG(offTeam, offP);
+    }
+
     for (var i = 0; i < possessions; i++) {
-      var r1 = possession(homeTeam, awayTeam, offH, defA, kH, true);
+      var r1 = possession(homeTeam, awayTeam, homeP, awayP, true);
       if (r1.scorer === homeTeam) homeScore += r1.points; else if (r1.scorer === awayTeam) awayScore += r1.points;
-      var r2 = possession(awayTeam, homeTeam, offA, defH, kA, false);
+      var r2 = possession(awayTeam, homeTeam, awayP, homeP, false);
       if (r2.scorer === homeTeam) homeScore += r2.points; else if (r2.scorer === awayTeam) awayScore += r2.points;
     }
     var extra = 0;
     while (homeScore === awayScore && extra < 4) {
-      var rh = possession(homeTeam, awayTeam, offH, defA, kH, true);
+      var rh = possession(homeTeam, awayTeam, homeP, awayP, true);
       if (rh.scorer === homeTeam) homeScore += rh.points; else if (rh.scorer === awayTeam) awayScore += rh.points;
-      var ra = possession(awayTeam, homeTeam, offA, defH, kA, false);
+      var ra = possession(awayTeam, homeTeam, awayP, homeP, false);
       if (ra.scorer === homeTeam) homeScore += ra.points; else if (ra.scorer === awayTeam) awayScore += ra.points;
       extra++;
     }
@@ -671,13 +834,14 @@
       team.roster.forEach(function (pid) {
         var p = state.players[pid];
         p.age += 1;
+        var keys = POSITION_ATTRS[p.position];
         if (p.age <= 24) {
-          if (Math.random() < 0.6) p.overall = clamp(p.overall + rand(1, 3), 35, p.potential);
+          if (p.overall < p.potential && Math.random() < 0.6) bumpAttr(p, choice(keys), rand(1, 3));
         } else if (p.age <= 29) {
-          if (Math.random() < 0.3) p.overall = clamp(p.overall + rand(-1, 1), 35, p.potential);
+          if (Math.random() < 0.3) bumpAttr(p, choice(keys), rand(-1, 1));
         } else {
           var declineChance = clamp((p.age - 29) * 0.12, 0.1, 0.7);
-          if (Math.random() < declineChance) p.overall = clamp(p.overall - rand(1, 3), 35, 99);
+          if (Math.random() < declineChance) bumpAttr(p, choice(keys), -rand(1, 3));
         }
       });
       while (team.roster.length > ROSTER_MAX) {
@@ -715,8 +879,9 @@
     if (p.age <= 24) chance += 0.2;
     if (p.age >= 30) chance -= 0.2;
     if (Math.random() < chance) {
-      p.overall = clamp(p.overall + 1, 35, p.potential);
-      log('Training session paid off: ' + p.name + ' improves to ' + p.overall + ' OVR.');
+      var key = choice(POSITION_ATTRS[p.position]);
+      bumpAttr(p, key, 1);
+      log('Training session paid off: ' + p.name + '\'s ' + ATTR_LABELS[key] + ' improves (now ' + p.overall + ' OVR).');
     } else {
       log('Training session with ' + p.name + ' showed no gains this time.');
     }
@@ -818,12 +983,12 @@
       '<div class="card"><button class="danger" id="resetBtn">New Game (reset all progress)</button></div>';
   }
 
-  function playerRow(p, actionsHtml, showTeam, overallText) {
+  function playerRow(p, actionsHtml, showTeam, statsText) {
     var teamTag = showTeam && p.teamId !== null ? ' <span class="muted">' + state.teams[p.teamId].abbr + '</span>' : '';
-    var ovrText = overallText || ('OVR ' + p.overall);
+    var stats = statsText || formatStats(p);
     return '<div class="prow"><div><span class="pname">' + h(p.name) + '</span>' +
       ' <span class="badge">' + p.position + '</span> <span class="muted">Age ' + p.age + '</span>' + teamTag +
-      '<div class="muted">' + ovrText + (p.salary ? ' &middot; ' + p.salary + 'M x' + p.yearsLeft + 'yr' : '') + '</div></div>' +
+      '<div class="muted">' + stats + (p.salary ? ' &middot; ' + p.salary + 'M x' + p.yearsLeft + 'yr' : '') + '</div></div>' +
       '<div>' + (actionsHtml || '') + '</div></div>';
   }
 
@@ -869,11 +1034,9 @@
         return POSITIONS.indexOf(a.position) - POSITIONS.indexOf(b.position) || a.name.localeCompare(b.name);
       });
       list = sorted.map(function (p) {
-        var r = scoutedRange(p);
-        var rangeText = r.exact ? ('OVR ' + p.overall) : ('OVR ' + r.lo + '-' + r.hi);
         var cost = p.scoutLevel < 3 ? SCOUT_COST[p.scoutLevel] : null;
         var scoutBtn = cost !== null ? '<button class="secondary" data-scout="' + p.id + '" ' + (d.scoutBudget < cost ? 'disabled' : '') + '>Scout (' + cost + ')</button>' : '';
-        return playerRow(p, scoutBtn + ' <button data-draft="' + p.id + '">Draft</button>', false, rangeText);
+        return playerRow(p, scoutBtn + ' <button data-draft="' + p.id + '">Draft</button>', false, formatScoutedStats(p));
       }).join('');
     }
     return '<div class="card"><h2>Draft — Year ' + state.year + '</h2>' + pickInfo +
@@ -890,7 +1053,7 @@
       var salary = salaryFor(p.overall, p.age);
       var afford = salary <= capSpace(team) && team.roster.length < ROSTER_MAX;
       return '<div class="prow"><div><span class="pname">' + h(p.name) + '</span> <span class="badge">' + p.position + '</span>' +
-        ' <span class="muted">Age ' + p.age + '</span><div class="muted">OVR ' + p.overall + ' &middot; ~' + salary + 'M/yr</div></div>' +
+        ' <span class="muted">Age ' + p.age + '</span><div class="muted">' + formatStats(p) + ' &middot; ~' + salary + 'M/yr</div></div>' +
         '<div><select id="yrs-' + p.id + '"><option value="1">1yr</option><option value="2" selected>2yr</option><option value="3">3yr</option></select> ' +
         '<button data-sign="' + p.id + '" ' + (afford ? '' : 'disabled') + '>Sign</button></div></div>';
     }).join('');
@@ -934,7 +1097,7 @@
     var rows = expiring.map(function (p) {
       var salary = salaryFor(p.overall, p.age);
       return '<div class="prow"><div><span class="pname">' + h(p.name) + '</span> <span class="badge">' + p.position + '</span>' +
-        ' <span class="muted">Age ' + p.age + '</span><div class="muted">OVR ' + p.overall + ' &middot; re-sign ~' + salary + 'M</div></div>' +
+        ' <span class="muted">Age ' + p.age + '</span><div class="muted">' + formatStats(p) + ' &middot; re-sign ~' + salary + 'M</div></div>' +
         '<div><select id="ryrs-' + p.id + '"><option value="1">1yr</option><option value="2" selected>2yr</option><option value="3">3yr</option></select> ' +
         '<button data-resign="' + p.id + '">Re-sign</button> <button class="secondary" data-walk="' + p.id + '">Let Walk</button></div></div>';
     }).join('');
