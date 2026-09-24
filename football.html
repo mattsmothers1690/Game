@@ -593,8 +593,8 @@
     };
     TEAMS_SEED.forEach(function (seed, i) { state.teams.push(makeTeam(i, seed, i === userTeamIndex)); });
     state.teams.forEach(function (team) { seedStartingRoster(team); });
-    startDraft(6);
-    for (var i = 0; i < 90; i++) {
+    startDraft(8);
+    for (var i = 0; i < 140; i++) {
       var fa = generateVeteran();
       state.freeAgents.push(fa.id);
       state.players[fa.id] = fa;
@@ -1361,9 +1361,9 @@
     });
 
     state.year += 1;
-    startDraft(4);
+    startDraft(6);
     var fresh = [];
-    for (var i = 0; i < 20; i++) {
+    for (var i = 0; i < 35; i++) {
       var fa = generateVeteran();
       state.players[fa.id] = fa;
       fresh.push(fa.id);
@@ -1408,6 +1408,7 @@
   var pendingTrade = { partnerId: null, sendPlayers: {}, sendPicks: {}, receivePlayers: {}, receivePicks: {} };
   var rosterSortBy = 'position';
   var faSortBy = 'overall';
+  var draftSortBy = 'position';
 
   var SORT_OPTIONS = { position: 'Position', overall: 'Overall', age: 'Age', salary: 'Salary', name: 'Name' };
   function sortPlayers(players, sortBy) {
@@ -1649,9 +1650,7 @@
     var isUserTurn = onClock === state.userTeamId;
     var list = '';
     if (isUserTurn) {
-      var sorted = d.class.map(function (id) { return state.players[id]; }).sort(function (a, b) {
-        return POSITIONS.indexOf(a.position) - POSITIONS.indexOf(b.position) || a.name.localeCompare(b.name);
-      });
+      var sorted = sortPlayers(d.class.map(function (id) { return state.players[id]; }), draftSortBy);
       list = sorted.map(function (p) {
         var drillBtns = Object.keys(SCOUT_DRILLS).map(function (track) {
           var level = p.scout[track];
@@ -1666,7 +1665,9 @@
     return '<div class="card"><h2>Draft — Year ' + state.year + '</h2>' + pickInfo +
       (onClock !== null ? '<div class="muted">Scouting budget: ' + d.scoutBudget + ' &middot; <button class="secondary" id="simRestDraftBtn">Sim Rest of Draft</button></div>' : '') +
       '</div>' +
-      (isUserTurn ? '<div class="card"><h3>Available Prospects (' + d.class.length + ')</h3><div class="plist">' + list + '</div></div>' : '');
+      (isUserTurn ? '<div class="card"><h3>Available Prospects (' + d.class.length + ')</h3>' +
+        '<div class="row"><span class="muted">Sort by</span>' + sortSelectHtml('draftSortSel', draftSortBy) + '</div>' +
+        '<div class="plist">' + list + '</div></div>' : '');
   }
 
   function freeAgencyHtml() {
@@ -1755,6 +1756,8 @@
     if (rosterSortSel) rosterSortSel.onchange = function () { rosterSortBy = rosterSortSel.value; render(); };
     var faSortSel = document.getElementById('faSortSel');
     if (faSortSel) faSortSel.onchange = function () { faSortBy = faSortSel.value; render(); };
+    var draftSortSel = document.getElementById('draftSortSel');
+    if (draftSortSel) draftSortSel.onchange = function () { draftSortBy = draftSortSel.value; render(); };
 
     document.querySelectorAll('[data-depth-up]').forEach(function (el) {
       el.onclick = function () { var parts = el.getAttribute('data-depth-up').split(':'); moveDepthChart(parts[0], parseInt(parts[1], 10), -1); render(); };
