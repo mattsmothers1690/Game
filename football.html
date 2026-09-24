@@ -150,6 +150,7 @@
   var ROSTER_TARGET = 34;
   var ROSTER_FLOOR = 30;
   var ROSTER_MAX = 45;
+  var STARTING_ROSTER_COUNTS = { QB: 2, RB: 3, WR: 4, TE: 2, OL: 5, DL: 4, LB: 4, CB: 4, S: 2, K: 1 };
   var STARTING_CAP = 150;
   var CAP_GROWTH_PER_YEAR = 5;
 
@@ -273,8 +274,26 @@
     return Math.max(0.4, round1(3.0 - pickNumber * 0.08));
   }
 
-  function generateVeteran() {
-    var pos = choice(POSITIONS);
+  function demandMultiplier(p) {
+    if (p.overall >= 82) return 1.4;
+    if (p.overall >= 72) return 1.2;
+    if (p.overall >= 60) return 1.0;
+    return 0.85;
+  }
+
+  function askingSalary(p) {
+    return round1(salaryFor(p.overall, p.age) * demandMultiplier(p));
+  }
+
+  function biddingInterestCount(p) {
+    if (p.overall >= 82) return 3;
+    if (p.overall >= 72) return 2;
+    if (p.overall >= 60) return 1;
+    return 0;
+  }
+
+  function generateVeteran(forcedPos) {
+    var pos = forcedPos || choice(POSITIONS);
     var age = rand(22, 34);
     var roll = Math.random();
     var overallTarget;
@@ -486,6 +505,16 @@
   }
 
   // ---------- league setup ----------
+  function seedStartingRoster(team) {
+    Object.keys(STARTING_ROSTER_COUNTS).forEach(function (pos) {
+      for (var i = 0; i < STARTING_ROSTER_COUNTS[pos]; i++) {
+        var p = generateVeteran(pos);
+        state.players[p.id] = p;
+        addToRoster(team, p);
+      }
+    });
+  }
+
   function newGame(userTeamIndex) {
     state = {
       year: 1, week: 0, phase: 'draft', screen: 'hub',
@@ -495,13 +524,14 @@
       history: [], log: []
     };
     TEAMS_SEED.forEach(function (seed, i) { state.teams.push(makeTeam(i, seed, i === userTeamIndex)); });
+    state.teams.forEach(function (team) { seedStartingRoster(team); });
     startDraft(6);
-    for (var i = 0; i < 220; i++) {
+    for (var i = 0; i < 90; i++) {
       var fa = generateVeteran();
       state.freeAgents.push(fa.id);
       state.players[fa.id] = fa;
     }
-    log('Welcome, GM of the ' + state.teams[userTeamIndex].name + '! The inaugural draft is underway.');
+    log('Welcome, GM of the ' + state.teams[userTeamIndex].name + '! Your roster is set - the draft is underway to build for the future.');
     save();
   }
 
@@ -600,18 +630,44 @@
   }
 
   // ---------- free agency ----------
-  function signFreeAgent(playerId, years) {
+  function signFreeAgent(playerId, years, offerMultiplier) {
     var team = state.teams[state.userTeamId];
     var p = state.players[playerId];
-    var salary = salaryFor(p.overall, p.age);
-    if (salary > capSpace(team)) return false;
-    if (team.roster.length >= ROSTER_MAX) return false;
-    p.salary = salary;
+    if (team.roster.length >= ROSTER_MAX) { log('Your roster is full.'); return false; }
+    var offerSalary = round1(salaryFor(p.overall, p.age) * (offerMultiplier || 1));
+    var ask = askingSalary(p);
+    if (offerSalary > capSpace(team)) { log('Not enough cap space to offer ' + p.name + ' that contract.'); save(); return false; }
+    if (offerSalary < ask * 0.9) {
+      log(p.name + ' turns down your offer - wants closer to ' + ask + 'M/yr.');
+      save();
+      return false;
+    }
+    var interestCount = biddingInterestCount(p);
+    var bestRivalSalary = 0, bestRivalTeam = null;
+    if (interestCount > 0) {
+      var rivals = state.teams.filter(function (t) { return !t.isUser && t.roster.length < ROSTER_MAX; });
+      shuffle(rivals);
+      rivals.slice(0, interestCount).forEach(function (rt) {
+        var rivalOffer = round1(ask * (0.9 + Math.random() * 0.3));
+        if (rivalOffer <= capSpace(rt) && rivalOffer > bestRivalSalary) { bestRivalSalary = rivalOffer; bestRivalTeam = rt; }
+      });
+    }
+    if (bestRivalTeam && bestRivalSalary > offerSalary) {
+      p.salary = bestRivalSalary;
+      p.yearsLeft = rand(1, 3);
+      addToRoster(bestRivalTeam, p);
+      var idxLost = state.freeAgents.indexOf(playerId);
+      if (idxLost >= 0) state.freeAgents.splice(idxLost, 1);
+      log(bestRivalTeam.name + ' outbid you for ' + p.name + ' (' + bestRivalSalary + 'M/yr).');
+      save();
+      return false;
+    }
+    p.salary = offerSalary;
     p.yearsLeft = years;
     addToRoster(team, p);
     var idx = state.freeAgents.indexOf(playerId);
     if (idx >= 0) state.freeAgents.splice(idx, 1);
-    log(team.abbr + ' sign FA ' + p.name + ' (' + p.position + ', ' + p.overall + ' OVR) - ' + salary + 'M x' + years + 'yr');
+    log(team.abbr + ' sign FA ' + p.name + ' (' + p.position + ', ' + p.overall + ' OVR) - ' + offerSalary + 'M x' + years + 'yr');
     save();
     return true;
   }
@@ -1282,6 +1338,25 @@
 
   var pendingTeamSel = 0;
   var pendingTrade = { partnerId: null, sendPlayers: {}, sendPicks: {}, receivePlayers: {}, receivePicks: {} };
+  var rosterSortBy = 'position';
+  var faSortBy = 'overall';
+
+  var SORT_OPTIONS = { position: 'Position', overall: 'Overall', age: 'Age', salary: 'Salary', name: 'Name' };
+  function sortPlayers(players, sortBy) {
+    var sorted = players.slice();
+    if (sortBy === 'position') sorted.sort(function (a, b) { return POSITIONS.indexOf(a.position) - POSITIONS.indexOf(b.position) || b.overall - a.overall; });
+    else if (sortBy === 'overall') sorted.sort(function (a, b) { return b.overall - a.overall; });
+    else if (sortBy === 'age') sorted.sort(function (a, b) { return a.age - b.age; });
+    else if (sortBy === 'salary') sorted.sort(function (a, b) { return b.salary - a.salary; });
+    else if (sortBy === 'name') sorted.sort(function (a, b) { return a.name.localeCompare(b.name); });
+    return sorted;
+  }
+  function sortSelectHtml(id, current) {
+    var opts = Object.keys(SORT_OPTIONS).map(function (k) {
+      return '<option value="' + k + '"' + (current === k ? ' selected' : '') + '>' + SORT_OPTIONS[k] + '</option>';
+    }).join('');
+    return '<select id="' + id + '">' + opts + '</select>';
+  }
 
   function startScreenHtml() {
     var opts = TEAMS_SEED.map(function (seed, i) {
@@ -1389,12 +1464,12 @@
 
   function rosterHtml() {
     var team = state.teams[state.userTeamId];
-    var players = team.roster.map(function (id) { return state.players[id]; })
-      .sort(function (a, b) { return POSITIONS.indexOf(a.position) - POSITIONS.indexOf(b.position) || b.overall - a.overall; });
+    var players = sortPlayers(team.roster.map(function (id) { return state.players[id]; }), rosterSortBy);
     var rows = players.map(function (p) {
       return playerRow(p, '<button class="secondary" data-release="' + p.id + '">Release</button>');
     }).join('');
-    return '<div class="card"><h2>Roster (' + players.length + ')</h2><div class="plist">' + (rows || '<div class="muted">Empty roster.</div>') + '</div></div>';
+    return '<div class="card"><h2>Roster (' + players.length + ')</h2><div class="row"><span class="muted">Sort by</span>' + sortSelectHtml('rosterSortSel', rosterSortBy) + '</div>' +
+      '<div class="plist">' + (rows || '<div class="muted">Empty roster.</div>') + '</div></div>';
   }
 
   function depthChartHtml() {
@@ -1523,18 +1598,23 @@
 
   function freeAgencyHtml() {
     var team = state.teams[state.userTeamId];
-    var list = state.freeAgents.map(function (id) { return state.players[id]; })
-      .sort(function (a, b) { return b.overall - a.overall; });
+    var list = sortPlayers(state.freeAgents.map(function (id) { return state.players[id]; }), faSortBy);
+    var demandLabels = { 3: 'High Demand', 2: 'Contested', 1: 'Some Interest', 0: 'Buyer\'s Market' };
     var rows = list.map(function (p) {
-      var salary = salaryFor(p.overall, p.age);
-      var afford = salary <= capSpace(team) && team.roster.length < ROSTER_MAX;
+      var base = salaryFor(p.overall, p.age);
+      var ask = askingSalary(p);
+      var interest = biddingInterestCount(p);
+      var full = team.roster.length >= ROSTER_MAX;
       return '<div class="prow"><div><span class="pname">' + h(p.name) + '</span> <span class="badge">' + p.position + '</span>' +
-        ' <span class="muted">Age ' + p.age + '</span><div class="muted">' + formatStats(p) + ' &middot; ~' + salary + 'M/yr</div></div>' +
-        '<div><select id="yrs-' + p.id + '"><option value="1">1yr</option><option value="2" selected>2yr</option><option value="3">3yr</option></select> ' +
-        '<button data-sign="' + p.id + '" ' + (afford ? '' : 'disabled') + '>Sign</button></div></div>';
+        (interest > 0 ? ' <span class="badge pill-bad">' + demandLabels[interest] + '</span>' : '') +
+        ' <span class="muted">Age ' + p.age + '</span><div class="muted">' + formatStats(p) + ' &middot; base ' + base + 'M &middot; asking ~' + ask + 'M/yr</div></div>' +
+        '<div><select id="offer-' + p.id + '"><option value="0.9">Low (0.9x)</option><option value="1.0" selected>Fair (1.0x)</option><option value="1.2">Competitive (1.2x)</option><option value="1.5">Aggressive (1.5x)</option><option value="1.8">Max Effort (1.8x)</option></select> ' +
+        '<select id="yrs-' + p.id + '"><option value="1">1yr</option><option value="2" selected>2yr</option><option value="3">3yr</option></select> ' +
+        '<button data-sign="' + p.id + '" ' + (full ? 'disabled' : '') + '>Offer</button></div></div>';
     }).join('');
     return '<div class="card"><h2>Free Agency</h2><div class="row"><span class="muted">' + list.length + ' available</span>' +
-      '<div><button class="secondary" id="advanceFABtn">Advance FA Period</button> <button id="startSeasonBtn">Start Season</button></div></div></div>' +
+      '<div><button class="secondary" id="advanceFABtn">Advance FA Period</button> <button id="startSeasonBtn">Start Season</button></div></div>' +
+      '<div class="row"><span class="muted">Sort by</span>' + sortSelectHtml('faSortSel', faSortBy) + '</div></div>' +
       '<div class="card"><div class="plist">' + (rows || '<div class="muted">No free agents remain.</div>') + '</div></div>';
   }
 
@@ -1597,6 +1677,11 @@
     document.querySelectorAll('[data-release]').forEach(function (el) {
       el.onclick = function () { releasePlayer(parseInt(el.getAttribute('data-release'), 10)); render(); };
     });
+
+    var rosterSortSel = document.getElementById('rosterSortSel');
+    if (rosterSortSel) rosterSortSel.onchange = function () { rosterSortBy = rosterSortSel.value; render(); };
+    var faSortSel = document.getElementById('faSortSel');
+    if (faSortSel) faSortSel.onchange = function () { faSortBy = faSortSel.value; render(); };
 
     document.querySelectorAll('[data-depth-up]').forEach(function (el) {
       el.onclick = function () { var parts = el.getAttribute('data-depth-up').split(':'); moveDepthChart(parts[0], parseInt(parts[1], 10), -1); render(); };
@@ -1666,7 +1751,8 @@
       el.onclick = function () {
         var id = parseInt(el.getAttribute('data-sign'), 10);
         var sel = document.getElementById('yrs-' + id);
-        signFreeAgent(id, parseInt(sel.value, 10));
+        var offerSel = document.getElementById('offer-' + id);
+        signFreeAgent(id, parseInt(sel.value, 10), parseFloat(offerSel.value));
         render();
       };
     });
