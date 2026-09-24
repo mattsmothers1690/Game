@@ -756,16 +756,31 @@
       return sum / list.length;
     }
 
-    function checkFG(offTeam, offP) {
+    function attemptFG(offTeam, offP, yardsToGoal) {
       var kicker = offP.K;
       var acc = av(kicker, 'ACC', 65);
-      var fgChance = clamp(0.55 + (acc - 70) * 0.01, 0.35, 0.95);
+      var kickDistance = yardsToGoal + 17;
+      var baseChance = clamp(1.05 - kickDistance * 0.012, 0.05, 0.98);
+      var fgChance = clamp(baseChance + (acc - 70) * 0.006, 0.05, 0.98);
       if (Math.random() < fgChance) {
-        gameLog.push((kicker ? kicker.name : offTeam.abbr + ' K') + ' nails the field goal.');
+        gameLog.push((kicker ? kicker.name : offTeam.abbr + ' K') + ' nails a ' + kickDistance + '-yard field goal.');
         return { scorer: offTeam, points: 3 };
       }
-      gameLog.push('Field goal attempt is no good.');
+      gameLog.push((kicker ? kicker.name : offTeam.abbr + ' K') + ' misses a ' + kickDistance + '-yard attempt.');
       return { scorer: null, points: 0 };
+    }
+
+    function choosePlayType(down, distance, offScheme) {
+      var passChance = offScheme.passWeight;
+      if (down === 2) {
+        if (distance >= 8) passChance += 0.15;
+        else if (distance <= 3) passChance -= 0.15;
+      } else if (down === 3 || down === 4) {
+        if (distance <= 2) passChance -= 0.35;
+        else if (distance >= 7) passChance += 0.30;
+        else passChance += 0.10;
+      }
+      return Math.random() < clamp(passChance, 0.1, 0.9) ? 'pass' : 'run';
     }
 
     function maybeInjure(player) {
@@ -786,12 +801,7 @@
       gameLog.push(player.name + ' goes down with an injury (' + sev.label + ').');
     }
 
-    function possession(offTeam, defTeam, offP, defP, isHome) {
-      if (Math.random() < 0.05) {
-        var dPlayer = choice((defP.DLs || []).concat(defP.LBs || [], defP.CBs || [], defP.Ss || [])) || { name: defTeam.abbr + ' defense' };
-        gameLog.push(dPlayer.name + ' takes it back for ' + defTeam.abbr + '! Defensive touchdown.');
-        return { scorer: defTeam, points: 7 };
-      }
+    function resolvePassPlay(offTeam, defTeam, offP, defP, isHome, down, distance) {
       var homeBonus = isHome ? 2 : 0;
       var qb = offP.QB;
       var qbName = qb ? qb.name : (offTeam.abbr + ' QB');
@@ -803,87 +813,96 @@
       var rushPressure = (avgAttr(defP.DLs, 'PRUSH', 55) - 55) * 0.4 * defScheme.pressureMult;
       var netPressure = rushPressure - pblkAssist;
 
-      if (Math.random() < offScheme.passWeight) {
-        maybeInjure(qb);
-        maybeInjure(choice(offP.OLs));
-        if (offP.TEs && offP.TEs.length > 1) maybeInjure(offP.TEs[1]);
-        maybeInjure(choice((defP.DLs || []).concat(defP.LBs || [])));
-        var pSack = clamp((0.04 + netPressure * 0.012 - (qbMob - 70) * 0.0035) * offScheme.sackMult, 0.01, 0.35);
-        if (Math.random() < pSack) {
-          var rusher = (defP.DLs && defP.DLs[0]) || (defP.LBs && defP.LBs[0]);
-          maybeInjure(rusher);
-          var pScramble = clamp((qbMob - 60) * 0.012, 0, 0.35);
-          if (Math.random() < pScramble) {
-            var pScrambleTD = clamp((qbMob - 80) * 0.01, 0, 0.12);
-            if (Math.random() < pScrambleTD) {
-              gameLog.push(qbName + ' escapes the pocket and takes off for the touchdown!');
-              return { scorer: offTeam, points: 7 };
-            }
-            gameLog.push(qbName + ' escapes the rush and scrambles away from trouble.');
-            return { scorer: null, points: 0 };
-          }
-          gameLog.push((rusher ? rusher.name : defTeam.abbr + ' defense') + ' sacks ' + qbName + '!');
-          return { scorer: null, points: 0 };
+      maybeInjure(qb);
+      maybeInjure(choice(offP.OLs));
+      if (offP.TEs && offP.TEs.length > 1) maybeInjure(offP.TEs[1]);
+      maybeInjure(choice((defP.DLs || []).concat(defP.LBs || [])));
+      var pSack = clamp((0.032 + netPressure * 0.012 - (qbMob - 70) * 0.0035) * offScheme.sackMult, 0.01, 0.35);
+      if (Math.random() < pSack) {
+        var rusher = (defP.DLs && defP.DLs[0]) || (defP.LBs && defP.LBs[0]);
+        maybeInjure(rusher);
+        var pScramble = clamp((qbMob - 60) * 0.012, 0, 0.35);
+        if (Math.random() < pScramble) {
+          gameLog.push(qbName + ' escapes the rush and scrambles for a few yards.');
+          return { yards: rand(0, 6), turnover: false, defTD: false };
         }
-        var pDeep = clamp(0.18 + offScheme.deepBias + (qbArm - 70) * 0.006, 0.05, 0.55);
-        var isDeep = Math.random() < pDeep;
-        var targets = offP.WRs.concat(offP.TEs || []);
-        if (targets.length === 0) targets = [{ name: offTeam.abbr + ' receiver', attrs: { SPD: 50, SIZE: 50, HANDS: 50 } }];
-        var target;
-        if (isDeep) {
-          target = targets.slice().sort(function (a, b) { return Math.max(av(b, 'SPD', 50), av(b, 'SIZE', 50)) - Math.max(av(a, 'SPD', 50), av(a, 'SIZE', 50)); })[0];
-        } else {
-          target = targets.slice().sort(function (a, b) { return av(b, 'HANDS', 50) - av(a, 'HANDS', 50); })[0];
-        }
-        var isBigTarget = av(target, 'SIZE', 50) >= av(target, 'SPD', 50);
-        var isTE = (offP.TEs || []).indexOf(target) >= 0;
-        var defender;
-        if (isTE) {
-          defender = (defP.LBs || []).concat(defP.Ss || []).sort(function (a, b) { return av(b, 'COV', 50) - av(a, 'COV', 50); })[0];
-        } else {
-          var wrIdx = offP.WRs.indexOf(target);
-          if (defP.CBs && wrIdx >= 0 && wrIdx < defP.CBs.length) {
-            defender = defP.CBs[wrIdx];
-          } else {
-            defender = (defP.LBs || []).concat(defP.Ss || []).sort(function (a, b) { return av(b, 'COV', 50) - av(a, 'COV', 50); })[0]
-              || (defP.CBs && defP.CBs[defP.CBs.length - 1]) || null;
-          }
-        }
-        var defPhys = av(defender, 'SIZE', av(defender, 'RSUP', 55));
-        var defSpd = av(defender, 'SPD', av(defender, 'RANGE', 55));
-        var defCov = av(defender, 'COV', 55);
-        var edge = isBigTarget ? (av(target, 'SIZE', 50) - defPhys) : (av(target, 'SPD', 50) - defSpd);
-        edge += (qbAcc - 70) * 0.15;
-        edge -= (defCov - 70) * 0.1;
-        edge += homeBonus;
-        edge -= netPressure * 0.5;
-        edge -= defScheme.coverageShift;
-        if (!isDeep) edge += offScheme.shortEdgeBonus;
-        if (isDeep) {
-          var bestS = defP.Ss && defP.Ss[0];
-          edge -= clamp((av(bestS, 'RANGE', 55) - 70) * 0.05, 0, 4) * defScheme.safetyHelpMult;
-        }
-        maybeInjure(target);
-        maybeInjure(defender);
-        var success = Math.random() < clamp(0.5 + edge * 0.012, 0.15, 0.85);
-        var targetName = target.name || (offTeam.abbr + ' receiver');
-        var defName = defender ? defender.name : (defTeam.abbr + ' coverage');
-        if (success) {
-          var pScore = isDeep ? clamp(0.55 + edge * 0.01, 0.3, 0.85) : clamp(0.22 + edge * 0.01, 0.1, 0.5);
-          pScore = clamp(pScore * defScheme.explosiveMult, 0.05, 0.9);
-          if (Math.random() < pScore) {
-            var verb = isBigTarget ? (' out-muscles ' + defName + ' for the score!') : (' blows past ' + defName + ' for the touchdown!');
-            gameLog.push(targetName + verb);
-            return { scorer: offTeam, points: 7 };
-          }
-          gameLog.push(targetName + ' hauls it in against ' + defName + ', but the drive stalls short.');
-          return checkFG(offTeam, offP);
-        }
-        var flavor = Math.random() < 0.15 ? (' - intercepted by ' + defName + '!') : (' - defended by ' + defName + '.');
-        gameLog.push('Pass intended for ' + targetName + flavor);
-        return { scorer: null, points: 0 };
+        gameLog.push((rusher ? rusher.name : defTeam.abbr + ' defense') + ' sacks ' + qbName + '!');
+        return { yards: -rand(3, 8), turnover: false, defTD: false };
       }
 
+      var pDeep = clamp(0.18 + offScheme.deepBias + (qbArm - 70) * 0.006, 0.05, 0.55);
+      if (down >= 3 && distance >= 12) pDeep += 0.15;
+      if (down <= 2 && distance <= 3) pDeep -= 0.10;
+      var isDeep = Math.random() < clamp(pDeep, 0.03, 0.7);
+      var targets = offP.WRs.concat(offP.TEs || []);
+      if (targets.length === 0) targets = [{ name: offTeam.abbr + ' receiver', attrs: { SPD: 50, SIZE: 50, HANDS: 50 } }];
+      var target;
+      if (isDeep) {
+        target = targets.slice().sort(function (a, b) { return Math.max(av(b, 'SPD', 50), av(b, 'SIZE', 50)) - Math.max(av(a, 'SPD', 50), av(a, 'SIZE', 50)); })[0];
+      } else {
+        target = targets.slice().sort(function (a, b) { return av(b, 'HANDS', 50) - av(a, 'HANDS', 50); })[0];
+      }
+      var isBigTarget = av(target, 'SIZE', 50) >= av(target, 'SPD', 50);
+      var isTE = (offP.TEs || []).indexOf(target) >= 0;
+      var defender;
+      if (isTE) {
+        defender = (defP.LBs || []).concat(defP.Ss || []).sort(function (a, b) { return av(b, 'COV', 50) - av(a, 'COV', 50); })[0];
+      } else {
+        var wrIdx = offP.WRs.indexOf(target);
+        if (defP.CBs && wrIdx >= 0 && wrIdx < defP.CBs.length) {
+          defender = defP.CBs[wrIdx];
+        } else {
+          defender = (defP.LBs || []).concat(defP.Ss || []).sort(function (a, b) { return av(b, 'COV', 50) - av(a, 'COV', 50); })[0]
+            || (defP.CBs && defP.CBs[defP.CBs.length - 1]) || null;
+        }
+      }
+      var defPhys = av(defender, 'SIZE', av(defender, 'RSUP', 55));
+      var defSpd = av(defender, 'SPD', av(defender, 'RANGE', 55));
+      var defCov = av(defender, 'COV', 55);
+      var edge = isBigTarget ? (av(target, 'SIZE', 50) - defPhys) : (av(target, 'SPD', 50) - defSpd);
+      edge += (qbAcc - 70) * 0.15;
+      edge -= (defCov - 70) * 0.1;
+      edge += homeBonus;
+      edge -= netPressure * 0.5;
+      edge -= defScheme.coverageShift;
+      if (!isDeep) edge += offScheme.shortEdgeBonus;
+      if (isDeep) {
+        var bestS = defP.Ss && defP.Ss[0];
+        edge -= clamp((av(bestS, 'RANGE', 55) - 70) * 0.05, 0, 4) * defScheme.safetyHelpMult;
+      }
+      maybeInjure(target);
+      maybeInjure(defender);
+      var baseCompletion = isDeep ? 0.46 : 0.72;
+      var success = Math.random() < clamp(baseCompletion + edge * 0.012, 0.12, 0.92);
+      var targetName = target.name || (offTeam.abbr + ' receiver');
+      var defName = defender ? defender.name : (defTeam.abbr + ' coverage');
+      if (success) {
+        var yards;
+        if (isDeep) {
+          yards = clamp(Math.round(18 + edge * 0.3 + rand(-5, 12)), 4, 70);
+          gameLog.push(targetName + (isBigTarget ? ' out-muscles ' : ' burns ') + defName + ' for a gain of ' + yards + '.');
+        } else {
+          yards = clamp(Math.round(7 + edge * 0.15 + rand(-3, 7)), -2, 20);
+          gameLog.push(targetName + ' hauls it in against ' + defName + ' for ' + yards + ' yards.');
+        }
+        return { yards: yards, turnover: false, defTD: false };
+      }
+      var intercepted = Math.random() < 0.15;
+      if (intercepted) {
+        if (Math.random() < 0.08) {
+          gameLog.push(defName + ' picks it off and takes it to the house!');
+          return { yards: 0, turnover: true, defTD: true };
+        }
+        gameLog.push('Pass intended for ' + targetName + ' - intercepted by ' + defName + '!');
+        return { yards: 0, turnover: true, defTD: false };
+      }
+      gameLog.push('Pass intended for ' + targetName + ' - defended by ' + defName + '.');
+      return { yards: 0, turnover: false, defTD: false };
+    }
+
+    function resolveRunPlay(offTeam, defTeam, offP, defP, isHome) {
+      var homeBonus = isHome ? 2 : 0;
+      var offScheme = OFFENSE_SCHEMES[offTeam.offScheme] || OFFENSE_SCHEMES.balanced;
       var rb = offP.RB || { name: offTeam.abbr + ' RB', attrs: { SPD: 50, POW: 50, VIS: 50 } };
       var rbSpd = av(rb, 'SPD', 50), rbPow = av(rb, 'POW', 50);
       maybeInjure(rb);
@@ -895,27 +914,75 @@
       if (offP.RB2) runBlockAssist += (av(offP.RB2, 'POW', 55) - 55) * 0.2;
       var front = (avgAttr(defP.DLs, 'RSTOP', 55) + avgAttr(defP.LBs, 'RSTOP', 55)) / 2 - runBlockAssist;
       var contain = (avgAttr(defP.Ss, 'RANGE', 55) + avgAttr(defP.LBs, 'RSTOP', 55)) / 2 - runBlockAssist * 0.5;
+      var fumble = Math.random() < 0.015;
       if (rbSpd > rbPow) {
         var pBreak = clamp((rbSpd - contain) * 0.01, 0, 0.18);
         if (Math.random() < pBreak) {
-          gameLog.push(rb.name + ' breaks free down the sideline - touchdown!');
+          var breakYards = rand(20, 60);
+          gameLog.push(rb.name + ' breaks free for ' + breakYards + ' yards!');
+          return { yards: breakYards, turnover: false, defTD: false };
+        }
+        var yards1 = clamp(Math.round(1 + (rbSpd - front) * 0.10 + rand(-2, 3) + homeBonus * 0.2), -4, 9);
+        gameLog.push(rb.name + ' picks up ' + yards1 + ' yards.');
+        return { yards: yards1, turnover: fumble, defTD: false };
+      }
+      var breakTackle = Math.random() < clamp((rbPow - 70) * 0.006, 0, 0.15);
+      var yards2 = clamp(Math.round(3 + (rbPow - front) * 0.15 + rand(-1, 3) + homeBonus * 0.2) + (breakTackle ? rand(5, 15) : 0), -3, 25);
+      gameLog.push(rb.name + (breakTackle ? ' breaks a tackle and grinds out ' : ' powers ahead for ') + yards2 + ' yards.');
+      return { yards: yards2, turnover: fumble, defTD: false };
+    }
+
+    function possession(offTeam, defTeam, offP, defP, isHome) {
+      if (Math.random() < 0.05) {
+        var dPlayer = choice((defP.DLs || []).concat(defP.LBs || [], defP.CBs || [], defP.Ss || [])) || { name: defTeam.abbr + ' defense' };
+        gameLog.push(dPlayer.name + ' takes it back for ' + defTeam.abbr + '! Defensive touchdown.');
+        return { scorer: defTeam, points: 7 };
+      }
+      var offScheme = OFFENSE_SCHEMES[offTeam.offScheme] || OFFENSE_SCHEMES.balanced;
+      var down = 1, distance = 10, yardsToGoal = rand(70, 80);
+      var maxPlays = 20;
+      for (var playNum = 0; playNum < maxPlays; playNum++) {
+        if (down === 4) {
+          var inFGRange = yardsToGoal <= 40;
+          var shortYardage = distance <= 2;
+          var goForItChance = 0.45 + (offTeam.offScheme === 'groundpound' ? 0.10 : 0) - (offTeam.offScheme === 'airraid' ? 0.05 : 0);
+          var goForIt = shortYardage && Math.random() < (inFGRange ? 0.25 : goForItChance);
+          if (!goForIt) {
+            if (inFGRange) return attemptFG(offTeam, offP, yardsToGoal);
+            gameLog.push(offTeam.abbr + ' punts it away.');
+            return { scorer: null, points: 0 };
+          }
+        }
+        var playType = choosePlayType(down, distance, offScheme);
+        var result = playType === 'pass'
+          ? resolvePassPlay(offTeam, defTeam, offP, defP, isHome, down, distance)
+          : resolveRunPlay(offTeam, defTeam, offP, defP, isHome);
+
+        if (result.defTD) return { scorer: defTeam, points: 7 };
+        if (result.turnover) {
+          gameLog.push(offTeam.abbr + ' turns it over.');
+          return { scorer: null, points: 0 };
+        }
+
+        yardsToGoal -= result.yards;
+        if (yardsToGoal <= 0) {
+          gameLog.push(offTeam.abbr + ' punches it in. Touchdown!');
           return { scorer: offTeam, points: 7 };
         }
-        var pTD = clamp(0.10 + (rbSpd - front) * 0.006 + homeBonus * 0.01, 0.03, 0.4);
-        if (Math.random() < pTD) {
-          gameLog.push(rb.name + ' finds a crease for the score.');
-          return { scorer: offTeam, points: 7 };
+
+        if (result.yards >= distance) {
+          down = 1;
+          distance = Math.min(10, yardsToGoal);
+        } else {
+          distance -= result.yards;
+          down += 1;
+          if (down > 4) {
+            gameLog.push(offTeam.abbr + ' turns it over on downs.');
+            return { scorer: null, points: 0 };
+          }
         }
-        gameLog.push(rb.name + ' is dropped short of the end zone; drive stalls.');
-        return checkFG(offTeam, offP);
       }
-      var pTD2 = clamp(0.16 + (rbPow - front) * 0.01 + homeBonus * 0.01, 0.05, 0.5);
-      if (Math.random() < pTD2) {
-        gameLog.push(rb.name + ' powers through arm tackles into the end zone.');
-        return { scorer: offTeam, points: 7 };
-      }
-      gameLog.push(rb.name + ' grinds out yardage but the drive stalls.');
-      return checkFG(offTeam, offP);
+      return { scorer: null, points: 0 };
     }
 
     for (var i = 0; i < possessions; i++) {
