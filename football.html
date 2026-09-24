@@ -113,6 +113,19 @@
     K: [{ id:'kicker', label:'Kicker', bias:{} }]
   };
 
+  var OFFENSE_SCHEMES = {
+    balanced: { label: 'Balanced', desc: 'No lean either way.', passWeight: 0.55, deepBias: 0, shortEdgeBonus: 0, runFrontBonus: 0, sackMult: 1 },
+    airraid: { label: 'Air Raid', desc: 'Pass-heavy, pushes the ball deep. Thin run support.', passWeight: 0.72, deepBias: 0.08, shortEdgeBonus: 0, runFrontBonus: -3, sackMult: 1 },
+    groundpound: { label: 'Ground & Pound', desc: 'Run-first, grinds the clock. Fewer explosive plays.', passWeight: 0.35, deepBias: -0.04, shortEdgeBonus: 0, runFrontBonus: 5, sackMult: 1 },
+    westcoast: { label: 'West Coast', desc: 'Quick short/intermediate throws. Gets the ball out fast.', passWeight: 0.62, deepBias: -0.08, shortEdgeBonus: 5, runFrontBonus: 0, sackMult: 0.8 }
+  };
+  var DEFENSE_SCHEMES = {
+    balanced: { label: 'Balanced', desc: 'No lean either way.', pressureMult: 1, coverageShift: 0, explosiveMult: 1, safetyHelpMult: 1 },
+    blitz: { label: 'Blitz-Heavy', desc: 'Sends extra rushers - more sacks, but exposed downfield.', pressureMult: 1.5, coverageShift: -6, explosiveMult: 1.1, safetyHelpMult: 0.7 },
+    benddontbreak: { label: "Bend-Don't-Break", desc: 'Concedes underneath, protects against the big play.', pressureMult: 0.85, coverageShift: 4, explosiveMult: 0.75, safetyHelpMult: 1.3 },
+    manpress: { label: 'Man Press', desc: 'Tight man coverage at the line. High risk, high reward.', pressureMult: 1, coverageShift: 6, explosiveMult: 1.15, safetyHelpMult: 0.6 }
+  };
+
   var ROSTER_TARGET = 34;
   var ROSTER_MAX = 45;
   var STARTING_CAP = 150;
@@ -281,6 +294,7 @@
     return {
       id: id, city: seed.city, mascot: seed.mascot, abbr: seed.abbr, name: seed.city + ' ' + seed.mascot,
       isUser: !!isUser, roster: [], cap: STARTING_CAP,
+      offScheme: choice(Object.keys(OFFENSE_SCHEMES)), defScheme: choice(Object.keys(DEFENSE_SCHEMES)),
       record: { w: 0, l: 0, t: 0 }, pf: 0, pa: 0
     };
   }
@@ -587,12 +601,14 @@
       var qb = offP.QB;
       var qbName = qb ? qb.name : (offTeam.abbr + ' QB');
       var qbArm = av(qb, 'ARM', 60), qbAcc = av(qb, 'ACC', 60), qbMob = av(qb, 'MOB', 60);
+      var offScheme = OFFENSE_SCHEMES[offTeam.offScheme] || OFFENSE_SCHEMES.balanced;
+      var defScheme = DEFENSE_SCHEMES[defTeam.defScheme] || DEFENSE_SCHEMES.balanced;
       var pblkAssist = (avgAttr(offP.OLs, 'PBLK', 55) - 55) * 0.4;
-      var rushPressure = (avgAttr(defP.DLs, 'PRUSH', 55) - 55) * 0.4;
+      var rushPressure = (avgAttr(defP.DLs, 'PRUSH', 55) - 55) * 0.4 * defScheme.pressureMult;
       var netPressure = rushPressure - pblkAssist;
 
-      if (Math.random() < 0.55) {
-        var pSack = clamp(0.04 + netPressure * 0.012 - (qbMob - 70) * 0.0035, 0.01, 0.3);
+      if (Math.random() < offScheme.passWeight) {
+        var pSack = clamp((0.04 + netPressure * 0.012 - (qbMob - 70) * 0.0035) * offScheme.sackMult, 0.01, 0.35);
         if (Math.random() < pSack) {
           var rusher = (defP.DLs && defP.DLs[0]) || (defP.LBs && defP.LBs[0]);
           var pScramble = clamp((qbMob - 60) * 0.012, 0, 0.35);
@@ -608,7 +624,7 @@
           gameLog.push((rusher ? rusher.name : defTeam.abbr + ' defense') + ' sacks ' + qbName + '!');
           return { scorer: null, points: 0 };
         }
-        var pDeep = clamp(0.18 + (qbArm - 70) * 0.006, 0.08, 0.45);
+        var pDeep = clamp(0.18 + offScheme.deepBias + (qbArm - 70) * 0.006, 0.05, 0.55);
         var isDeep = Math.random() < pDeep;
         var targets = offP.WRs.concat(offP.TE ? [offP.TE] : []);
         if (targets.length === 0) targets = [{ name: offTeam.abbr + ' receiver', attrs: { SPD: 50, SIZE: 50, HANDS: 50 } }];
@@ -637,15 +653,18 @@
         edge -= (defCov - 70) * 0.1;
         edge += homeBonus;
         edge -= netPressure * 0.5;
+        edge -= defScheme.coverageShift;
+        if (!isDeep) edge += offScheme.shortEdgeBonus;
         if (isDeep) {
           var bestS = defP.Ss && defP.Ss[0];
-          edge -= clamp((av(bestS, 'RANGE', 55) - 70) * 0.05, 0, 4);
+          edge -= clamp((av(bestS, 'RANGE', 55) - 70) * 0.05, 0, 4) * defScheme.safetyHelpMult;
         }
         var success = Math.random() < clamp(0.5 + edge * 0.012, 0.15, 0.85);
         var targetName = target.name || (offTeam.abbr + ' receiver');
         var defName = defender ? defender.name : (defTeam.abbr + ' coverage');
         if (success) {
           var pScore = isDeep ? clamp(0.55 + edge * 0.01, 0.3, 0.85) : clamp(0.22 + edge * 0.01, 0.1, 0.5);
+          pScore = clamp(pScore * defScheme.explosiveMult, 0.05, 0.9);
           if (Math.random() < pScore) {
             var verb = isBigTarget ? (' out-muscles ' + defName + ' for the score!') : (' blows past ' + defName + ' for the touchdown!');
             gameLog.push(targetName + verb);
@@ -661,7 +680,7 @@
 
       var rb = offP.RB || { name: offTeam.abbr + ' RB', attrs: { SPD: 50, POW: 50, VIS: 50 } };
       var rbSpd = av(rb, 'SPD', 50), rbPow = av(rb, 'POW', 50);
-      var runBlockAssist = (avgAttr(offP.OLs, 'RBLK', 55) - 55) * 0.4;
+      var runBlockAssist = (avgAttr(offP.OLs, 'RBLK', 55) - 55) * 0.4 + offScheme.runFrontBonus;
       var front = (avgAttr(defP.DLs, 'RSTOP', 55) + avgAttr(defP.LBs, 'RSTOP', 55)) / 2 - runBlockAssist;
       var contain = (avgAttr(defP.Ss, 'RANGE', 55) + avgAttr(defP.LBs, 'RSTOP', 55)) / 2 - runBlockAssist * 0.5;
       if (rbSpd > rbPow) {
@@ -946,6 +965,7 @@
   var TAB_DEFS = [
     { id: 'hub', label: 'Hub', phases: null },
     { id: 'roster', label: 'Roster', phases: null },
+    { id: 'coaching', label: 'Coaching', phases: null },
     { id: 'standings', label: 'Standings', phases: null },
     { id: 'draft', label: 'Draft', phases: ['draft'] },
     { id: 'freeagency', label: 'Free Agency', phases: ['freeagency'] },
@@ -969,6 +989,7 @@
   function screenHtml() {
     switch (state.screen) {
       case 'roster': return rosterHtml();
+      case 'coaching': return coachingHtml();
       case 'standings': return standingsHtml();
       case 'draft': return draftHtml();
       case 'freeagency': return freeAgencyHtml();
@@ -989,7 +1010,8 @@
       var opp = state.teams[oppId];
       var isHome = nextGame.homeId === team.id;
       gameCard = '<div class="card"><h3>This Week</h3><div class="row"><div>' + (isHome ? 'vs' : '@') + ' ' + opp.name + '</div>' +
-        '<button id="simWeekBtn">Simulate Week</button></div></div>';
+        '<button id="simWeekBtn">Simulate Week</button></div>' +
+        '<div class="muted">Scouting: ' + OFFENSE_SCHEMES[opp.offScheme].label + ' offense / ' + DEFENSE_SCHEMES[opp.defScheme].label + ' defense</div></div>';
     } else if (state.phase === 'season') {
       gameCard = '<div class="card"><div class="row"><div>Week ' + state.week + ' games ready.</div><button id="simWeekBtn">Simulate Week</button></div></div>';
     }
@@ -1022,6 +1044,26 @@
       return playerRow(p, '<button class="secondary" data-release="' + p.id + '">Release</button>');
     }).join('');
     return '<div class="card"><h2>Roster (' + players.length + ')</h2><div class="plist">' + (rows || '<div class="muted">Empty roster.</div>') + '</div></div>';
+  }
+
+  function coachingHtml() {
+    var team = state.teams[state.userTeamId];
+    var offOpts = Object.keys(OFFENSE_SCHEMES).map(function (k) {
+      return '<option value="' + k + '"' + (team.offScheme === k ? ' selected' : '') + '>' + OFFENSE_SCHEMES[k].label + '</option>';
+    }).join('');
+    var defOpts = Object.keys(DEFENSE_SCHEMES).map(function (k) {
+      return '<option value="' + k + '"' + (team.defScheme === k ? ' selected' : '') + '>' + DEFENSE_SCHEMES[k].label + '</option>';
+    }).join('');
+    var report = state.teams.map(function (t) {
+      return '<div class="row"><span>' + (t.isUser ? '<strong>' + t.name + '</strong>' : t.name) + '</span>' +
+        '<span class="muted">' + OFFENSE_SCHEMES[t.offScheme].label + ' / ' + DEFENSE_SCHEMES[t.defScheme].label + '</span></div>';
+    }).join('');
+    return '<div class="card"><h2>Coaching</h2>' +
+      '<h3>Offensive Scheme</h3><select id="offSchemeSel">' + offOpts + '</select>' +
+      '<p class="muted">' + OFFENSE_SCHEMES[team.offScheme].desc + '</p>' +
+      '<h3>Defensive Scheme</h3><select id="defSchemeSel">' + defOpts + '</select>' +
+      '<p class="muted">' + DEFENSE_SCHEMES[team.defScheme].desc + '</p></div>' +
+      '<div class="card"><h3>League Scouting Report</h3>' + report + '</div>';
   }
 
   function standingsHtml() {
@@ -1143,6 +1185,11 @@
     document.querySelectorAll('[data-release]').forEach(function (el) {
       el.onclick = function () { releasePlayer(parseInt(el.getAttribute('data-release'), 10)); render(); };
     });
+
+    var offSchemeSel = document.getElementById('offSchemeSel');
+    if (offSchemeSel) offSchemeSel.onchange = function () { state.teams[state.userTeamId].offScheme = offSchemeSel.value; save(); render(); };
+    var defSchemeSel = document.getElementById('defSchemeSel');
+    if (defSchemeSel) defSchemeSel.onchange = function () { state.teams[state.userTeamId].defScheme = defSchemeSel.value; save(); render(); };
 
     var advanceDraftBtn = document.getElementById('advanceDraftBtn');
     if (advanceDraftBtn) advanceDraftBtn.onclick = function () { advanceDraft(); render(); };
