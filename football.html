@@ -152,6 +152,22 @@
   var STARTING_CAP = 150;
   var CAP_GROWTH_PER_YEAR = 5;
 
+  var TRADE_POSITION_WEIGHT = { QB:1.6, WR:1.2, CB:1.15, DL:1.1, LB:1.05, S:1.0, TE:1.0, RB:0.95, OL:1.0, K:0.4 };
+  var TRADE_ACCEPT_THRESHOLD = 0.90;
+
+  function playerValue(p) {
+    var base = Math.pow(Math.max(0, p.overall - 45), 1.9) / 8;
+    var posW = TRADE_POSITION_WEIGHT[p.position] || 1;
+    var ageMod = p.age <= 26 ? 1.15 : (p.age <= 29 ? 1.0 : (p.age <= 32 ? 0.75 : 0.5));
+    var potentialBonus = 1 + Math.max(0, p.potential - p.overall) * 0.02;
+    return Math.round(base * posW * ageMod * potentialBonus);
+  }
+
+  function pickValue(pickIndex) {
+    var pickNum = pickIndex + 1;
+    return Math.max(15, Math.round(1400 * Math.pow(0.96, pickNum - 1)));
+  }
+
   var TEAMS_SEED = [
     { city: 'Boulder City', mascot: 'Marauders', abbr: 'BCM' },
     { city: 'Port Haven', mascot: 'Wolves', abbr: 'PHW' },
@@ -606,6 +622,90 @@
       if (idx >= 0) state.freeAgents.splice(idx, 1);
       log(team.abbr + ' sign FA ' + pick.name + ' (' + pick.position + ', ' + pick.overall + ' OVR)');
       signings++;
+    }
+    save();
+  }
+
+  // ---------- trades ----------
+  function tradeablePicksFor(teamId) {
+    if (state.phase !== 'draft' || !state.draft) return [];
+    var picks = [];
+    for (var i = state.draft.pickIndex; i < state.draft.order.length; i++) {
+      if (state.draft.order[i] === teamId) picks.push(i);
+    }
+    return picks;
+  }
+
+  function sideValue(playerIds, pickIndices) {
+    var total = 0;
+    playerIds.forEach(function (id) { var p = state.players[id]; if (p) total += playerValue(p); });
+    pickIndices.forEach(function (idx) { total += pickValue(idx); });
+    return total;
+  }
+
+  function evaluateTrade(aiTeam, sendPlayers, sendPicks, receivePlayers, receivePicks) {
+    var resultingSize = aiTeam.roster.length - receivePlayers.length + sendPlayers.length;
+    if (resultingSize > ROSTER_MAX) return { accept: false, reason: 'would push their roster over the limit' };
+    if (resultingSize < 1) return { accept: false, reason: 'would leave their roster empty' };
+
+    var posCounts = {};
+    aiTeam.roster.forEach(function (id) {
+      var pl = state.players[id];
+      posCounts[pl.position] = (posCounts[pl.position] || 0) + 1;
+    });
+    receivePlayers.forEach(function (p) { posCounts[p.position] = (posCounts[p.position] || 0) - 1; });
+    for (var pos in STARTER_NEEDS) {
+      if ((posCounts[pos] || 0) <= 0) return { accept: false, reason: 'would leave them with no ' + pos };
+    }
+
+    var salaryOut = receivePlayers.reduce(function (s, p) { return s + p.salary; }, 0);
+    var salaryIn = sendPlayers.reduce(function (s, p) { return s + p.salary; }, 0);
+    if (capSpace(aiTeam) + salaryOut - salaryIn < 0) return { accept: false, reason: 'cap space' };
+
+    var aiGets = sideValue(sendPlayers.map(function (p) { return p.id; }), sendPicks);
+    var aiGives = sideValue(receivePlayers.map(function (p) { return p.id; }), receivePicks);
+    if (aiGives > aiGets * (1 / TRADE_ACCEPT_THRESHOLD)) return { accept: false, reason: 'not enough value' };
+
+    return { accept: true };
+  }
+
+  function executeTrade(userTeam, aiTeam, sendPlayers, sendPicks, receivePlayers, receivePicks) {
+    sendPlayers.forEach(function (p) { removeFromRoster(userTeam, p.id); addToRoster(aiTeam, p); });
+    receivePlayers.forEach(function (p) { removeFromRoster(aiTeam, p.id); addToRoster(userTeam, p); });
+    sendPicks.forEach(function (idx) { state.draft.order[idx] = aiTeam.id; });
+    receivePicks.forEach(function (idx) { state.draft.order[idx] = userTeam.id; });
+    var parts = [];
+    if (sendPlayers.length) parts.push(sendPlayers.map(function (p) { return p.name; }).join(', '));
+    if (sendPicks.length) parts.push(sendPicks.map(function (i) { return 'Pick #' + (i + 1); }).join(', '));
+    var received = [];
+    if (receivePlayers.length) received.push(receivePlayers.map(function (p) { return p.name; }).join(', '));
+    if (receivePicks.length) received.push(receivePicks.map(function (i) { return 'Pick #' + (i + 1); }).join(', '));
+    log('Trade with ' + aiTeam.name + ': sent ' + (parts.join(' + ') || 'nothing') + ' for ' + (received.join(' + ') || 'nothing') + '.');
+    save();
+  }
+
+  function proposeTrade(partnerId, sendPlayerIds, sendPicks, receivePlayerIds, receivePicks) {
+    var userTeam = state.teams[state.userTeamId];
+    var aiTeam = state.teams[partnerId];
+    if (!aiTeam) { log('Select a trade partner first.'); return; }
+    var sendPlayers = sendPlayerIds.map(function (id) { return state.players[id]; }).filter(Boolean);
+    var receivePlayers = receivePlayerIds.map(function (id) { return state.players[id]; }).filter(Boolean);
+    if (sendPlayers.length + sendPicks.length + receivePlayers.length + receivePicks.length === 0) {
+      log('A trade needs at least one asset on the table.');
+      return;
+    }
+    var userResultingSize = userTeam.roster.length - sendPlayers.length + receivePlayers.length;
+    if (userResultingSize > ROSTER_MAX) { log('Trade blocked: your roster would exceed the max size.'); return; }
+    var userSalaryOut = sendPlayers.reduce(function (s, p) { return s + p.salary; }, 0);
+    var userSalaryIn = receivePlayers.reduce(function (s, p) { return s + p.salary; }, 0);
+    if (capSpace(userTeam) + userSalaryOut - userSalaryIn < 0) { log('Trade blocked: you don\'t have the cap space to take on that salary.'); return; }
+
+    var result = evaluateTrade(aiTeam, sendPlayers, sendPicks, receivePlayers, receivePicks);
+    if (result.accept) {
+      executeTrade(userTeam, aiTeam, sendPlayers, sendPicks, receivePlayers, receivePicks);
+      log(aiTeam.name + ' accept the trade!');
+    } else {
+      log(aiTeam.name + ' reject the trade - ' + result.reason + '.');
     }
     save();
   }
@@ -1072,6 +1172,8 @@
   }
 
   var pendingTeamSel = 0;
+  var pendingTrade = { partnerId: null, sendPlayers: {}, sendPicks: {}, receivePlayers: {}, receivePicks: {} };
+
   function startScreenHtml() {
     var opts = TEAMS_SEED.map(function (seed, i) {
       return '<div class="teamopt' + (i === pendingTeamSel ? ' sel' : '') + '" data-team="' + i + '">' +
@@ -1098,6 +1200,7 @@
     { id: 'roster', label: 'Roster', phases: null },
     { id: 'depthchart', label: 'Depth Chart', phases: null },
     { id: 'coaching', label: 'Coaching', phases: null },
+    { id: 'trades', label: 'Trades', phases: null },
     { id: 'standings', label: 'Standings', phases: null },
     { id: 'draft', label: 'Draft', phases: ['draft'] },
     { id: 'freeagency', label: 'Free Agency', phases: ['freeagency'] },
@@ -1123,6 +1226,7 @@
       case 'roster': return rosterHtml();
       case 'depthchart': return depthChartHtml();
       case 'coaching': return coachingHtml();
+      case 'trades': return tradesHtml();
       case 'standings': return standingsHtml();
       case 'draft': return draftHtml();
       case 'freeagency': return freeAgencyHtml();
@@ -1222,6 +1326,47 @@
       '<h3>Defensive Package</h3><select id="defPackageSel">' + opts(DEFENSE_PACKAGES, team.defPackage) + '</select>' +
       '<p class="muted">' + DEFENSE_PACKAGES[team.defPackage].desc + '</p></div>' +
       '<div class="card"><h3>League Scouting Report</h3>' + report + '</div>';
+  }
+
+  function tradeAssetRow(group, kind, key, label, sub, value) {
+    var checked = pendingTrade[group][key] ? 'checked' : '';
+    return '<div class="prow"><label style="display:flex;align-items:center;gap:8px;width:100%;cursor:pointer">' +
+      '<input type="checkbox" data-trade="' + group + ':' + key + '" ' + checked + '>' +
+      '<span style="flex:1"><span class="pname">' + label + '</span>' +
+      '<div class="muted">' + sub + ' &middot; Value ' + value + '</div></span></label></div>';
+  }
+
+  function tradeSideHtml(team, group, playersGroup, picksGroup) {
+    var playerRows = team.roster.map(function (id) { return state.players[id]; }).map(function (p) {
+      return tradeAssetRow(playersGroup, 'player', p.id, h(p.name) + ' <span class="badge">' + p.position + '</span>', formatStats(p), playerValue(p));
+    }).join('');
+    var pickRows = tradeablePicksFor(team.id).map(function (idx) {
+      var round = Math.floor(idx / state.teams.length) + 1;
+      return tradeAssetRow(picksGroup, 'pick', idx, 'Round ' + round + ', Pick #' + (idx + 1), 'Draft pick', pickValue(idx));
+    }).join('');
+    return '<div class="plist">' + (playerRows + pickRows || '<div class="muted">Nothing available.</div>') + '</div>';
+  }
+
+  function tradesHtml() {
+    var userTeam = state.teams[state.userTeamId];
+    var partnerOpts = '<option value="">Select a team...</option>' + state.teams.filter(function (t) { return !t.isUser; }).map(function (t) {
+      return '<option value="' + t.id + '"' + (pendingTrade.partnerId === t.id ? ' selected' : '') + '>' + t.name + '</option>';
+    }).join('');
+    var body = '';
+    if (pendingTrade.partnerId !== null) {
+      var partner = state.teams[pendingTrade.partnerId];
+      var sendValue = sideValue(Object.keys(pendingTrade.sendPlayers), Object.keys(pendingTrade.sendPicks).map(Number));
+      var receiveValue = sideValue(Object.keys(pendingTrade.receivePlayers), Object.keys(pendingTrade.receivePicks).map(Number));
+      body =
+        '<div class="card"><h3>Your Offer <span class="muted">(value ' + sendValue + ')</span></h3>' +
+        tradeSideHtml(userTeam, 'send', 'sendPlayers', 'sendPicks') + '</div>' +
+        '<div class="card"><h3>You Receive from ' + partner.name + ' <span class="muted">(value ' + receiveValue + ')</span></h3>' +
+        tradeSideHtml(partner, 'receive', 'receivePlayers', 'receivePicks') + '</div>' +
+        '<div class="card"><button id="proposeTradeBtn">Propose Trade</button></div>';
+    }
+    return '<div class="card"><h2>Trades</h2>' +
+      (state.phase !== 'draft' ? '<p class="muted">Draft picks can only be traded during the draft.</p>' : '') +
+      '<h3>Trade Partner</h3><select id="tradePartnerSel">' + partnerOpts + '</select></div>' + body;
   }
 
   function standingsHtml() {
@@ -1359,6 +1504,32 @@
     if (offPackageSel) offPackageSel.onchange = function () { state.teams[state.userTeamId].offPackage = offPackageSel.value; save(); render(); };
     var defPackageSel = document.getElementById('defPackageSel');
     if (defPackageSel) defPackageSel.onchange = function () { state.teams[state.userTeamId].defPackage = defPackageSel.value; save(); render(); };
+
+    var tradePartnerSel = document.getElementById('tradePartnerSel');
+    if (tradePartnerSel) tradePartnerSel.onchange = function () {
+      var val = tradePartnerSel.value;
+      pendingTrade = { partnerId: val === '' ? null : parseInt(val, 10), sendPlayers: {}, sendPicks: {}, receivePlayers: {}, receivePicks: {} };
+      render();
+    };
+    document.querySelectorAll('[data-trade]').forEach(function (el) {
+      el.onchange = function () {
+        var parts = el.getAttribute('data-trade').split(':');
+        var group = parts[0], key = parts[1];
+        if (el.checked) pendingTrade[group][key] = true; else delete pendingTrade[group][key];
+        render();
+      };
+    });
+    var proposeTradeBtn = document.getElementById('proposeTradeBtn');
+    if (proposeTradeBtn) proposeTradeBtn.onclick = function () {
+      var partnerId = pendingTrade.partnerId;
+      var sendPlayerIds = Object.keys(pendingTrade.sendPlayers).map(Number);
+      var sendPicks = Object.keys(pendingTrade.sendPicks).map(Number);
+      var receivePlayerIds = Object.keys(pendingTrade.receivePlayers).map(Number);
+      var receivePicks = Object.keys(pendingTrade.receivePicks).map(Number);
+      proposeTrade(partnerId, sendPlayerIds, sendPicks, receivePlayerIds, receivePicks);
+      pendingTrade = { partnerId: partnerId, sendPlayers: {}, sendPicks: {}, receivePlayers: {}, receivePicks: {} };
+      render();
+    };
 
     var advanceDraftBtn = document.getElementById('advanceDraftBtn');
     if (advanceDraftBtn) advanceDraftBtn.onclick = function () { advanceDraft(); render(); };
