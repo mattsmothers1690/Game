@@ -199,8 +199,12 @@
   var state = null;
 
   // ---------- persistence ----------
+  var cloud = { db: null, ready: false };
+  var cloudSaveTimer = null;
+
   function save() {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (e) {}
+    cloudSave();
   }
   function load() {
     try {
@@ -213,7 +217,38 @@
     if (!confirm('Delete this franchise and start over?')) return;
     localStorage.removeItem(SAVE_KEY);
     state = null;
+    cloudSave();
     render();
+  }
+
+  function cloudSave() {
+    if (!cloud.ready || !state) return;
+    clearTimeout(cloudSaveTimer);
+    cloudSaveTimer = setTimeout(function () {
+      try { cloud.db.doc('data/users/me/save').set({ json: JSON.stringify(state) }); } catch (e) {}
+    }, 1500);
+  }
+
+  function initCloud() {
+    if (!window.claude || !window.claude.use) return;
+    Promise.all([window.claude.use('db'), window.claude.use('user')]).then(function (results) {
+      var db = results[0], user = results[1];
+      if (!db || !user) return;
+      cloud.db = db;
+      cloud.ready = true;
+      if (!state) {
+        db.doc('data/users/me/save').get().then(function (doc) {
+          if (doc && doc.data && doc.data.json) {
+            try {
+              state = JSON.parse(doc.data.json);
+              render();
+            } catch (e) {}
+          }
+        }).catch(function () {});
+      } else {
+        cloudSave();
+      }
+    }).catch(function () {});
   }
 
   // ---------- player model ----------
@@ -1826,6 +1861,7 @@
   // ---------- boot ----------
   state = load();
   render();
+  initCloud();
 })();
 </script>
 </body>
