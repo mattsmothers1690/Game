@@ -585,9 +585,29 @@
       }
       var homeBonus = isHome ? 2 : 0;
       var qb = offP.QB;
-      var qbArm = av(qb, 'ARM', 60), qbAcc = av(qb, 'ACC', 60);
+      var qbName = qb ? qb.name : (offTeam.abbr + ' QB');
+      var qbArm = av(qb, 'ARM', 60), qbAcc = av(qb, 'ACC', 60), qbMob = av(qb, 'MOB', 60);
+      var pblkAssist = (avgAttr(offP.OLs, 'PBLK', 55) - 55) * 0.4;
+      var rushPressure = (avgAttr(defP.DLs, 'PRUSH', 55) - 55) * 0.4;
+      var netPressure = rushPressure - pblkAssist;
 
       if (Math.random() < 0.55) {
+        var pSack = clamp(0.04 + netPressure * 0.012 - (qbMob - 70) * 0.0035, 0.01, 0.3);
+        if (Math.random() < pSack) {
+          var rusher = (defP.DLs && defP.DLs[0]) || (defP.LBs && defP.LBs[0]);
+          var pScramble = clamp((qbMob - 60) * 0.012, 0, 0.35);
+          if (Math.random() < pScramble) {
+            var pScrambleTD = clamp((qbMob - 80) * 0.01, 0, 0.12);
+            if (Math.random() < pScrambleTD) {
+              gameLog.push(qbName + ' escapes the pocket and takes off for the touchdown!');
+              return { scorer: offTeam, points: 7 };
+            }
+            gameLog.push(qbName + ' escapes the rush and scrambles away from trouble.');
+            return { scorer: null, points: 0 };
+          }
+          gameLog.push((rusher ? rusher.name : defTeam.abbr + ' defense') + ' sacks ' + qbName + '!');
+          return { scorer: null, points: 0 };
+        }
         var pDeep = clamp(0.18 + (qbArm - 70) * 0.006, 0.08, 0.45);
         var isDeep = Math.random() < pDeep;
         var targets = offP.WRs.concat(offP.TE ? [offP.TE] : []);
@@ -616,9 +636,7 @@
         edge += (qbAcc - 70) * 0.15;
         edge -= (defCov - 70) * 0.1;
         edge += homeBonus;
-        var pblkAssist = (avgAttr(offP.OLs, 'PBLK', 55) - 55) * 0.4;
-        var rushPressure = (avgAttr(defP.DLs, 'PRUSH', 55) - 55) * 0.4;
-        edge -= (rushPressure - pblkAssist) * 0.5;
+        edge -= netPressure * 0.5;
         if (isDeep) {
           var bestS = defP.Ss && defP.Ss[0];
           edge -= clamp((av(bestS, 'RANGE', 55) - 70) * 0.05, 0, 4);
