@@ -148,6 +148,7 @@
   ];
 
   var ROSTER_TARGET = 34;
+  var ROSTER_FLOOR = 30;
   var ROSTER_MAX = 45;
   var STARTING_CAP = 150;
   var CAP_GROWTH_PER_YEAR = 5;
@@ -439,6 +440,30 @@
     return worstPos;
   }
 
+  function positionDeficits(team) {
+    return Object.keys(STARTER_NEEDS).filter(function (pos) {
+      var count = team.roster.filter(function (id) { return state.players[id].position === pos; }).length;
+      return count < STARTER_NEEDS[pos];
+    });
+  }
+
+  function pickSigningTarget(team, candidates) {
+    if (candidates.length === 0) return null;
+    var deficits = positionDeficits(team);
+    if (deficits.length > 0) {
+      var deficitCandidates = candidates.filter(function (p) { return deficits.indexOf(p.position) >= 0; });
+      if (deficitCandidates.length > 0) {
+        return deficitCandidates.slice().sort(function (a, b) { return b.overall - a.overall; })[0];
+      }
+    }
+    var need = weakestNeed(team);
+    return candidates.slice().sort(function (a, b) {
+      var sa = a.overall + (a.position === need ? 8 : 0);
+      var sb = b.overall + (b.position === need ? 8 : 0);
+      return sb - sa;
+    })[0];
+  }
+
   function addToRoster(team, player) {
     player.teamId = team.id;
     team.roster.push(player.id);
@@ -471,7 +496,7 @@
     };
     TEAMS_SEED.forEach(function (seed, i) { state.teams.push(makeTeam(i, seed, i === userTeamIndex)); });
     startDraft(6);
-    for (var i = 0; i < 70; i++) {
+    for (var i = 0; i < 220; i++) {
       var fa = generateVeteran();
       state.freeAgents.push(fa.id);
       state.players[fa.id] = fa;
@@ -536,14 +561,10 @@
     var d = state.draft;
     var team = state.teams[teamId];
     if (d.class.length === 0) return;
-    var need = weakestNeed(team);
-    var best = null, bestScore = -1;
-    d.class.forEach(function (pid) {
-      var p = state.players[pid];
-      var score = p.overall + (p.position === need ? 10 : 0) + rand(0, 5);
-      if (score > bestScore) { bestScore = score; best = pid; }
-    });
-    draftPickTo(teamId, best);
+    var candidates = d.class.map(function (pid) { return state.players[pid]; });
+    var pick = pickSigningTarget(team, candidates);
+    if (!pick) return;
+    draftPickTo(teamId, pick.id);
   }
 
   function advanceDraft() {
@@ -604,16 +625,10 @@
       });
       if (teamsWithRoom.length === 0) break;
       var team = choice(teamsWithRoom);
-      var need = weakestNeed(team);
       var candidates = state.freeAgents.map(function (id) { return state.players[id]; })
         .filter(function (p) { return salaryFor(p.overall, p.age) <= capSpace(team); });
-      if (candidates.length === 0) continue;
-      candidates.sort(function (a, b) {
-        var sa = a.overall + (a.position === need ? 8 : 0);
-        var sb = b.overall + (b.position === need ? 8 : 0);
-        return sb - sa;
-      });
-      var pick = candidates[0];
+      var pick = pickSigningTarget(team, candidates);
+      if (!pick) continue;
       var salary = salaryFor(pick.overall, pick.age);
       pick.salary = salary;
       pick.yearsLeft = rand(1, 3);
@@ -710,7 +725,34 @@
     save();
   }
 
+  function autoFillRosterFloor(team, floor) {
+    var signed = 0, guard = 0;
+    while (team.roster.length < floor && state.freeAgents.length > 0 && guard < 200) {
+      guard++;
+      var candidates = state.freeAgents.map(function (id) { return state.players[id]; })
+        .filter(function (p) { return salaryFor(p.overall, p.age) <= capSpace(team); });
+      var pick = pickSigningTarget(team, candidates);
+      if (!pick) break;
+      pick.salary = salaryFor(pick.overall, pick.age);
+      pick.yearsLeft = rand(1, 3);
+      addToRoster(team, pick);
+      var idx = state.freeAgents.indexOf(pick.id);
+      if (idx >= 0) state.freeAgents.splice(idx, 1);
+      signed++;
+    }
+    return signed;
+  }
+
   function startSeason() {
+    var fillOrder = state.teams.map(function (t) { return t.id; });
+    shuffle(fillOrder);
+    fillOrder.forEach(function (teamId) {
+      var team = state.teams[teamId];
+      if (team.roster.length < ROSTER_FLOOR) {
+        var n = autoFillRosterFloor(team, ROSTER_FLOOR);
+        if (n > 0) log(team.name + ' fills out its roster with ' + n + ' emergency free agent signing' + (n === 1 ? '' : 's') + ' before kickoff.');
+      }
+    });
     state.schedule = buildSchedule();
     state.week = 1;
     state.phase = 'season';
