@@ -602,8 +602,12 @@
         var defender;
         if (target === offP.TE) {
           defender = (defP.LBs || []).concat(defP.Ss || []).sort(function (a, b) { return av(b, 'COV', 50) - av(a, 'COV', 50); })[0];
+        } else if (defP.CBs && defP.CBs.length) {
+          var wrIdx = offP.WRs.indexOf(target);
+          var cbIdx = wrIdx >= 0 ? Math.min(wrIdx, defP.CBs.length - 1) : defP.CBs.length - 1;
+          defender = defP.CBs[cbIdx];
         } else {
-          defender = defP.CBs && defP.CBs.length ? choice(defP.CBs) : null;
+          defender = null;
         }
         var defPhys = av(defender, 'SIZE', av(defender, 'RSUP', 55));
         var defSpd = av(defender, 'SPD', av(defender, 'RANGE', 55));
