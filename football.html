@@ -240,7 +240,7 @@
       salary: 0,
       yearsLeft: 0,
       teamId: null,
-      scoutLevel: 3,
+      scout: { physical: 3, position: 3, potential: 3 },
       isRookie: false,
       injuryUntilWeek: 0,
       injuryLabel: null
@@ -315,21 +315,57 @@
     var p = makePlayer(pos, age, overallTarget);
     p.potential = clamp(p.overall + rand(5, 25), p.overall, 99);
     p.isRookie = true;
-    p.scoutLevel = 0;
+    p.scout = { physical: 0, position: 0, potential: 0 };
     return p;
   }
 
-  function scoutedRange(p) {
-    if (!p.isRookie || p.scoutLevel >= 3) return { lo: p.overall, hi: p.overall, exact: true };
-    var spread = p.scoutLevel === 0 ? 15 : (p.scoutLevel === 1 ? 8 : 3);
-    return { lo: clamp(p.overall - spread, 35, 99), hi: clamp(p.overall + spread, 35, 99), exact: false };
+  var SCOUT_COST = [3, 5, 8];
+  var SCOUT_DRILLS = {
+    physical: 'Weight Room',
+    position: 'Position Drill',
+    potential: 'Film Study'
+  };
+
+  function attrTrack(pos, key) {
+    return POSITION_ATTRS[pos][0] === key ? 'physical' : 'position';
   }
+
+  function trackAttrLabel(pos, track) {
+    var keys = POSITION_ATTRS[pos];
+    if (track === 'physical') return ATTR_LABELS[keys[0]];
+    if (track === 'position') return keys.slice(1).map(function (k) { return ATTR_LABELS[k]; }).join('/');
+    return 'Ceiling';
+  }
+
   function scoutedAttrRange(p, key) {
-    if (!p.isRookie || p.scoutLevel >= 3) return { lo: p.attrs[key], hi: p.attrs[key] };
-    var spread = p.scoutLevel === 0 ? 15 : (p.scoutLevel === 1 ? 8 : 3);
+    if (!p.isRookie) return { lo: p.attrs[key], hi: p.attrs[key] };
+    var level = p.scout[attrTrack(p.position, key)];
+    if (level >= 3) return { lo: p.attrs[key], hi: p.attrs[key] };
+    var spread = level === 0 ? 15 : (level === 1 ? 8 : 3);
     return { lo: clamp(p.attrs[key] - spread, 35, 99), hi: clamp(p.attrs[key] + spread, 35, 99) };
   }
-  var SCOUT_COST = [3, 5, 8];
+
+  function scoutedPotentialRange(p) {
+    if (!p.isRookie) return { lo: p.potential, hi: p.potential };
+    var level = p.scout.potential;
+    if (level >= 3) return { lo: p.potential, hi: p.potential };
+    var spread = level === 0 ? 15 : (level === 1 ? 8 : 3);
+    return { lo: clamp(p.potential - spread, 35, 99), hi: clamp(p.potential + spread, 35, 99) };
+  }
+
+  function scoutedRange(p) {
+    if (!p.isRookie) return { lo: p.overall, hi: p.overall, exact: true };
+    var keys = POSITION_ATTRS[p.position];
+    var loSum = 0, hiSum = 0, allExact = true;
+    keys.forEach(function (k) {
+      var r = scoutedAttrRange(p, k);
+      loSum += r.lo; hiSum += r.hi;
+      if (r.lo !== r.hi) allExact = false;
+    });
+    return { lo: Math.round(loSum / keys.length), hi: Math.round(hiSum / keys.length), exact: allExact };
+  }
+
+  function rangeText(r) { return r.lo === r.hi ? String(r.lo) : (r.lo + '-' + r.hi); }
 
   function formatStats(p) {
     var keys = POSITION_ATTRS[p.position];
@@ -337,15 +373,12 @@
     return 'OVR ' + p.overall + ' (' + p.typeLabel + ') &middot; ' + attrStr;
   }
   function formatScoutedStats(p) {
-    if (p.scoutLevel >= 3) return formatStats(p);
+    if (!p.isRookie) return formatStats(p);
     var keys = POSITION_ATTRS[p.position];
-    var typeTxt = p.scoutLevel >= 1 ? p.typeLabel : '???';
-    var r = scoutedRange(p);
-    var attrStr = keys.map(function (k) {
-      var rr = scoutedAttrRange(p, k);
-      return ATTR_LABELS[k] + ' ' + rr.lo + '-' + rr.hi;
-    }).join(' &middot; ');
-    return 'OVR ' + r.lo + '-' + r.hi + ' (' + typeTxt + ') &middot; ' + attrStr;
+    var typeTxt = (p.scout.physical >= 1 || p.scout.position >= 1) ? p.typeLabel : '???';
+    var attrStr = keys.map(function (k) { return ATTR_LABELS[k] + ' ' + rangeText(scoutedAttrRange(p, k)); }).join(' &middot; ');
+    var potStr = 'POT ' + rangeText(scoutedPotentialRange(p));
+    return 'OVR ' + rangeText(scoutedRange(p)) + ' (' + typeTxt + ') &middot; ' + attrStr + ' &middot; ' + potStr;
   }
 
   // ---------- team model ----------
@@ -554,7 +587,7 @@
       state.players[p.id] = p;
       cls.push(p.id);
     }
-    state.draft = { order: fullOrder, pickIndex: 0, class: cls, scoutBudget: 40 };
+    state.draft = { order: fullOrder, pickIndex: 0, class: cls, scoutBudget: 55 };
     state.phase = 'draft';
     state.screen = 'draft';
   }
@@ -579,7 +612,7 @@
     var p = state.players[prospectId];
     p.salary = rookieSalary(pickNumber);
     p.yearsLeft = 3;
-    p.scoutLevel = 3;
+    p.scout = { physical: 3, position: 3, potential: 3 };
     addToRoster(team, p);
     var idx = d.class.indexOf(prospectId);
     if (idx >= 0) d.class.splice(idx, 1);
@@ -1585,9 +1618,14 @@
         return POSITIONS.indexOf(a.position) - POSITIONS.indexOf(b.position) || a.name.localeCompare(b.name);
       });
       list = sorted.map(function (p) {
-        var cost = p.scoutLevel < 3 ? SCOUT_COST[p.scoutLevel] : null;
-        var scoutBtn = cost !== null ? '<button class="secondary" data-scout="' + p.id + '" ' + (d.scoutBudget < cost ? 'disabled' : '') + '>Scout (' + cost + ')</button>' : '';
-        return playerRow(p, scoutBtn + ' <button data-draft="' + p.id + '">Draft</button>', false, formatScoutedStats(p));
+        var drillBtns = Object.keys(SCOUT_DRILLS).map(function (track) {
+          var level = p.scout[track];
+          if (level >= 3) return '';
+          var cost = SCOUT_COST[level];
+          return '<button class="secondary" data-drill="' + track + ':' + p.id + '" ' + (d.scoutBudget < cost ? 'disabled' : '') + '>' +
+            SCOUT_DRILLS[track] + ' (' + trackAttrLabel(p.position, track) + ') - ' + cost + '</button>';
+        }).join(' ');
+        return playerRow(p, drillBtns + ' <button data-draft="' + p.id + '">Draft</button>', false, formatScoutedStats(p));
       }).join('');
     }
     return '<div class="card"><h2>Draft — Year ' + state.year + '</h2>' + pickInfo +
@@ -1729,12 +1767,14 @@
     if (advanceDraftBtn) advanceDraftBtn.onclick = function () { advanceDraft(); render(); };
     var simRestDraftBtn = document.getElementById('simRestDraftBtn');
     if (simRestDraftBtn) simRestDraftBtn.onclick = function () { simRestOfDraft(); render(); };
-    document.querySelectorAll('[data-scout]').forEach(function (el) {
+    document.querySelectorAll('[data-drill]').forEach(function (el) {
       el.onclick = function () {
-        var id = parseInt(el.getAttribute('data-scout'), 10);
+        var parts = el.getAttribute('data-drill').split(':');
+        var track = parts[0], id = parseInt(parts[1], 10);
         var p = state.players[id];
-        var cost = SCOUT_COST[p.scoutLevel];
-        if (state.draft.scoutBudget >= cost) { state.draft.scoutBudget -= cost; p.scoutLevel += 1; save(); render(); }
+        var level = p.scout[track];
+        var cost = SCOUT_COST[level];
+        if (level < 3 && state.draft.scoutBudget >= cost) { state.draft.scoutBudget -= cost; p.scout[track] += 1; save(); render(); }
       };
     });
     document.querySelectorAll('[data-draft]').forEach(function (el) {
